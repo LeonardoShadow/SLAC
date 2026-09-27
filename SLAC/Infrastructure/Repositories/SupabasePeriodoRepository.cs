@@ -7,17 +7,11 @@ using Supabase;
 
 namespace SLAC.Infrastructure.Repositories;
 
-public class SupabasePeriodoRepository : IPeriodoAcademicoRepository
+public class SupabasePeriodoRepository(Client supabaseClient, ILogger<SupabasePeriodoRepository> logger) : IPeriodoAcademicoRepository
 {
-    private readonly Client _supabaseClient;
-    private readonly ILogger<SupabasePeriodoRepository> _logger;
+    private readonly Client _supabaseClient = supabaseClient;
+    private readonly ILogger<SupabasePeriodoRepository> _logger = logger;
     private static readonly ConcurrentDictionary<Guid, PeriodoAcademico> _fallbackStore = new();
-
-    public SupabasePeriodoRepository(Client supabaseClient, ILogger<SupabasePeriodoRepository> logger)
-    {
-        _supabaseClient = supabaseClient;
-        _logger = logger;
-    }
 
     public async Task<List<PeriodoAcademico>> GetByInstitucionAsync(Guid institucionId, CancellationToken cancellationToken = default)
     {
@@ -30,7 +24,7 @@ public class SupabasePeriodoRepository : IPeriodoAcademicoRepository
 
             if (response?.Models?.Count > 0)
             {
-                return response.Models.Select(m => new PeriodoAcademico
+                return [.. response.Models.Select(m => new PeriodoAcademico
                 {
                     Id = m.Id,
                     InstitucionId = m.InstitucionId,
@@ -38,7 +32,7 @@ public class SupabasePeriodoRepository : IPeriodoAcademicoRepository
                     FechaInicio = DateOnly.TryParse(m.FechaInicio, out var fi) ? fi : DateOnly.MinValue,
                     FechaFin = DateOnly.TryParse(m.FechaFin, out var ff) ? ff : DateOnly.MinValue,
                     CreadoEn = m.CreadoEn
-                }).ToList();
+                })];
             }
         }
         catch (Exception ex)
@@ -46,7 +40,7 @@ public class SupabasePeriodoRepository : IPeriodoAcademicoRepository
             _logger.LogWarning(ex, "Error al consultar periodos en Supabase. Usando almacén local.");
         }
 
-        return _fallbackStore.Values.Where(p => p.InstitucionId == institucionId).ToList();
+        return [.. _fallbackStore.Values.Where(p => p.InstitucionId == institucionId)];
     }
 
     public async Task<PeriodoAcademico?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -73,11 +67,10 @@ public class SupabasePeriodoRepository : IPeriodoAcademicoRepository
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error al consultar periodo {Id} en Supabase.", id);
+            _logger.LogWarning(ex, "Error al consultar periodo {Id} en Supabase. Usando almacén local.", id);
         }
 
-        _fallbackStore.TryGetValue(id, out var p);
-        return p;
+        return _fallbackStore.TryGetValue(id, out var periodo) ? periodo : null;
     }
 
     public async Task<PeriodoAcademico> CreateAsync(PeriodoAcademico periodo, CancellationToken cancellationToken = default)
@@ -125,7 +118,7 @@ public class SupabasePeriodoRepository : IPeriodoAcademicoRepository
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error al actualizar periodo {Id} en Supabase.", periodo.Id);
+            _logger.LogWarning(ex, "Error al actualizar periodo en Supabase. Actualizando localmente.");
         }
 
         _fallbackStore[periodo.Id] = periodo;

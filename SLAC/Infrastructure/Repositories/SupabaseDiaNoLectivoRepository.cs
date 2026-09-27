@@ -7,17 +7,11 @@ using Supabase;
 
 namespace SLAC.Infrastructure.Repositories;
 
-public class SupabaseDiaNoLectivoRepository : IDiaNoLectivoRepository
+public class SupabaseDiaNoLectivoRepository(Client supabaseClient, ILogger<SupabaseDiaNoLectivoRepository> logger) : IDiaNoLectivoRepository
 {
-    private readonly Client _supabaseClient;
-    private readonly ILogger<SupabaseDiaNoLectivoRepository> _logger;
+    private readonly Client _supabaseClient = supabaseClient;
+    private readonly ILogger<SupabaseDiaNoLectivoRepository> _logger = logger;
     private static readonly ConcurrentDictionary<Guid, DiaNoLectivo> _fallbackStore = new();
-
-    public SupabaseDiaNoLectivoRepository(Client supabaseClient, ILogger<SupabaseDiaNoLectivoRepository> logger)
-    {
-        _supabaseClient = supabaseClient;
-        _logger = logger;
-    }
 
     public async Task<List<DiaNoLectivo>> GetByInstitucionAsync(Guid institucionId, CancellationToken cancellationToken = default)
     {
@@ -30,14 +24,14 @@ public class SupabaseDiaNoLectivoRepository : IDiaNoLectivoRepository
 
             if (response?.Models?.Count > 0)
             {
-                return response.Models.Select(m => new DiaNoLectivo
+                return [.. response.Models.Select(m => new DiaNoLectivo
                 {
                     Id = m.Id,
                     InstitucionId = m.InstitucionId,
                     Fecha = DateOnly.TryParse(m.Fecha, out var f) ? f : DateOnly.MinValue,
                     Motivo = m.Motivo,
                     CreadoEn = m.CreadoEn
-                }).ToList();
+                })];
             }
         }
         catch (Exception ex)
@@ -45,7 +39,7 @@ public class SupabaseDiaNoLectivoRepository : IDiaNoLectivoRepository
             _logger.LogWarning(ex, "Error al consultar días no lectivos en Supabase. Usando almacén local.");
         }
 
-        return _fallbackStore.Values.Where(d => d.InstitucionId == institucionId).ToList();
+        return [.. _fallbackStore.Values.Where(d => d.InstitucionId == institucionId)];
     }
 
     public async Task<bool> IsDiaNoLectivoAsync(Guid institucionId, DateOnly fecha, CancellationToken cancellationToken = default)

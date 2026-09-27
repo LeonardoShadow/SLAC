@@ -7,19 +7,11 @@ using Supabase;
 
 namespace SLAC.Infrastructure.Repositories;
 
-public class SupabaseEspacioRepository : IEspacioRepository
+public class SupabaseEspacioRepository(Client supabaseClient, ILogger<SupabaseEspacioRepository> logger) : IEspacioRepository
 {
-    private readonly Client _supabaseClient;
-    private readonly ILogger<SupabaseEspacioRepository> _logger;
-
-    // Respaldo en memoria para pruebas y desarrollo
+    private readonly Client _supabaseClient = supabaseClient;
+    private readonly ILogger<SupabaseEspacioRepository> _logger = logger;
     private static readonly ConcurrentDictionary<Guid, Espacio> _fallbackStore = new();
-
-    public SupabaseEspacioRepository(Client supabaseClient, ILogger<SupabaseEspacioRepository> logger)
-    {
-        _supabaseClient = supabaseClient;
-        _logger = logger;
-    }
 
     public async Task<List<Espacio>> GetByInstitucionAsync(Guid institucionId, CancellationToken cancellationToken = default)
     {
@@ -32,7 +24,7 @@ public class SupabaseEspacioRepository : IEspacioRepository
 
             if (response?.Models?.Count > 0)
             {
-                return response.Models.Select(m => new Espacio
+                return [.. response.Models.Select(m => new Espacio
                 {
                     Id = m.Id,
                     InstitucionId = m.InstitucionId,
@@ -40,7 +32,7 @@ public class SupabaseEspacioRepository : IEspacioRepository
                     Tipo = m.Tipo,
                     Capacidad = m.Capacidad,
                     CreadoEn = m.CreadoEn
-                }).ToList();
+                })];
             }
         }
         catch (Exception ex)
@@ -48,7 +40,7 @@ public class SupabaseEspacioRepository : IEspacioRepository
             _logger.LogWarning(ex, "Error al consultar espacios en Supabase. Usando almacén local.");
         }
 
-        return _fallbackStore.Values.Where(e => e.InstitucionId == institucionId).ToList();
+        return [.. _fallbackStore.Values.Where(e => e.InstitucionId == institucionId)];
     }
 
     public async Task<Espacio?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -75,11 +67,10 @@ public class SupabaseEspacioRepository : IEspacioRepository
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error al consultar espacio {Id} en Supabase.", id);
+            _logger.LogWarning(ex, "Error al consultar espacio {Id} en Supabase. Usando almacén local.", id);
         }
 
-        _fallbackStore.TryGetValue(id, out var espacio);
-        return espacio;
+        return _fallbackStore.TryGetValue(id, out var espacio) ? espacio : null;
     }
 
     public async Task<Espacio> CreateAsync(Espacio espacio, CancellationToken cancellationToken = default)
@@ -127,7 +118,7 @@ public class SupabaseEspacioRepository : IEspacioRepository
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error al actualizar espacio {Id} en Supabase.", espacio.Id);
+            _logger.LogWarning(ex, "Error al actualizar espacio en Supabase. Actualizando localmente.");
         }
 
         _fallbackStore[espacio.Id] = espacio;

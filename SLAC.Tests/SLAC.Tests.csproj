@@ -30,6 +30,7 @@
     <Compile Include="..\SLAC\Core\Session\**\*.cs" LinkBase="Core\Session" />
     <Compile Include="..\SLAC\Core\Configuration\**\*.cs" LinkBase="Core\Configuration" />
     <Compile Include="..\SLAC\Core\Institucional\**\*.cs" LinkBase="Core\Institucional" />
+    <Compile Include="..\SLAC\Core\Docentes\**\*.cs" LinkBase="Core\Docentes" />
     <Compile Include="..\SLAC\Infrastructure\Data\Models\**\*.cs" LinkBase="Infrastructure\Data\Models" />
     <Compile Include="..\SLAC\Infrastructure\Repositories\**\*.cs" LinkBase="Infrastructure\Repositories" />
     <Compile Include="..\SLAC\Infrastructure\Redis\**\*.cs" LinkBase="Infrastructure\Redis" />

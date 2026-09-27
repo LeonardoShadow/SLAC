@@ -5,8 +5,8 @@ namespace SLAC.Tests;
 
 public class CryptoTests
 {
-    private readonly IKeyManager _keyManager;
-    private readonly ITokenService _tokenService;
+    private readonly KeyManager _keyManager;
+    private readonly TokenService _tokenService;
 
     public CryptoTests()
     {
@@ -21,7 +21,7 @@ public class CryptoTests
         var sesionId = Guid.NewGuid();
         var institucionId = Guid.NewGuid();
         var inicio = DateTimeOffset.UtcNow.AddMinutes(-5); // Empezó hace 5 min
-        var ventanaMin = 20;
+        const int ventanaMin = 20;
         var rotacionIdx = (int)((DateTimeOffset.UtcNow.ToUnixTimeSeconds() - inicio.ToUnixTimeSeconds()) / 15);
 
         // Act
@@ -44,7 +44,7 @@ public class CryptoTests
         var parts = token.Split('.');
 
         // Modificamos un caracter del payload
-        var tamperedPayload = parts[1].Substring(0, parts[1].Length - 1) + (parts[1].EndsWith("A") ? "B" : "A");
+        var tamperedPayload = string.Concat(parts[1].AsSpan(0, parts[1].Length - 1), parts[1].EndsWith('A') ? "B" : "A");
         var tamperedToken = $"{parts[0]}.{tamperedPayload}.{parts[2]}";
 
         // Act

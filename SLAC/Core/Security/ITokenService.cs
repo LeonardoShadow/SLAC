@@ -14,18 +14,18 @@ public interface ITokenService
     /// Genera el token firmado que se embebe en el código QR dinámico proyectado.
     /// </summary>
     string GenerateSessionQrToken(
-        Guid sesionId, 
-        Guid institucionId, 
-        DateTimeOffset inicioVigencia, 
-        int ventanaMinutos, 
+        Guid sesionId,
+        Guid institucionId,
+        DateTimeOffset inicioVigencia,
+        int ventanaMinutos,
         int rotacionIndex);
 
     /// <summary>
     /// Valida la firma ES256, vigencia de la ventana y tolerancia de rotación de un token QR.
     /// </summary>
     bool TryValidateSessionQrToken(
-        string tokenString, 
-        out SessionQrToken? sessionToken, 
+        string tokenString,
+        out SessionQrToken? sessionToken,
         out string? errorMessage,
         int rotacionTolerancia = 1);
 
@@ -39,7 +39,7 @@ public interface ITokenService
     /// Valida la firma ES256 y la integridad de la credencial del dispositivo recibida en la cookie.
     /// </summary>
     bool TryValidateDeviceCredential(
-        string tokenString, 
-        out DeviceCredentialToken? deviceToken, 
+        string tokenString,
+        out DeviceCredentialToken? deviceToken,
         out string? errorMessage);
 }

@@ -1,0 +1,152 @@
+@using MudBlazor
+@using SLAC.Core.Docentes.Entities
+@using SLAC.Core.Institucional.Entities
+@using SLAC.Core.Institucional.Repositories
+
+<MudDialog>
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@(Materia.Id == Guid.Empty ? Icons.Material.Filled.AddCircle : Icons.Material.Filled.Edit)" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">@(Materia.Id == Guid.Empty ? "Nueva Materia" : "Editar Materia")</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-4">@_errorMessage</MudAlert>
+        }
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="Materia.Codigo" Label="Código Asignatura" Placeholder="Ej. SIS-101" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="Materia.Grupo" Label="Grupo / Paralelo" Placeholder="Ej. 1, A, G1" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="Materia.Nombre" Label="Nombre de la Materia" Placeholder="Ej. Algoritmos y Estructuras de Datos" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid" @bind-Value="Materia.PeriodoId" Label="Periodo Académico" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" AnchorOrigin="Origin.BottomCenter">
+                    @foreach (var p in Periodos)
+                    {
+                        <MudSelectItem Value="@p.Id">@p.Nombre</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid" @bind-Value="Materia.EspacioId" Label="Aula / Espacio" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" AnchorOrigin="Origin.BottomCenter">
+                    @foreach (var e in Espacios)
+                    {
+                        <MudSelectItem Value="@e.Id">@e.Nombre (@e.Tipo - Cap: @e.Capacidad)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTimePicker Label="Hora de Inicio" @bind-Time="_horaInicio" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="Horario fijo predefinido (RN-01)" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="string" @bind-Value="Materia.Estado" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem Value="@("activa")">Activa</MudSelectItem>
+                    <MudSelectItem Value="@("archivada")">Archivada</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12">
+                <MudText Typo="Typo.caption" Class="d-block mb-1"><b>Días de clase (Regla RN-01: Lunes a Viernes únicamente):</b></MudText>
+                <div class="d-flex gap-2 flex-wrap">
+                    @foreach (var dia in _diasDisponibles)
+                    {
+                        var seleccionado = _diasSeleccionados.Contains(dia.Sigla);
+                        <MudChip T="string"
+                                 Color="@(seleccionado ? Color.Primary : Color.Default)"
+                                 Variant="@(seleccionado ? Variant.Filled : Variant.Outlined)"
+                                 OnClick="@(() => ToggleDia(dia.Sigla))">
+                            @dia.Nombre (@dia.Sigla)
+                        </MudChip>
+                    }
+                </div>
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Text">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit">Guardar Materia</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter]
+    public Materia Materia { get; set; } = new();
+
+    [Parameter]
+    public List<PeriodoAcademico> Periodos { get; set; } = [];
+
+    [Parameter]
+    public List<Espacio> Espacios { get; set; } = [];
+
+    private TimeSpan? _horaInicio;
+    private HashSet<string> _diasSeleccionados = [];
+    private string? _errorMessage;
+
+    private record DiaOpcion(string Sigla, string Nombre);
+    private readonly List<DiaOpcion> _diasDisponibles =
+    [
+        new("L", "Lunes"),
+        new("M", "Martes"),
+        new("X", "Miércoles"),
+        new("J", "Jueves"),
+        new("V", "Viernes")
+    ];
+
+    protected override void OnInitialized()
+    {
+        _horaInicio = Materia.HoraInicio;
+        var diasExistentes = Materia.ObtenerListaDias();
+        if (diasExistentes.Length > 0)
+        {
+            _diasSeleccionados = new HashSet<string>(diasExistentes);
+        }
+        else
+        {
+            _diasSeleccionados = ["L", "M", "V"]; // Selección por defecto
+        }
+    }
+
+    private void ToggleDia(string sigla)
+    {
+        if (_diasSeleccionados.Contains(sigla))
+        {
+            _diasSeleccionados.Remove(sigla);
+        }
+        else
+        {
+            _diasSeleccionados.Add(sigla);
+        }
+    }
+
+    private void Submit()
+    {
+        _errorMessage = null;
+
+        if (_horaInicio.HasValue)
+        {
+            Materia.HoraInicio = _horaInicio.Value;
+        }
+
+        Materia.EstablecerDias(_diasSeleccionados);
+
+        var (valida, error) = Materia.ValidarReglasNegocio();
+        if (!valida)
+        {
+            _errorMessage = error;
+            return;
+        }
+
+        MudDialog.Close(DialogResult.Ok(Materia));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

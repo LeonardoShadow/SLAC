@@ -1,0 +1,406 @@
+@page "/docente/materias"
+@rendermode InteractiveServer
+@inject IMateriaRepository MateriaRepo
+@inject IDocenteRepository DocenteRepo
+@inject IPeriodoAcademicoRepository PeriodoRepo
+@inject IEspacioRepository EspacioRepo
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<PageTitle>SLAC - Mis Materias (Docente)</PageTitle>
+
+<div class="pa-4 pa-md-6">
+    <!-- Header & Hero Section -->
+    <div class="d-flex flex-column flex-sm-row justify-space-between align-start align-sm-center mb-6 gap-4">
+        <div>
+            <div class="d-flex align-center gap-2 mb-1">
+                <MudIcon Icon="@Icons.Material.Filled.School" Color="Color.Primary" Size="Size.Large" />
+                <MudText Typo="Typo.h4" Style="font-weight: 700;">Mis Materias Asignadas</MudText>
+            </div>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Gestión de asignaturas, configuración de horarios fijos (RN-01) y proyección de listas de asistencia.
+            </MudText>
+        </div>
+
+        <div class="d-flex gap-2">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="AbrirDialogoNuevaMateria"
+                       Size="Size.Medium">
+                Nueva Materia
+            </MudButton>
+        </div>
+    </div>
+
+    <!-- Quick Stats Cards -->
+    <MudGrid Class="mb-6">
+        <MudItem xs="12" sm="4">
+            <MudCard Elevation="2" Class="rounded-lg pa-3" Style="border-left: 5px solid var(--mud-palette-primary);">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">TOTAL MATERIAS ACTIVAS</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;">@_materias.Count(m => m.Estado == "activa")</MudText>
+                    </div>
+                    <MudAvatar Color="Color.Primary" Variant="Variant.Filled" Size="Size.Medium">
+                        <MudIcon Icon="@Icons.Material.Filled.AutoStories" Size="Size.Small" />
+                    </MudAvatar>
+                </div>
+            </MudCard>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudCard Elevation="2" Class="rounded-lg pa-3" Style="border-left: 5px solid var(--mud-palette-success);">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">CLASES PARA HOY (@_diaHoyNombre)</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;">@_materiasHoy.Count</MudText>
+                    </div>
+                    <MudAvatar Color="Color.Success" Variant="Variant.Filled" Size="Size.Medium">
+                        <MudIcon Icon="@Icons.Material.Filled.Today" Size="Size.Small" />
+                    </MudAvatar>
+                </div>
+            </MudCard>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudCard Elevation="2" Class="rounded-lg pa-3" Style="border-left: 5px solid var(--mud-palette-info);">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">PERIODO ACADÉMICO ACTUAL</MudText>
+                        <MudText Typo="Typo.h6" Style="font-weight: 600;">@(_periodoVigente?.Nombre ?? "Cargando...")</MudText>
+                    </div>
+                    <MudAvatar Color="Color.Info" Variant="Variant.Filled" Size="Size.Medium">
+                        <MudIcon Icon="@Icons.Material.Filled.CalendarMonth" Size="Size.Small" />
+                    </MudAvatar>
+                </div>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+
+    @if (_loading)
+    {
+        <div class="d-flex justify-center align-center pa-12">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+        </div>
+    }
+    else if (_materias.Count == 0)
+    {
+        <MudCard Elevation="1" Class="pa-10 text-center rounded-lg">
+            <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Size="Size.Large" Color="Color.Secondary" Class="mb-3" />
+            <MudText Typo="Typo.h6">No hay materias registradas</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+                Comienza agregando tu primera materia con aula, días de clase (L-V) y horario de inicio.
+            </MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="AbrirDialogoNuevaMateria">
+                Registrar Primera Materia
+            </MudButton>
+        </MudCard>
+    }
+    else
+    {
+        <!-- Courses Cards Grid -->
+        <MudGrid>
+            @foreach (var materia in _materias)
+            {
+                var tieneClaseHoy = _materiasHoy.Any(m => m.Id == materia.Id);
+                <MudItem xs="12" md="6" lg="4">
+                    <MudCard Elevation="3" Class="rounded-xl h-100 d-flex flex-column" Style="overflow: hidden; border: 1px solid var(--mud-palette-lines-default);">
+                        <!-- Accent Top Bar -->
+                        <div style="height: 6px; background: @(tieneClaseHoy ? "var(--mud-palette-success)" : "var(--mud-palette-primary)");"></div>
+
+                        <MudCardContent Class="flex-grow-1 pa-5">
+                            <div class="d-flex justify-space-between align-center mb-2">
+                                <div class="d-flex gap-1 align-center">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Style="font-weight: 700;">
+                                        @materia.Codigo
+                                    </MudChip>
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                                        Grupo @materia.Grupo
+                                    </MudChip>
+                                </div>
+                                @if (tieneClaseHoy)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled" Icon="@Icons.Material.Filled.CheckCircle">
+                                        Hoy
+                                    </MudChip>
+                                }
+                            </div>
+
+                            <MudText Typo="Typo.h6" Style="font-weight: 600; line-height: 1.3;" Class="mb-3">
+                                @materia.Nombre
+                            </MudText>
+
+                            <div class="d-flex align-center gap-2 mb-2">
+                                <MudIcon Icon="@Icons.Material.Filled.MeetingRoom" Size="Size.Small" Color="Color.Secondary" />
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                    <b>Aula:</b> @(ObtenerNombreEspacio(materia.EspacioId))
+                                </MudText>
+                            </div>
+
+                            <div class="d-flex align-center gap-2 mb-3">
+                                <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Color="Color.Secondary" />
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                    <b>Hora:</b> @materia.HoraInicio.ToString(@"hh\:mm") hrs (90 min)
+                                </MudText>
+                            </div>
+
+                            <!-- Días de clase -->
+                            <div class="mt-2 mb-1">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mb-1">
+                                    DÍAS DE CLASE:
+                                </MudText>
+                                <div class="d-flex gap-1">
+                                    @foreach (var sigla in new[] { "L", "M", "X", "J", "V" })
+                                    {
+                                        var activo = materia.ObtenerListaDias().Contains(sigla);
+                                        <MudChip T="string"
+                                                 Size="Size.Small"
+                                                 Color="@(activo ? Color.Primary : Color.Default)"
+                                                 Variant="@(activo ? Variant.Filled : Variant.Text)"
+                                                 Style="@(activo ? "font-weight: 700;" : "opacity: 0.4;")">
+                                            @sigla
+                                        </MudChip>
+                                    }
+                                </div>
+                            </div>
+                        </MudCardContent>
+
+                        <MudCardActions Class="pa-4 pt-0 d-flex justify-space-between align-center">
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.QrCode2"
+                                       OnClick="@(() => IniciarProyeccion(materia.Id))">
+                                Proyectar QR
+                            </MudButton>
+
+                            <div class="d-flex gap-1">
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                               Size="Size.Small"
+                                               Color="Color.Default"
+                                               OnClick="@(() => AbrirDialogoEditarMateria(materia))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Archive"
+                                               Size="Size.Small"
+                                               Color="Color.Warning"
+                                               OnClick="@(() => ConfirmarArchivar(materia))" />
+                            </div>
+                        </MudCardActions>
+                    </MudCard>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private List<Materia> _materias = [];
+    private List<Materia> _materiasHoy = [];
+    private List<PeriodoAcademico> _periodos = [];
+    private List<Espacio> _espacios = [];
+    private PeriodoAcademico? _periodoVigente;
+    private Docente? _docenteActual;
+    private string _diaHoySigla = "L";
+    private string _diaHoyNombre = "Lunes";
+
+    // Demo Institución ID (en producción proviene del Tenant/ClaimsPrincipal)
+    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    protected override async Task OnInitializedAsync()
+    {
+        CalcularDiaHoy();
+        await CargarDatosAsync();
+    }
+
+    private void CalcularDiaHoy()
+    {
+        var dayOfWeek = DateTime.Now.DayOfWeek;
+        (_diaHoySigla, _diaHoyNombre) = dayOfWeek switch
+        {
+            DayOfWeek.Monday => ("L", "Lunes"),
+            DayOfWeek.Tuesday => ("M", "Martes"),
+            DayOfWeek.Wednesday => ("X", "Miércoles"),
+            DayOfWeek.Thursday => ("J", "Jueves"),
+            DayOfWeek.Friday => ("V", "Viernes"),
+            DayOfWeek.Saturday => ("S", "Sábado"),
+            DayOfWeek.Sunday => ("D", "Domingo"),
+            _ => ("L", "Lunes")
+        };
+    }
+
+    private async Task CargarDatosAsync()
+    {
+        _loading = true;
+        try
+        {
+            // 1. Cargar periodos y espacios
+            var periodosTask = PeriodoRepo.GetByInstitucionAsync(_institucionId);
+            var espaciosTask = EspacioRepo.GetByInstitucionAsync(_institucionId);
+            await Task.WhenAll(periodosTask, espaciosTask);
+
+            _periodos = await periodosTask;
+            _espacios = await espaciosTask;
+
+            if (_periodos.Count == 0)
+            {
+                // Crear periodo por defecto si no existe
+                var nuevoPeriodo = new PeriodoAcademico
+                {
+                    InstitucionId = _institucionId,
+                    Nombre = "Gestión I-2026",
+                    FechaInicio = new DateOnly(2026, 2, 1),
+                    FechaFin = new DateOnly(2026, 6, 30)
+                };
+                await PeriodoRepo.CreateAsync(nuevoPeriodo);
+                _periodos = [nuevoPeriodo];
+            }
+
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+            _periodoVigente = _periodos.FirstOrDefault(p => p.FechaInicio <= hoy && hoy <= p.FechaFin) ?? _periodos.FirstOrDefault();
+
+            if (_espacios.Count == 0)
+            {
+                // Crear aulas demo si no existen
+                var aula1 = new Espacio { InstitucionId = _institucionId, Nombre = "Aula Magna 101", Tipo = "aula", Capacidad = 40 };
+                var aula2 = new Espacio { InstitucionId = _institucionId, Nombre = "Lab Computación 2", Tipo = "laboratorio", Capacidad = 25 };
+                await EspacioRepo.CreateAsync(aula1);
+                await EspacioRepo.CreateAsync(aula2);
+                _espacios = [aula1, aula2];
+            }
+
+            // 2. Cargar docente actual o crear demo
+            var docentes = await DocenteRepo.ListarPorInstitucionAsync(_institucionId);
+            _docenteActual = docentes.FirstOrDefault();
+            if (_docenteActual == null)
+            {
+                _docenteActual = new Docente
+                {
+                    InstitucionId = _institucionId,
+                    UserId = Guid.NewGuid(),
+                    Nombres = "Prof. Carlos",
+                    Apellidos = "Mendoza",
+                    Correo = "cmendoza@universidad.edu"
+                };
+                await DocenteRepo.GuardarAsync(_docenteActual);
+            }
+
+            // 3. Cargar materias del docente
+            var materias = await MateriaRepo.ListarPorDocenteAsync(_docenteActual.Id);
+            _materias = materias.OrderBy(m => m.HoraInicio).ToList();
+
+            // 4. Filtrar materias de hoy
+            _materiasHoy = _materias
+                .Where(m => m.Estado == "activa" && m.ObtenerListaDias().Contains(_diaHoySigla))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al cargar materias: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string ObtenerNombreEspacio(Guid espacioId)
+    {
+        var espacio = _espacios.FirstOrDefault(e => e.Id == espacioId);
+        return espacio != null ? $"{espacio.Nombre} ({espacio.Tipo})" : "Aula no asignada";
+    }
+
+    private async Task AbrirDialogoNuevaMateria()
+    {
+        if (_periodoVigente == null || _docenteActual == null || _espacios.Count == 0)
+        {
+            Snackbar.Add("No hay aulas o periodos disponibles para registrar materias.", Severity.Warning);
+            return;
+        }
+
+        var nuevaMateria = new Materia
+        {
+            InstitucionId = _institucionId,
+            DocenteId = _docenteActual.Id,
+            PeriodoId = _periodoVigente.Id,
+            EspacioId = _espacios.First().Id,
+            HoraInicio = new TimeSpan(8, 0, 0),
+            Dias = "L,M,V"
+        };
+
+        var parameters = new DialogParameters<MateriaDialog>
+        {
+            { x => x.Materia, nuevaMateria },
+            { x => x.Periodos, _periodos },
+            { x => x.Espacios, _espacios }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<MateriaDialog>("Crear Asignatura", parameters, options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled && result.Data is Materia materiaGuardada)
+        {
+            await MateriaRepo.GuardarAsync(materiaGuardada);
+            Snackbar.Add("Materia creada exitosamente.", Severity.Success);
+            await CargarDatosAsync();
+        }
+    }
+
+    private async Task AbrirDialogoEditarMateria(Materia materia)
+    {
+        var clone = new Materia
+        {
+            Id = materia.Id,
+            InstitucionId = materia.InstitucionId,
+            DocenteId = materia.DocenteId,
+            PeriodoId = materia.PeriodoId,
+            Codigo = materia.Codigo,
+            Nombre = materia.Nombre,
+            Grupo = materia.Grupo,
+            EspacioId = materia.EspacioId,
+            HoraInicio = materia.HoraInicio,
+            Dias = materia.Dias,
+            Estado = materia.Estado,
+            CreadoEn = materia.CreadoEn
+        };
+
+        var parameters = new DialogParameters<MateriaDialog>
+        {
+            { x => x.Materia, clone },
+            { x => x.Periodos, _periodos },
+            { x => x.Espacios, _espacios }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<MateriaDialog>("Editar Asignatura", parameters, options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled && result.Data is Materia materiaActualizada)
+        {
+            await MateriaRepo.GuardarAsync(materiaActualizada);
+            Snackbar.Add("Materia actualizada exitosamente.", Severity.Success);
+            await CargarDatosAsync();
+        }
+    }
+
+    private async Task ConfirmarArchivar(Materia materia)
+    {
+        var confirmacion = await DialogService.ShowMessageBoxAsync(
+            "Archivar Asignatura",
+            $"¿Estás seguro de que deseas archivar la materia '{materia.Nombre}' ({materia.Codigo})?",
+            yesText: "Sí, Archivar",
+            cancelText: "Cancelar");
+
+        if (confirmacion == true)
+        {
+            await MateriaRepo.ArchivarAsync(materia.Id);
+            Snackbar.Add("Materia archivada correctamente.", Severity.Info);
+            await CargarDatosAsync();
+        }
+    }
+
+    private void IniciarProyeccion(Guid materiaId)
+    {
+        Navigation.NavigateTo($"/proyeccion/{materiaId}");
+    }
+}

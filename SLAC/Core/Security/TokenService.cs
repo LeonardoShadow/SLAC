@@ -6,9 +6,9 @@ using SLAC.Core.Security.Models;
 
 namespace SLAC.Core.Security;
 
-public class TokenService : ITokenService
+public class TokenService(IKeyManager keyManager) : ITokenService
 {
-    private readonly IKeyManager _keyManager;
+    private readonly IKeyManager _keyManager = keyManager;
 
     private class TokenHeader
     {
@@ -17,16 +17,11 @@ public class TokenService : ITokenService
         public string Kid { get; set; } = string.Empty;
     }
 
-    public TokenService(IKeyManager keyManager)
-    {
-        _keyManager = keyManager;
-    }
-
     public string GenerateSessionQrToken(
-        Guid sesionId, 
-        Guid institucionId, 
-        DateTimeOffset inicioVigencia, 
-        int ventanaMinutos, 
+        Guid sesionId,
+        Guid institucionId,
+        DateTimeOffset inicioVigencia,
+        int ventanaMinutos,
         int rotacionIndex)
     {
         var key = _keyManager.GetActiveSigningKey(out var kid);
@@ -56,8 +51,8 @@ public class TokenService : ITokenService
     }
 
     public bool TryValidateSessionQrToken(
-        string tokenString, 
-        out SessionQrToken? sessionToken, 
+        string tokenString,
+        out SessionQrToken? sessionToken,
         out string? errorMessage,
         int rotacionTolerancia = 1)
     {
@@ -127,11 +122,9 @@ public class TokenService : ITokenService
             }
 
             // 2. Validar rotación dinámica (15 segundos) con tolerancia
-            // Calculamos el índice esperado respecto al inicio de la sesión
             var segundosTranscurridos = ahoraUnix - payload.InicioVigenciaUnix;
             var indiceEsperado = (int)(segundosTranscurridos / 15);
 
-            // Se permite el índice actual y 'rotacionTolerancia' rotaciones previas
             if (payload.RotacionIndex < (indiceEsperado - rotacionTolerancia) || payload.RotacionIndex > (indiceEsperado + 1))
             {
                 errorMessage = "El código QR ha expirado por rotación. Por favor escanee el código actual.";
@@ -177,8 +170,8 @@ public class TokenService : ITokenService
     }
 
     public bool TryValidateDeviceCredential(
-        string tokenString, 
-        out DeviceCredentialToken? deviceToken, 
+        string tokenString,
+        out DeviceCredentialToken? deviceToken,
         out string? errorMessage)
     {
         deviceToken = null;

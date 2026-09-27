@@ -23,6 +23,7 @@ builder.Services.AddSingleton<ITokenService, TokenService>();
 // Infraestructura de Datos y Repositorios
 builder.Services.AddSupabaseInfrastructure(builder.Configuration);
 builder.Services.AddInstitucionalInfrastructure();
+builder.Services.AddDocenteInfrastructure();
 
 // Infraestructura de Estado Efímero y Tiempo Real
 builder.Services.AddRedisInfrastructure(builder.Configuration);
