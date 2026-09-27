@@ -19,6 +19,8 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
     <PackageReference Include="StackExchange.Redis" Version="3.3.1" />
     <PackageReference Include="supabase-csharp" Version="0.16.2" />
+    <PackageReference Include="Quartz" Version="3.13.1" />
+    <PackageReference Include="Quartz.Extensions.Hosting" Version="3.13.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -31,11 +33,13 @@
     <Compile Include="..\SLAC\Core\Configuration\**\*.cs" LinkBase="Core\Configuration" />
     <Compile Include="..\SLAC\Core\Institucional\**\*.cs" LinkBase="Core\Institucional" />
     <Compile Include="..\SLAC\Core\Docentes\**\*.cs" LinkBase="Core\Docentes" />
+    <Compile Include="..\SLAC\Core\Attendance\**\*.cs" LinkBase="Core\Attendance" />
     <Compile Include="..\SLAC\Infrastructure\Data\Models\**\*.cs" LinkBase="Infrastructure\Data\Models" />
     <Compile Include="..\SLAC\Infrastructure\Repositories\**\*.cs" LinkBase="Infrastructure\Repositories" />
     <Compile Include="..\SLAC\Infrastructure\Redis\**\*.cs" LinkBase="Infrastructure\Redis" />
     <Compile Include="..\SLAC\Features\Attendance\Services\**\*.cs" LinkBase="Features\Attendance\Services" />
     <Compile Include="..\SLAC\Features\Attendance\Hubs\**\*.cs" LinkBase="Features\Attendance\Hubs" />
+    <Compile Include="..\SLAC\Features\Attendance\Background\**\*.cs" LinkBase="Features\Attendance\Background" />
   </ItemGroup>
 
 </Project>

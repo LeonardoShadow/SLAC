@@ -7,14 +7,9 @@ namespace SLAC.Features.Attendance.Hubs;
 /// Hub de SignalR para la pantalla de proyección del aula (Docente).
 /// Recibe eventos en tiempo real disparados vía Redis Pub/Sub (SRS 4.1 y 4.7).
 /// </summary>
-public class AttendanceHub : Hub
+public class AttendanceHub(ILogger<AttendanceHub> logger) : Hub
 {
-    private readonly ILogger<AttendanceHub> _logger;
-
-    public AttendanceHub(ILogger<AttendanceHub> logger)
-    {
-        _logger = logger;
-    }
+    private readonly ILogger<AttendanceHub> _logger = logger;
 
     /// <summary>
     /// Permite al docente unirse a la sala de proyección en vivo de su sesión de clase.

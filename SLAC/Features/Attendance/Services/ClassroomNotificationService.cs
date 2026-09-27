@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.SignalR;
-using SLAC.Core.Session.Models;
 using SLAC.Features.Attendance.Hubs;
 
 namespace SLAC.Features.Attendance.Services;
@@ -11,14 +10,9 @@ public interface IClassroomNotificationService
     Task NotifySessionClosedAsync(Guid sesionId, int totalPresentes, int totalFaltas, CancellationToken cancellationToken = default);
 }
 
-public class ClassroomNotificationService : IClassroomNotificationService
+public class ClassroomNotificationService(IHubContext<AttendanceHub> hubContext) : IClassroomNotificationService
 {
-    private readonly IHubContext<AttendanceHub> _hubContext;
-
-    public ClassroomNotificationService(IHubContext<AttendanceHub> hubContext)
-    {
-        _hubContext = hubContext;
-    }
+    private readonly IHubContext<AttendanceHub> _hubContext = hubContext;
 
     public async Task NotifyAttendanceRecordedAsync(Guid sesionId, int totalPresentes, string? estudianteCodigo, CancellationToken cancellationToken = default)
     {

@@ -2,6 +2,7 @@ using MudBlazor.Services;
 // Core y Módulos de SLAC
 using SLAC.Components;
 using SLAC.Core.Security;
+using SLAC.Features.Attendance.Background;
 using SLAC.Features.Attendance.Hubs;
 using SLAC.Infrastructure.Data;
 using SLAC.Infrastructure.Redis;
@@ -24,9 +25,13 @@ builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddSupabaseInfrastructure(builder.Configuration);
 builder.Services.AddInstitucionalInfrastructure();
 builder.Services.AddDocenteInfrastructure();
+builder.Services.AddAttendanceInfrastructure();
 
 // Infraestructura de Estado Efímero y Tiempo Real
 builder.Services.AddRedisInfrastructure(builder.Configuration);
+
+// Motor Planificador en Segundo Plano (Quartz.NET - SRS 4.5)
+builder.Services.AddQuartzBackgroundScheduler();
 
 var app = builder.Build();
 
