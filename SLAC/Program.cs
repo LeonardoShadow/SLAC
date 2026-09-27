@@ -1,4 +1,11 @@
+using MudBlazor.Services;
+// Core y Módulos de SLAC
 using SLAC.Components;
+using SLAC.Core.Security;
+using SLAC.Features.Attendance.Hubs;
+using SLAC.Infrastructure.Data;
+using SLAC.Infrastructure.Redis;
+using SLAC.Infrastructure.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -6,21 +13,37 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// MudBlazor UI Services
+builder.Services.AddMudServices();
+
+// Core Security & Criptografía (ES256)
+builder.Services.AddSingleton<IKeyManager, KeyManager>();
+builder.Services.AddSingleton<ITokenService, TokenService>();
+
+// Infraestructura de Datos y Repositorios
+builder.Services.AddSupabaseInfrastructure(builder.Configuration);
+builder.Services.AddInstitucionalInfrastructure();
+
+// Infraestructura de Estado Efímero y Tiempo Real
+builder.Services.AddRedisInfrastructure(builder.Configuration);
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
 
 app.UseHttpsRedirection();
-
 app.UseAntiforgery();
 
 app.MapStaticAssets();
+
+// SignalR Attendance Projection Hub
+app.MapHub<AttendanceHub>("/hubs/attendance");
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

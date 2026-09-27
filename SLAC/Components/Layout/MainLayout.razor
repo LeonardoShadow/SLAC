@@ -1,23 +1,74 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
+<MudLayout>
+    <MudAppBar Elevation="1" Dense="true" Color="Color.Surface">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
+        <MudText Typo="Typo.h6" Class="ml-2 font-weight-bold" Color="Color.Primary">SLAC</MudText>
+        <MudText Typo="Typo.caption" Class="ml-2 mt-1 text-muted">Sistema de Lista de Asistencia a Clases</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" 
+                       Color="Color.Inherit" 
+                       OnClick="@(() => _isDarkMode = !_isDarkMode)" />
+    </MudAppBar>
 
-        <article class="content px-4">
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
+        <MudDrawerHeader Class="d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.School" Color="Color.Primary" Class="mr-2" />
+            <MudText Typo="Typo.subtitle1" Class="font-weight-bold">Administración</MudText>
+        </MudDrawerHeader>
+        <MudNavMenu>
+            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Inicio</MudNavLink>
+            <MudNavGroup Title="Catálogos Institucionales" Icon="@Icons.Material.Filled.AccountBalance" Expanded="true">
+                <MudNavLink Href="/admin/espacios" Icon="@Icons.Material.Filled.MeetingRoom">Aulas y Labs</MudNavLink>
+                <MudNavLink Href="/admin/periodos" Icon="@Icons.Material.Filled.CalendarMonth">Periodos Académicos</MudNavLink>
+                <MudNavLink Href="/admin/feriados" Icon="@Icons.Material.Filled.EventBusy">Días No Lectivos</MudNavLink>
+            </MudNavGroup>
+            <MudNavGroup Title="Docente" Icon="@Icons.Material.Filled.Person">
+                <MudNavLink Href="/docente/materias" Icon="@Icons.Material.Filled.Class">Mis Materias</MudNavLink>
+                <MudNavLink Href="/docente/faltas" Icon="@Icons.Material.Filled.Assessment">Reporte de Faltas</MudNavLink>
+            </MudNavGroup>
+        </MudNavMenu>
+    </MudDrawer>
+
+    <MudMainContent Class="pt-16 px-4 pb-8">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
             @Body
-        </article>
-    </main>
-</div>
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
 
-<div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
-    <a href="." class="reload">Reload</a>
-    <span class="dismiss">🗙</span>
-</div>
+@code {
+    private bool _drawerOpen = true;
+    private bool _isDarkMode = false;
+
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight()
+        {
+            Primary = "#1E40AF", // Azul elegante
+            Secondary = "#0D9488",
+            AppbarBackground = "#FFFFFF",
+            Background = "#F8FAFC",
+            Surface = "#FFFFFF",
+            DrawerBackground = "#FFFFFF"
+        },
+        PaletteDark = new PaletteDark()
+        {
+            Primary = "#3B82F6",
+            Secondary = "#14B8A6",
+            Background = "#0F172A",
+            Surface = "#1E293B",
+            DrawerBackground = "#1E293B"
+        }
+    };
+
+    private void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+}

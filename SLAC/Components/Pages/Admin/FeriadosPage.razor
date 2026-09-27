@@ -1,0 +1,118 @@
+@page "/admin/feriados"
+@rendermode InteractiveServer
+@inject IDiaNoLectivoRepository DiaNoLectivoRepository
+@inject ISnackbar Snackbar
+
+<PageTitle>Días No Lectivos - SLAC</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-4 font-weight-bold">
+    <MudIcon Icon="@Icons.Material.Filled.EventBusy" Class="mr-2" />
+    Calendario de Días No Lectivos y Feriados
+</MudText>
+
+<MudGrid>
+    <!-- Formulario de Registro -->
+    <MudItem xs="12" md="4">
+        <MudCard Elevation="2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Registrar Día No Lectivo</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudDatePicker Label="Fecha no lectiva" @bind-Date="_fechaSeleccionada" Margin="Margin.Dense" Class="mb-3" Required="true" />
+                <MudTextField @bind-Value="_motivo" Label="Motivo / Justificación" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" Required="true" Placeholder="Ej: Feriado Nacional de Todos Santos" />
+            </MudCardContent>
+            <MudCardActions Class="pb-4 px-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveDiaNoLectivoAsync" StartIcon="@Icons.Material.Filled.Add">
+                    Agregar al Calendario
+                </MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+
+    <!-- Tabla de Días No Lectivos -->
+    <MudItem xs="12" md="8">
+        <MudCard Elevation="2">
+            <MudCardContent>
+                @if (_loading)
+                {
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" Class="d-block mx-auto my-4" />
+                }
+                else if (_dias.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info">No hay suspensiones ni feriados registrados para este ciclo.</MudAlert>
+                }
+                else
+                {
+                    <MudTable Items="_dias" Dense="true" Hover="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>Fecha</MudTh>
+                            <MudTh>Motivo</MudTh>
+                            <MudTh Style="text-align: right;">Acciones</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Fecha">
+                                <MudText Typo="Typo.body2" Class="font-weight-bold">@context.Fecha.ToString("dddd, dd 'de' MMMM 'de' yyyy")</MudText>
+                            </MudTd>
+                            <MudTd DataLabel="Motivo">@context.Motivo</MudTd>
+                            <MudTd DataLabel="Acciones" Style="text-align: right;">
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteDiaNoLectivoAsync(context.Id))" />
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private List<DiaNoLectivo> _dias = new();
+    private DateTime? _fechaSeleccionada = DateTime.Today;
+    private string _motivo = string.Empty;
+    private bool _loading = true;
+
+    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDiasAsync();
+    }
+
+    private async Task LoadDiasAsync()
+    {
+        _loading = true;
+        _dias = await DiaNoLectivoRepository.GetByInstitucionAsync(_institucionId);
+        _loading = false;
+    }
+
+    private async Task SaveDiaNoLectivoAsync()
+    {
+        if (_fechaSeleccionada == null || string.IsNullOrWhiteSpace(_motivo))
+        {
+            Snackbar.Add("Debe especificar la fecha y el motivo", Severity.Warning);
+            return;
+        }
+
+        var nuevo = new DiaNoLectivo
+        {
+            InstitucionId = _institucionId,
+            Fecha = DateOnly.FromDateTime(_fechaSeleccionada.Value),
+            Motivo = _motivo
+        };
+
+        await DiaNoLectivoRepository.CreateAsync(nuevo);
+        Snackbar.Add("Día no lectivo registrado exitosamente", Severity.Success);
+
+        _motivo = string.Empty;
+        await LoadDiasAsync();
+    }
+
+    private async Task DeleteDiaNoLectivoAsync(Guid id)
+    {
+        await DiaNoLectivoRepository.DeleteAsync(id);
+        Snackbar.Add("Registro eliminado del calendario", Severity.Info);
+        await LoadDiasAsync();
+    }
+}

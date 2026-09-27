@@ -57,5 +57,6 @@ public class KeyManager : IKeyManager, IDisposable
             key.Dispose();
         }
         _keyStore.Clear();
+        GC.SuppressFinalize(this);
     }
 }

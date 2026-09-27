@@ -1,0 +1,163 @@
+@page "/admin/periodos"
+@rendermode InteractiveServer
+@inject IPeriodoAcademicoRepository PeriodoRepository
+@inject ISnackbar Snackbar
+
+<PageTitle>Periodos Académicos - SLAC</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-4 font-weight-bold">
+    <MudIcon Icon="@Icons.Material.Filled.CalendarMonth" Class="mr-2" />
+    Gestión de Periodos Académicos
+</MudText>
+
+<MudGrid>
+    <!-- Formulario de Registro / Edición -->
+    <MudItem xs="12" md="4">
+        <MudCard Elevation="2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">@(_isEditing ? "Editar Periodo" : "Nuevo Periodo")</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudTextField @bind-Value="_currentPeriodo.Nombre" Label="Nombre (Ej: Semestre I-2026)" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" Required="true" />
+                <MudDatePicker Label="Fecha de Inicio" @bind-Date="_fechaInicioDate" Margin="Margin.Dense" Class="mb-3" />
+                <MudDatePicker Label="Fecha de Conclusión" @bind-Date="_fechaFinDate" Margin="Margin.Dense" Class="mb-3" />
+            </MudCardContent>
+            <MudCardActions Class="pb-4 px-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SavePeriodoAsync" StartIcon="@Icons.Material.Filled.Save">
+                    @(_isEditing ? "Guardar Cambios" : "Crear Periodo")
+                </MudButton>
+                @if (_isEditing)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" OnClick="CancelEdit" Class="ml-2">Cancelar</MudButton>
+                }
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+
+    <!-- Tabla Reactiva de Periodos -->
+    <MudItem xs="12" md="8">
+        <MudCard Elevation="2">
+            <MudCardContent>
+                @if (_loading)
+                {
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" Class="d-block mx-auto my-4" />
+                }
+                else if (_periodos.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info">No hay periodos académicos registrados aún.</MudAlert>
+                }
+                else
+                {
+                    <MudTable Items="_periodos" Dense="true" Hover="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>Nombre</MudTh>
+                            <MudTh>Fecha Inicio</MudTh>
+                            <MudTh>Fecha Fin</MudTh>
+                            <MudTh Style="text-align: right;">Acciones</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Nombre">
+                                <MudText Typo="Typo.body2" Class="font-weight-bold">@context.Nombre</MudText>
+                            </MudTd>
+                            <MudTd DataLabel="Inicio">@context.FechaInicio.ToString("dd/MM/yyyy")</MudTd>
+                            <MudTd DataLabel="Fin">@context.FechaFin.ToString("dd/MM/yyyy")</MudTd>
+                            <MudTd DataLabel="Acciones" Style="text-align: right;">
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="@(() => EditPeriodo(context))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeletePeriodoAsync(context.Id))" />
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private List<PeriodoAcademico> _periodos = new();
+    private PeriodoAcademico _currentPeriodo = new();
+    private DateTime? _fechaInicioDate = DateTime.Today;
+    private DateTime? _fechaFinDate = DateTime.Today.AddMonths(5);
+    private bool _isEditing = false;
+    private bool _loading = true;
+
+    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPeriodosAsync();
+    }
+
+    private async Task LoadPeriodosAsync()
+    {
+        _loading = true;
+        _periodos = await PeriodoRepository.GetByInstitucionAsync(_institucionId);
+        _loading = false;
+    }
+
+    private async Task SavePeriodoAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_currentPeriodo.Nombre))
+        {
+            Snackbar.Add("El nombre del periodo es obligatorio", Severity.Warning);
+            return;
+        }
+
+        if (_fechaInicioDate == null || _fechaFinDate == null || _fechaFinDate < _fechaInicioDate)
+        {
+            Snackbar.Add("Las fechas del periodo no son válidas", Severity.Warning);
+            return;
+        }
+
+        _currentPeriodo.InstitucionId = _institucionId;
+        _currentPeriodo.FechaInicio = DateOnly.FromDateTime(_fechaInicioDate.Value);
+        _currentPeriodo.FechaFin = DateOnly.FromDateTime(_fechaFinDate.Value);
+
+        if (_isEditing)
+        {
+            await PeriodoRepository.UpdateAsync(_currentPeriodo);
+            Snackbar.Add("Periodo actualizado correctamente", Severity.Success);
+        }
+        else
+        {
+            await PeriodoRepository.CreateAsync(_currentPeriodo);
+            Snackbar.Add("Periodo creado con éxito", Severity.Success);
+        }
+
+        CancelEdit();
+        await LoadPeriodosAsync();
+    }
+
+    private void EditPeriodo(PeriodoAcademico periodo)
+    {
+        _currentPeriodo = new PeriodoAcademico
+        {
+            Id = periodo.Id,
+            InstitucionId = periodo.InstitucionId,
+            Nombre = periodo.Nombre,
+            FechaInicio = periodo.FechaInicio,
+            FechaFin = periodo.FechaFin,
+            CreadoEn = periodo.CreadoEn
+        };
+        _fechaInicioDate = periodo.FechaInicio.ToDateTime(TimeOnly.MinValue);
+        _fechaFinDate = periodo.FechaFin.ToDateTime(TimeOnly.MinValue);
+        _isEditing = true;
+    }
+
+    private async Task DeletePeriodoAsync(Guid id)
+    {
+        await PeriodoRepository.DeleteAsync(id);
+        Snackbar.Add("Periodo eliminado", Severity.Info);
+        await LoadPeriodosAsync();
+    }
+
+    private void CancelEdit()
+    {
+        _currentPeriodo = new PeriodoAcademico();
+        _fechaInicioDate = DateTime.Today;
+        _fechaFinDate = DateTime.Today.AddMonths(5);
+        _isEditing = false;
+    }
+}

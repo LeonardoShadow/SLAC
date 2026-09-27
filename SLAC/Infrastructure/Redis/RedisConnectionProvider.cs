@@ -17,7 +17,7 @@ public class RedisConnectionProvider : IDisposable
     private readonly Lazy<ConnectionMultiplexer?> _lazyConnection;
 
     public RedisConnectionProvider(
-        IOptions<RedisOptions> options, 
+        IOptions<RedisOptions> options,
         ILogger<RedisConnectionProvider> logger)
     {
         _options = options.Value;
@@ -30,13 +30,13 @@ public class RedisConnectionProvider : IDisposable
     public IDatabase? GetDatabase()
     {
         var connection = _lazyConnection.Value;
-        return connection?.IsConnected == true ? connection.GetDatabase() : null;
+        return connection?.IsConnected is true ? connection.GetDatabase() : null;
     }
 
     public ISubscriber? GetSubscriber()
     {
         var connection = _lazyConnection.Value;
-        return connection?.IsConnected == true ? connection.GetSubscriber() : null;
+        return connection?.IsConnected is true ? connection.GetSubscriber() : null;
     }
 
     private ConnectionMultiplexer? InitializeConnection()
@@ -65,5 +65,6 @@ public class RedisConnectionProvider : IDisposable
         {
             _lazyConnection.Value.Dispose();
         }
+        GC.SuppressFinalize(this);
     }
 }

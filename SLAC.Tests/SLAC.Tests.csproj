@@ -18,6 +18,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
     <PackageReference Include="StackExchange.Redis" Version="3.3.1" />
+    <PackageReference Include="supabase-csharp" Version="0.16.2" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,6 +29,9 @@
     <Compile Include="..\SLAC\Core\Security\**\*.cs" LinkBase="Core\Security" />
     <Compile Include="..\SLAC\Core\Session\**\*.cs" LinkBase="Core\Session" />
     <Compile Include="..\SLAC\Core\Configuration\**\*.cs" LinkBase="Core\Configuration" />
+    <Compile Include="..\SLAC\Core\Institucional\**\*.cs" LinkBase="Core\Institucional" />
+    <Compile Include="..\SLAC\Infrastructure\Data\Models\**\*.cs" LinkBase="Infrastructure\Data\Models" />
+    <Compile Include="..\SLAC\Infrastructure\Repositories\**\*.cs" LinkBase="Infrastructure\Repositories" />
     <Compile Include="..\SLAC\Infrastructure\Redis\**\*.cs" LinkBase="Infrastructure\Redis" />
     <Compile Include="..\SLAC\Features\Attendance\Services\**\*.cs" LinkBase="Features\Attendance\Services" />
     <Compile Include="..\SLAC\Features\Attendance\Hubs\**\*.cs" LinkBase="Features\Attendance\Hubs" />
