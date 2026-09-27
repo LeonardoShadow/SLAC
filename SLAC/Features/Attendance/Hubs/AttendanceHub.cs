@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 
@@ -32,4 +33,13 @@ public class AttendanceHub(ILogger<AttendanceHub> logger) : Hub
     }
 
     public static string GetGroupName(string sesionId) => $"classroom_session_{sesionId}";
+}
+
+public static class AttendanceHubExtensions
+{
+    public static WebApplication MapAttendanceStudentEndpoints(this WebApplication app)
+    {
+        AttendanceStudentEndpoints.MapAttendanceStudentEndpoints(app);
+        return app;
+    }
 }

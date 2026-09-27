@@ -26,6 +26,7 @@ builder.Services.AddSupabaseInfrastructure(builder.Configuration);
 builder.Services.AddInstitucionalInfrastructure();
 builder.Services.AddDocenteInfrastructure();
 builder.Services.AddAttendanceInfrastructure();
+builder.Services.AddEstudianteInfrastructure();
 
 // Infraestructura de Estado Efímero y Tiempo Real
 builder.Services.AddRedisInfrastructure(builder.Configuration);
@@ -49,6 +50,9 @@ app.MapStaticAssets();
 
 // SignalR Attendance Projection Hub
 app.MapHub<AttendanceHub>("/hubs/attendance");
+
+// Flujo Estudiante SSR Estático Puro (Pasos 31, 32 y 33)
+app.MapAttendanceStudentEndpoints();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
