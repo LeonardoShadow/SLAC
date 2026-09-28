@@ -1,0 +1,102 @@
+@using MudBlazor
+@using SLAC.Core.Attendance.Services
+@inject ICorreccionAsistenciaService CorreccionService
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <div class="d-flex align-center gap-2 text-danger">
+            <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Color="Color.Error" />
+            <MudText Typo="Typo.h6" Color="Color.Error">Suspender Clase de Emergencia</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mb-3">
+            <b>Efecto inmediato:</b> Esta acción anulará el código QR, cerrará la sesión de clase actual y <b>NO computará faltas</b> para los alumnos ausentes. Quedará registrada en la auditoría inmutable.
+        </MudAlert>
+
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            Utilice esta función únicamente en casos fortuitos o de fuerza mayor (ej. corte eléctrico, problemas de infraestructura, emergencia institucional).
+        </MudText>
+
+        <MudTextField @bind-Value="_motivo"
+                      Label="Motivo de Emergencia Obligatorio"
+                      Placeholder="Ej. Corte imprevisto del suministro eléctrico en los pabellones de ingeniería..."
+                      Variant="Variant.Outlined"
+                      Lines="3"
+                      Required="true"
+                      HelperText="Especifique la causa de la suspensión (mínimo 5 caracteres)."
+                      Class="mb-2" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancelar" Variant="Variant.Text" Color="Color.Default">
+            Cancelar
+        </MudButton>
+        <MudButton OnClick="ConfirmarAsync"
+                   Variant="Variant.Filled"
+                   Color="Color.Error"
+                   Disabled="@(_guardando || string.IsNullOrWhiteSpace(_motivo) || _motivo.Trim().Length < 5)">
+            @if (_guardando)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <span>Suspendiendo...</span>
+            }
+            else
+            {
+                <span>Confirmar Suspensión</span>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance? MudDialog { get; set; }
+
+    [Parameter]
+    public Guid ListaId { get; set; }
+
+    [Parameter]
+    public string DocenteNombre { get; set; } = "Docente Titular";
+
+    private string _motivo = string.Empty;
+    private bool _guardando = false;
+
+    private void Cancelar() => MudDialog?.Cancel();
+
+    private async Task ConfirmarAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_motivo) || _motivo.Trim().Length < 5)
+        {
+            Snackbar.Add("Debe ingresar un motivo de al menos 5 caracteres.", Severity.Warning);
+            return;
+        }
+
+        _guardando = true;
+        try
+        {
+            var (exito, error) = await CorreccionService.SuspenderClaseEmergenciaAsync(
+                ListaId,
+                _motivo.Trim(),
+                DocenteNombre);
+
+            if (exito)
+            {
+                Snackbar.Add("Clase suspendida de emergencia. No se computaron faltas.", Severity.Warning);
+                MudDialog?.Close(DialogResult.Ok(true));
+            }
+            else
+            {
+                Snackbar.Add(error ?? "No se pudo suspender la sesión.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _guardando = false;
+        }
+    }
+}

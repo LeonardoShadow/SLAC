@@ -1,7 +1,151 @@
-﻿@page "/"
+@page "/"
+@rendermode InteractiveServer
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Panel Principal - SLAC</PageTitle>
 
-<h1>Hello, world!</h1>
+<MudText Typo="Typo.h4" Class="mb-1 font-weight-bold" Color="Color.Primary">
+    SLAC — Sistema de Lista de Asistencia a Clases
+</MudText>
+<MudText Typo="Typo.body1" Class="text-muted mb-6">
+    Gestión multi-institución con códigos QR tokenizados (ES256) y reporte exclusivo de faltas.
+</MudText>
 
-Welcome to your new app.
+<!-- Tarjetas de Métricas Rápidas -->
+<MudGrid Class="mb-6">
+    <MudItem xs="12" sm="6" md="3">
+        <MudCard Elevation="2" Class="pa-2">
+            <MudCardContent Class="d-flex align-center justify-space-between">
+                <div>
+                    <MudText Typo="Typo.caption" Class="text-muted">Ventana de Asistencia</MudText>
+                    <MudText Typo="Typo.h5" Class="font-weight-bold" Color="Color.Primary">20 min</MudText>
+                </div>
+                <MudAvatar Color="Color.Primary" Variant="Variant.Filled">
+                    <MudIcon Icon="@Icons.Material.Filled.Timer" />
+                </MudAvatar>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+
+    <MudItem xs="12" sm="6" md="3">
+        <MudCard Elevation="2" Class="pa-2">
+            <MudCardContent Class="d-flex align-center justify-space-between">
+                <div>
+                    <MudText Typo="Typo.caption" Class="text-muted">Rotación de QR</MudText>
+                    <MudText Typo="Typo.h5" Class="font-weight-bold" Color="Color.Secondary">15 seg</MudText>
+                </div>
+                <MudAvatar Color="Color.Secondary" Variant="Variant.Filled">
+                    <MudIcon Icon="@Icons.Material.Filled.Sync" />
+                </MudAvatar>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+
+    <MudItem xs="12" sm="6" md="3">
+        <MudCard Elevation="2" Class="pa-2">
+            <MudCardContent Class="d-flex align-center justify-space-between">
+                <div>
+                    <MudText Typo="Typo.caption" Class="text-muted">Aislamiento de Datos</MudText>
+                    <MudText Typo="Typo.h5" Class="font-weight-bold" Color="Color.Success">RLS Activo</MudText>
+                </div>
+                <MudAvatar Color="Color.Success" Variant="Variant.Filled">
+                    <MudIcon Icon="@Icons.Material.Filled.Security" />
+                </MudAvatar>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+
+    <MudItem xs="12" sm="6" md="3">
+        <MudCard Elevation="2" Class="pa-2">
+            <MudCardContent Class="d-flex align-center justify-space-between">
+                <div>
+                    <MudText Typo="Typo.caption" Class="text-muted">Identificación</MudText>
+                    <MudText Typo="Typo.h5" Class="font-weight-bold" Color="Color.Info">ECDSA P-256</MudText>
+                </div>
+                <MudAvatar Color="Color.Info" Variant="Variant.Filled">
+                    <MudIcon Icon="@Icons.Material.Filled.Key" />
+                </MudAvatar>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+<!-- Módulos de Acceso Directo -->
+<MudGrid>
+    <MudItem xs="12" md="4">
+        <MudCard Elevation="3" Class="h-100">
+            <MudCardHeader>
+                <CardHeaderAvatar>
+                    <MudAvatar Color="Color.Primary">
+                        <MudIcon Icon="@Icons.Material.Filled.MeetingRoom" />
+                    </MudAvatar>
+                </CardHeaderAvatar>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Catálogo de Espacios</MudText>
+                    <MudText Typo="Typo.caption">Aulas y Laboratorios</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudText Typo="Typo.body2">
+                    Gestiona la capacidad y el inventario de espacios físicos asignables a los horarios docentes de la institución.
+                </MudText>
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Href="/admin/espacios" Variant="Variant.Text" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward">
+                    Ver Espacios
+                </MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+
+    <MudItem xs="12" md="4">
+        <MudCard Elevation="3" Class="h-100">
+            <MudCardHeader>
+                <CardHeaderAvatar>
+                    <MudAvatar Color="Color.Secondary">
+                        <MudIcon Icon="@Icons.Material.Filled.CalendarMonth" />
+                    </MudAvatar>
+                </CardHeaderAvatar>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Calendario Académico</MudText>
+                    <MudText Typo="Typo.caption">Periodos y Feriados</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudText Typo="Typo.body2">
+                    Define la vigencia de los semestres y registra días no lectivos para suspender automáticamente la toma de asistencia.
+                </MudText>
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Href="/admin/periodos" Variant="Variant.Text" Color="Color.Secondary" EndIcon="@Icons.Material.Filled.ArrowForward">
+                    Gestionar Periodos
+                </MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+
+    <MudItem xs="12" md="4">
+        <MudCard Elevation="3" Class="h-100">
+            <MudCardHeader>
+                <CardHeaderAvatar>
+                    <MudAvatar Color="Color.Warning">
+                        <MudIcon Icon="@Icons.Material.Filled.EventBusy" />
+                    </MudAvatar>
+                </CardHeaderAvatar>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Días No Lectivos</MudText>
+                    <MudText Typo="Typo.caption">Suspensiones Institucionales</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudText Typo="Typo.body2">
+                    Consulta y programa fechas en las cuales ninguna clase generará faltas automáticas (Regla RN-08).
+                </MudText>
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Href="/admin/feriados" Variant="Variant.Text" Color="Color.Warning" EndIcon="@Icons.Material.Filled.ArrowForward">
+                    Ver Feriados
+                </MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+</MudGrid>

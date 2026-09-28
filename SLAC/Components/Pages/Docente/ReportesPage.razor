@@ -1,0 +1,374 @@
+@page "/docente/reportes"
+@page "/docente/faltas"
+@rendermode InteractiveServer
+@using SLAC.Core.Attendance.Services
+@using SLAC.Core.Docentes.Entities
+@using SLAC.Core.Docentes.Repositories
+@inject IReporteAsistenciaService ReporteService
+@inject IMateriaRepository MateriaRepo
+@inject IDocenteRepository DocenteRepo
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject IDialogService DialogService
+
+<PageTitle>SLAC - Reporte de Inasistencias (Docente)</PageTitle>
+
+<div class="pa-4 pa-md-6">
+    <!-- Header Section -->
+    <div class="d-flex flex-column flex-sm-row justify-space-between align-start align-sm-center mb-6 gap-4">
+        <div>
+            <div class="d-flex align-center gap-2 mb-1">
+                <MudIcon Icon="@Icons.Material.Filled.Assessment" Color="Color.Primary" Size="Size.Large" />
+                <MudText Typo="Typo.h4" Style="font-weight: 700;">Reporte de Inasistencias (Faltas)</MudText>
+            </div>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Consulta reglamentaria de faltas automáticas y suscripciones tardías consolidadas por el sistema.
+            </MudText>
+        </div>
+
+        <div class="d-flex gap-2">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Success"
+                       StartIcon="@Icons.Custom.FileFormats.FileExcel"
+                       OnClick="ExportarExcelAsync"
+                       Disabled="@(_loading || _faltas.Count == 0)"
+                       Size="Size.Medium">
+                Exportar Excel (.xlsx)
+            </MudButton>
+
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.FileDownload"
+                       OnClick="ExportarCsvAsync"
+                       Disabled="@(_loading || _faltas.Count == 0)"
+                       Size="Size.Medium">
+                Exportar CSV
+            </MudButton>
+        </div>
+    </div>
+
+    <!-- Filtros de Consulta -->
+    <MudCard Elevation="1" Class="rounded-lg pa-4 mb-6">
+        <MudGrid Class="align-center">
+            <MudItem xs="12" sm="5">
+                <MudSelect T="Guid"
+                           Label="Materia Asignada"
+                           Value="_materiaSeleccionadaId"
+                           ValueChanged="OnMateriaCambiada"
+                           Dense="true"
+                           Variant="Variant.Outlined">
+                    @foreach (var m in _materias)
+                    {
+                        <MudSelectItem Value="@m.Id">@m.Nombre (@m.Codigo)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+
+            <MudItem xs="12" sm="3">
+                <MudDatePicker Label="Fecha Desde"
+                               Date="_fechaDesde"
+                               DateChanged="@(d => { _fechaDesde = d; _ = FiltrarAsync(); })"
+                               Margin="Margin.Dense"
+                               Variant="Variant.Outlined"
+                               Clearable="true" />
+            </MudItem>
+
+            <MudItem xs="12" sm="3">
+                <MudDatePicker Label="Fecha Hasta"
+                               Date="_fechaHasta"
+                               DateChanged="@(d => { _fechaHasta = d; _ = FiltrarAsync(); })"
+                               Margin="Margin.Dense"
+                               Variant="Variant.Outlined"
+                               Clearable="true" />
+            </MudItem>
+
+            <MudItem xs="12" sm="1" Class="d-flex justify-end">
+                <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                               Color="Color.Primary"
+                               OnClick="FiltrarAsync" />
+            </MudItem>
+        </MudGrid>
+    </MudCard>
+
+    <!-- Métricas Resumen -->
+    <MudGrid Class="mb-6">
+        <MudItem xs="12" sm="4">
+            <MudCard Elevation="2" Class="rounded-lg pa-3" Style="border-left: 5px solid var(--mud-palette-error);">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">TOTAL INASISTENCIAS</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;" Color="Color.Error">@_faltas.Count</MudText>
+                    </div>
+                    <MudAvatar Color="Color.Error" Variant="Variant.Filled" Size="Size.Medium">
+                        <MudIcon Icon="@Icons.Material.Filled.PersonOff" Size="Size.Small" />
+                    </MudAvatar>
+                </div>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" sm="4">
+            <MudCard Elevation="2" Class="rounded-lg pa-3" Style="border-left: 5px solid var(--mud-palette-warning);">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">FALTAS POR AUSENCIA</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;">@_faltas.Count(f => f.Origen == null || f.Origen == "Ausente")</MudText>
+                    </div>
+                    <MudAvatar Color="Color.Warning" Variant="Variant.Filled" Size="Size.Medium">
+                        <MudIcon Icon="@Icons.Material.Filled.AlarmOff" Size="Size.Small" />
+                    </MudAvatar>
+                </div>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" sm="4">
+            <MudCard Elevation="2" Class="rounded-lg pa-3" Style="border-left: 5px solid var(--mud-palette-info);">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">SUSCRIPCIÓN TARDÍA (RETROACTIVA)</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;">@_faltas.Count(f => f.Origen == "Suscripción tardía")</MudText>
+                    </div>
+                    <MudAvatar Color="Color.Info" Variant="Variant.Filled" Size="Size.Medium">
+                        <MudIcon Icon="@Icons.Material.Filled.HistoryToggleOff" Size="Size.Small" />
+                    </MudAvatar>
+                </div>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+
+    <!-- Tabla de Inasistencias -->
+    <MudCard Elevation="2" Class="rounded-lg">
+        <MudTable Items="_faltas"
+                  Dense="true"
+                  Hover="true"
+                  Striped="true"
+                  Loading="_loading"
+                  LoadingProgressColor="Color.Primary"
+                  Filter="new Func<ItemReporteFalta, bool>(FiltrarBusquedaRapida)">
+            <ToolBarContent>
+                <MudText Typo="Typo.h6">Detalle de Inasistencias Oficiales</MudText>
+                <MudSpacer />
+                <MudTextField @bind-Value="_searchString"
+                              Placeholder="Buscar por código, nombre o correo..."
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              IconSize="Size.Medium"
+                              Class="mt-0"
+                              Clearable="true" />
+            </ToolBarContent>
+
+            <HeaderContent>
+                <MudTh>Código</MudTh>
+                <MudTh>Estudiante</MudTh>
+                <MudTh>Correo Institucional</MudTh>
+                <MudTh>Fecha Sesión</MudTh>
+                <MudTh>Hora Inicio</MudTh>
+                <MudTh>Estado</MudTh>
+                <MudTh>Origen</MudTh>
+                <MudTh>Fecha Cómputo</MudTh>
+                <MudTh Style="text-align: right;">Acciones</MudTh>
+            </HeaderContent>
+
+            <RowTemplate>
+                <MudTd DataLabel="Código">
+                    <span style="font-family: monospace; font-weight: 600;">@context.CodigoEstudiante</span>
+                </MudTd>
+                <MudTd DataLabel="Estudiante">
+                    <b>@context.NombreEstudiante</b>
+                </MudTd>
+                <MudTd DataLabel="Correo">@context.CorreoEstudiante</MudTd>
+                <MudTd DataLabel="Fecha Sesión">@context.Fecha.ToString("dd/MM/yyyy")</MudTd>
+                <MudTd DataLabel="Hora Inicio">@context.HoraInicio.ToString(@"hh\:mm") hrs</MudTd>
+                <MudTd DataLabel="Estado">
+                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">
+                        @context.Estado
+                    </MudChip>
+                </MudTd>
+                <MudTd DataLabel="Origen">
+                    <MudChip T="string"
+                             Size="Size.Small"
+                             Color="@(context.Origen == "Suscripción tardía" ? Color.Info : Color.Default)"
+                             Variant="Variant.Outlined">
+                        @(context.Origen ?? "Ausente")
+                    </MudChip>
+                </MudTd>
+                <MudTd DataLabel="Fecha Cómputo">
+                    @context.CreadoEn.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                </MudTd>
+                <MudTd DataLabel="Acciones" Style="text-align: right;">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Success"
+                               Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.CheckCircle"
+                               OnClick="@(() => AbrirDialogoCorreccion(context))">
+                        Justificar
+                    </MudButton>
+                </MudTd>
+            </RowTemplate>
+
+            <NoRecordsContent>
+                <div class="pa-8 text-center text-muted">
+                    <MudIcon Icon="@Icons.Material.Filled.CheckCircleOutline" Size="Size.Large" Color="Color.Success" Class="mb-2" />
+                    <MudText Typo="Typo.body1">No se encontraron inasistencias para la materia y filtros seleccionados.</MudText>
+                </div>
+            </NoRecordsContent>
+
+            <PagerContent>
+                <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+            </PagerContent>
+        </MudTable>
+    </MudCard>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "materiaId")]
+    public Guid? MateriaIdQuery { get; set; }
+
+    private bool _loading = true;
+    private Guid _materiaSeleccionadaId;
+    private List<Materia> _materias = [];
+    private List<ItemReporteFalta> _faltas = [];
+    private DateTime? _fechaDesde;
+    private DateTime? _fechaHasta;
+    private string _searchString = string.Empty;
+
+    // Demo Institución
+    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarMateriasAsync();
+    }
+
+    private async Task CargarMateriasAsync()
+    {
+        _loading = true;
+        try
+        {
+            var todas = await MateriaRepo.ListarPorInstitucionAsync(_institucionId);
+            _materias = [.. todas.Where(m => m.Estado == "activa")];
+
+            if (MateriaIdQuery.HasValue && _materias.Any(m => m.Id == MateriaIdQuery.Value))
+            {
+                _materiaSeleccionadaId = MateriaIdQuery.Value;
+            }
+            else if (_materias.Count > 0)
+            {
+                _materiaSeleccionadaId = _materias[0].Id;
+            }
+
+            if (_materiaSeleccionadaId != Guid.Empty)
+            {
+                await FiltrarAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error cargando materias: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnMateriaCambiada(Guid nuevaMateriaId)
+    {
+        _materiaSeleccionadaId = nuevaMateriaId;
+        await FiltrarAsync();
+    }
+
+    private async Task FiltrarAsync()
+    {
+        if (_materiaSeleccionadaId == Guid.Empty) return;
+
+        _loading = true;
+        try
+        {
+            DateOnly? desde = _fechaDesde.HasValue ? DateOnly.FromDateTime(_fechaDesde.Value) : null;
+            DateOnly? hasta = _fechaHasta.HasValue ? DateOnly.FromDateTime(_fechaHasta.Value) : null;
+
+            var items = await ReporteService.ObtenerReporteFaltasAsync(_materiaSeleccionadaId, desde, hasta);
+            _faltas = [.. items];
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error consultando reporte: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private bool FiltrarBusquedaRapida(ItemReporteFalta item)
+    {
+        if (string.IsNullOrWhiteSpace(_searchString)) return true;
+
+        var term = _searchString.Trim();
+        return item.CodigoEstudiante.Contains(term, StringComparison.OrdinalIgnoreCase)
+            || item.NombreEstudiante.Contains(term, StringComparison.OrdinalIgnoreCase)
+            || item.CorreoEstudiante.Contains(term, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task ExportarExcelAsync()
+    {
+        if (_faltas.Count == 0) return;
+
+        try
+        {
+            var mat = _materias.FirstOrDefault(m => m.Id == _materiaSeleccionadaId);
+            var bytes = await ReporteService.GenerarExcelFaltasAsync(_faltas, mat?.Nombre ?? "Materia", mat?.Codigo ?? "");
+
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"Reporte_Faltas_{mat?.Codigo ?? "Materia"}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+
+            await JS.InvokeVoidAsync("slacDownloadFile", fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", base64);
+            Snackbar.Add("Reporte Excel descargado correctamente.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al exportar a Excel: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ExportarCsvAsync()
+    {
+        if (_faltas.Count == 0) return;
+
+        try
+        {
+            var mat = _materias.FirstOrDefault(m => m.Id == _materiaSeleccionadaId);
+            var bytes = await ReporteService.GenerarCsvFaltasAsync(_faltas);
+
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"Reporte_Faltas_{mat?.Codigo ?? "Materia"}_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+
+            await JS.InvokeVoidAsync("slacDownloadFile", fileName, "text/csv;charset=utf-8;", base64);
+            Snackbar.Add("Reporte CSV descargado correctamente.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al exportar a CSV: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task AbrirDialogoCorreccion(ItemReporteFalta item)
+    {
+        var docenteNombre = _materias.FirstOrDefault(m => m.Id == _materiaSeleccionadaId)?.NombreDocente ?? "Docente Titular";
+        var parameters = new DialogParameters<CorreccionDialog>
+        {
+            { x => x.Item, item },
+            { x => x.DocenteNombre, docenteNombre }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<CorreccionDialog>("Justificar Asistencia", parameters, options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled)
+        {
+            await FiltrarAsync();
+        }
+    }
+}

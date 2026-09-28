@@ -1,0 +1,157 @@
+@page "/admin/espacios"
+@rendermode InteractiveServer
+@inject IEspacioRepository EspacioRepository
+@inject ISnackbar Snackbar
+
+<PageTitle>Catálogo de Espacios - SLAC</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-4 font-weight-bold">
+    <MudIcon Icon="@Icons.Material.Filled.MeetingRoom" Class="mr-2" />
+    Catálogo de Espacios (Aulas y Laboratorios)
+</MudText>
+
+<MudGrid>
+    <!-- Formulario de Registro / Edición -->
+    <MudItem xs="12" md="4">
+        <MudCard Elevation="2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">@(_isEditing ? "Editar Espacio" : "Nuevo Espacio")</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudTextField @bind-Value="_currentEspacio.Nombre" Label="Nombre / Código del Espacio" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" Required="true" />
+                <MudSelect @bind-Value="_currentEspacio.Tipo" Label="Tipo de Espacio" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3">
+                    <MudSelectItem Value="@("aula")">Aula Regular</MudSelectItem>
+                    <MudSelectItem Value="@("laboratorio")">Laboratorio de Cómputo / Especializado</MudSelectItem>
+                </MudSelect>
+                <MudNumericField @bind-Value="_currentEspacio.Capacidad" Label="Capacidad de Estudiantes" Variant="Variant.Outlined" Margin="Margin.Dense" Min="1" Max="500" Class="mb-3" />
+            </MudCardContent>
+            <MudCardActions Class="pb-4 px-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveEspacioAsync" StartIcon="@Icons.Material.Filled.Save">
+                    @(_isEditing ? "Guardar Cambios" : "Agregar Espacio")
+                </MudButton>
+                @if (_isEditing)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" OnClick="CancelEdit" Class="ml-2">Cancelar</MudButton>
+                }
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+
+    <!-- Tabla Reactiva de Espacios -->
+    <MudItem xs="12" md="8">
+        <MudCard Elevation="2">
+            <MudCardContent>
+                @if (_loading)
+                {
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" Class="d-block mx-auto my-4" />
+                }
+                else if (_espacios.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info">No hay espacios registrados aún. Agrega el primero usando el formulario.</MudAlert>
+                }
+                else
+                {
+                    <MudTable Items="_espacios" Dense="true" Hover="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>Nombre</MudTh>
+                            <MudTh>Tipo</MudTh>
+                            <MudTh>Capacidad</MudTh>
+                            <MudTh Style="text-align: right;">Acciones</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Nombre">
+                                <MudText Typo="Typo.body2" Class="font-weight-bold">@context.Nombre</MudText>
+                            </MudTd>
+                            <MudTd DataLabel="Tipo">
+                                <MudChip T="string" Color="@(context.Tipo == "laboratorio" ? Color.Secondary : Color.Default)" Size="Size.Small">
+                                    @context.Tipo.ToUpper()
+                                </MudChip>
+                            </MudTd>
+                            <MudTd DataLabel="Capacidad">@context.Capacidad estudiantes</MudTd>
+                            <MudTd DataLabel="Acciones" Style="text-align: right;">
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="@(() => EditEspacio(context))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteEspacioAsync(context.Id))" />
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private List<Espacio> _espacios = new();
+    private Espacio _currentEspacio = new();
+    private bool _isEditing = false;
+    private bool _loading = true;
+
+    // Guid temporal de la institución activa para demostración multi-tenant
+    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadEspaciosAsync();
+    }
+
+    private async Task LoadEspaciosAsync()
+    {
+        _loading = true;
+        _espacios = await EspacioRepository.GetByInstitucionAsync(_institucionId);
+        _loading = false;
+    }
+
+    private async Task SaveEspacioAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_currentEspacio.Nombre))
+        {
+            Snackbar.Add("El nombre del espacio es obligatorio", Severity.Warning);
+            return;
+        }
+
+        _currentEspacio.InstitucionId = _institucionId;
+
+        if (_isEditing)
+        {
+            await EspacioRepository.UpdateAsync(_currentEspacio);
+            Snackbar.Add("Espacio actualizado correctamente", Severity.Success);
+        }
+        else
+        {
+            await EspacioRepository.CreateAsync(_currentEspacio);
+            Snackbar.Add("Espacio creado exitosamente", Severity.Success);
+        }
+
+        CancelEdit();
+        await LoadEspaciosAsync();
+    }
+
+    private void EditEspacio(Espacio espacio)
+    {
+        _currentEspacio = new Espacio
+        {
+            Id = espacio.Id,
+            InstitucionId = espacio.InstitucionId,
+            Nombre = espacio.Nombre,
+            Tipo = espacio.Tipo,
+            Capacidad = espacio.Capacidad,
+            CreadoEn = espacio.CreadoEn
+        };
+        _isEditing = true;
+    }
+
+    private async Task DeleteEspacioAsync(Guid id)
+    {
+        await EspacioRepository.DeleteAsync(id);
+        Snackbar.Add("Espacio eliminado", Severity.Info);
+        await LoadEspaciosAsync();
+    }
+
+    private void CancelEdit()
+    {
+        _currentEspacio = new Espacio();
+        _isEditing = false;
+    }
+}

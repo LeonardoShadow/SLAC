@@ -1,0 +1,130 @@
+@using MudBlazor
+@using SLAC.Core.Attendance.Services
+@using SLAC.Core.Estudiantes.Entities
+@inject IRevinculacionService RevinculacionService
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.PhonelinkLock" Color="Color.Warning" />
+            <MudText Typo="Typo.h6">Solicitudes de Revinculación de Dispositivos (RN-05)</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            Conforme a la regla <b>RN-05</b> (exclusividad de 1 dispositivo activo por estudiante), autorizar una solicitud <b>revocará de forma inmediata la credencial anterior</b> y habilitará el nuevo teléfono del estudiante.
+        </MudText>
+
+        @if (_loading)
+        {
+            <div class="d-flex justify-center pa-4">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            </div>
+        }
+        else if (_solicitudes.Count == 0)
+        {
+            <div class="pa-6 text-center text-muted">
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircleOutline" Size="Size.Large" Color="Color.Success" Class="mb-2" />
+                <MudText Typo="Typo.body1" Style="font-weight: 600;">No hay solicitudes pendientes</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Cuando un estudiante escanee con un nuevo teléfono, su solicitud aparecerá aquí en tiempo real.
+                </MudText>
+            </div>
+        }
+        else
+        {
+            <MudList T="Revinculacion" Dense="true" Class="pa-0">
+                @foreach (var sol in _solicitudes)
+                {
+                    <MudPaper Elevation="0" Class="pa-3 mb-2 rounded-lg" Style="background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.08);">
+                        <div class="d-flex justify-space-between align-center">
+                            <div>
+                                <div class="d-flex align-center gap-2">
+                                    <MudText Typo="Typo.body1" Style="font-weight: 700;">@(sol.EstudianteNombre ?? "Estudiante")</MudText>
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">
+                                        @(sol.EstudianteCodigo ?? "Sin código")
+                                    </MudChip>
+                                </div>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-1">
+                                    <MudIcon Icon="@Icons.Material.Filled.Smartphone" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                    @(sol.DispositivoAgente ?? "Dispositivo Móvil") &bull; Solicitado hace @((int)(DateTimeOffset.UtcNow - sol.CreadoEn).TotalMinutes) min
+                                </MudText>
+                            </div>
+
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Success"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.CheckCircle"
+                                       OnClick="@(() => AutorizarAsync(sol))">
+                                Autorizar
+                            </MudButton>
+                        </div>
+                    </MudPaper>
+                }
+            </MudList>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cerrar" Variant="Variant.Text" Color="Color.Default">
+            Cerrar
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance? MudDialog { get; set; }
+
+    [Parameter]
+    public Guid MateriaId { get; set; }
+
+    [Parameter]
+    public string DocenteNombre { get; set; } = "Docente Titular";
+
+    private bool _loading = true;
+    private List<Revinculacion> _solicitudes = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarSolicitudesAsync();
+    }
+
+    private async Task CargarSolicitudesAsync()
+    {
+        _loading = true;
+        try
+        {
+            var res = await RevinculacionService.ListarPendientesPorMateriaAsync(MateriaId);
+            _solicitudes = res.ToList();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task AutorizarAsync(Revinculacion solicitud)
+    {
+        try
+        {
+            var (exito, error) = await RevinculacionService.AutorizarRevinculacionAsync(solicitud.Id, DocenteNombre);
+            if (exito)
+            {
+                Snackbar.Add($"Dispositivo autorizado para {solicitud.EstudianteNombre}. La credencial anterior fue revocada.", Severity.Success);
+                _solicitudes.Remove(solicitud);
+                StateHasChanged();
+            }
+            else
+            {
+                Snackbar.Add(error ?? "No se pudo autorizar la revinculación.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void Cerrar() => MudDialog?.Close();
+}
