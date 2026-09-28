@@ -58,6 +58,16 @@ public static class AttendanceStudentEndpoints
                     return Results.Content(successHtml, "text/html");
                 }
 
+                if (scanRes.RequiereRevinculacion)
+                {
+                    var revHtml = AttendanceStudentView.RenderRevinculacionPendingView(
+                        scanRes.EstudianteNombre,
+                        scanRes.EstudianteCodigo,
+                        scanRes.MateriaNombre,
+                        scanRes.MensajeRevinculacion);
+                    return Results.Content(revHtml, "text/html");
+                }
+
                 if (scanRes.RequiereRegistro)
                 {
                     var formHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, scanRes.MateriaNombre ?? "Clase", scanRes.MateriaCodigo ?? "");
@@ -137,6 +147,16 @@ public static class AttendanceStudentEndpoints
 
                 var successHtml = AttendanceStudentView.RenderSuccessView(scanRes);
                 return Results.Content(successHtml, "text/html");
+            }
+
+            if (scanRes.RequiereRevinculacion)
+            {
+                var revHtml = AttendanceStudentView.RenderRevinculacionPendingView(
+                    scanRes.EstudianteNombre,
+                    scanRes.EstudianteCodigo,
+                    scanRes.MateriaNombre,
+                    scanRes.MensajeRevinculacion);
+                return Results.Content(revHtml, "text/html");
             }
 
             // Si falló por validación de formulario, volver a mostrar el formulario con el error

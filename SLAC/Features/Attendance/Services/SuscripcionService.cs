@@ -18,6 +18,8 @@ public class SuscripcionService(
     ISuscripcionRepository suscripcionRepo,
     IEstudianteRepository estudianteRepo,
     IDispositivoRepository dispositivoRepo,
+    IRevinculacionRepository revinculacionRepo,
+    IRevinculacionService revinculacionService,
     IMateriaRepository materiaRepo,
     ISessionCacheRepository sessionCache,
     ISessionEventBus eventBus,
@@ -30,6 +32,8 @@ public class SuscripcionService(
     private readonly ISuscripcionRepository _suscripcionRepo = suscripcionRepo;
     private readonly IEstudianteRepository _estudianteRepo = estudianteRepo;
     private readonly IDispositivoRepository _dispositivoRepo = dispositivoRepo;
+    private readonly IRevinculacionRepository _revinculacionRepo = revinculacionRepo;
+    private readonly IRevinculacionService _revinculacionService = revinculacionService;
     private readonly IMateriaRepository _materiaRepo = materiaRepo;
     private readonly ISessionCacheRepository _sessionCache = sessionCache;
     private readonly ISessionEventBus _eventBus = eventBus;
@@ -130,6 +134,31 @@ public class SuscripcionService(
                     ConsentimientoEn = DateTimeOffset.UtcNow
                 };
                 estudiante = await _estudianteRepo.CrearOActualizarAsync(estudiante, ct);
+            }
+            else
+            {
+                // El estudiante ya existe. Validar exclusividad de dispositivo (RN-05)
+                var vincActiva = await _dispositivoRepo.ObtenerVinculacionActivaAsync(estudiante.Id, lista.InstitucionId, ct);
+                if (vincActiva != null)
+                {
+                    // Comprobar si hay una solicitud autorizada para esta sesión/materia
+                    var revinculacion = await _revinculacionRepo.ObtenerPendientePorEstudianteYMateriaAsync(estudiante.Id, lista.MateriaId, ct);
+                    if (revinculacion?.UsadaEn is null)
+                    {
+                        var solResult = await _revinculacionService.SolicitarRevinculacionAsync(
+                            lista.Id,
+                            estudiante.Codigo,
+                            request.UserAgent ?? "Navegador Móvil",
+                            ct);
+
+                        return AttendanceScanResult.RevinculacionRequerida(
+                            solResult.Mensaje ?? "Dispositivo previo activo detectado. Solicita autorización en aula.",
+                            estudiante.NombreCompleto,
+                            estudiante.Codigo,
+                            materiaNombre,
+                            materiaCodigo);
+                    }
+                }
             }
 
             // Emitir nueva credencial de dispositivo

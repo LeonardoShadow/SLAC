@@ -272,6 +272,8 @@ public class StudentAttendanceFlowTests
         public FakeSuscripcionRepository SuscripcionRepo { get; } = new();
         public FakeEstudianteRepository EstudianteRepo { get; } = new();
         public FakeDispositivoRepository DispositivoRepo { get; } = new();
+        public FakeRevinculacionRepository RevinculacionRepo { get; } = new();
+        public FakeRevinculacionService RevinculacionService { get; } = new();
         public FakeMateriaRepository MateriaRepo { get; } = new();
         public FakeSessionCacheRepository SessionCache { get; } = new();
         public FakeSessionEventBus EventBus { get; } = new();
@@ -284,6 +286,8 @@ public class StudentAttendanceFlowTests
             SuscripcionRepo,
             EstudianteRepo,
             DispositivoRepo,
+            RevinculacionRepo,
+            RevinculacionService,
             MateriaRepo,
             SessionCache,
             EventBus,
@@ -684,6 +688,70 @@ public class StudentAttendanceFlowTests
 
         public Task NotifySessionClosedAsync(Guid sesionId, int totalPresentes, int totalFaltas, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+    }
+
+    private sealed class FakeRevinculacionRepository : IRevinculacionRepository
+    {
+        private readonly List<Revinculacion> _items = [];
+
+        public Task<Revinculacion> CrearSolicitudAsync(Revinculacion solicitud, CancellationToken ct = default)
+        {
+            _ = ct;
+            _items.Add(solicitud);
+            return Task.FromResult(solicitud);
+        }
+
+        public Task<IReadOnlyList<Revinculacion>> ListarPendientesPorMateriaAsync(Guid materiaId, CancellationToken ct = default)
+        {
+            _ = ct;
+            return Task.FromResult<IReadOnlyList<Revinculacion>>([.. _items.Where(x => x.MateriaId == materiaId && x.EstaPendiente)]);
+        }
+
+        public Task<Revinculacion?> ObtenerPorIdAsync(Guid id, CancellationToken ct = default)
+        {
+            _ = ct;
+            return Task.FromResult(_items.FirstOrDefault(x => x.Id == id));
+        }
+
+        public Task<Revinculacion?> ObtenerPendientePorEstudianteYMateriaAsync(Guid estudianteId, Guid materiaId, CancellationToken ct = default)
+        {
+            _ = ct;
+            return Task.FromResult(_items.FirstOrDefault(x => x.EstudianteId == estudianteId && x.MateriaId == materiaId && x.EstaPendiente));
+        }
+
+        public Task MarcarComoUsadaAsync(Guid id, CancellationToken ct = default)
+        {
+            _ = ct;
+            var item = _items.FirstOrDefault(x => x.Id == id);
+            if (item != null) item.UsadaEn = DateTimeOffset.UtcNow;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeRevinculacionService : IRevinculacionService
+    {
+        public Task<SolicitudRevinculacionResult> SolicitarRevinculacionAsync(Guid sesionId, string codigoEstudiante, string userAgent, CancellationToken ct = default)
+        {
+            _ = sesionId;
+            _ = userAgent;
+            _ = ct;
+            return Task.FromResult(new SolicitudRevinculacionResult(true, false, Guid.NewGuid(), "Solicitud en espera.", "Juan", codigoEstudiante));
+        }
+
+        public Task<(bool Exito, string? Error)> AutorizarRevinculacionAsync(Guid solicitudId, string actorDocente, CancellationToken ct = default)
+        {
+            _ = solicitudId;
+            _ = actorDocente;
+            _ = ct;
+            return Task.FromResult<(bool, string?)>((true, null));
+        }
+
+        public Task<IReadOnlyList<Revinculacion>> ListarPendientesPorMateriaAsync(Guid materiaId, CancellationToken ct = default)
+        {
+            _ = materiaId;
+            _ = ct;
+            return Task.FromResult<IReadOnlyList<Revinculacion>>([]);
+        }
     }
 
     #endregion

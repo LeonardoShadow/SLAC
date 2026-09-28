@@ -1,0 +1,1221 @@
+@page "/proyeccion/{materiaId:guid}"
+@page "/docente/proyeccion/{materiaId:guid}"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@using Microsoft.AspNetCore.SignalR.Client
+@using SLAC.Core.Attendance.Entities
+@using SLAC.Core.Attendance.Repositories
+@using SLAC.Core.Docentes.Entities
+@using SLAC.Core.Docentes.Repositories
+@using SLAC.Core.Institucional.Entities
+@using SLAC.Core.Institucional.Repositories
+@using SLAC.Core.Security
+@using SLAC.Core.Session
+@using SLAC.Core.Session.Models
+@using SLAC.Core.Attendance.Services
+@using SLAC.Features.Attendance.Services
+@inject IMateriaRepository MateriaRepo
+@inject IEspacioRepository EspacioRepo
+@inject IListaAsistenciaRepository ListaRepo
+@inject ITokenService TokenService
+@inject IQrCodeGeneratorService QrService
+@inject ISessionCacheRepository SessionCache
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+@inject IRevinculacionService RevinculacionService
+@inject ICorreccionAsistenciaService CorreccionService
+@inject IDialogService DialogService
+
+<PageTitle>SLAC - Proyección de Asistencia en Sala</PageTitle>
+
+<div class="proyeccion-container">
+    <!-- Header Superior -->
+    <header class="proyeccion-header">
+        <div class="header-left">
+            <div class="brand-badge">
+                <MudIcon Icon="@Icons.Material.Filled.QrCodeScanner" Class="mr-2" Size="Size.Small" />
+                <span>SLAC &bull; PROYECCIÓN DE AULA</span>
+            </div>
+            <h1 class="materia-title">@(_materia?.Nombre ?? "Cargando materia...")</h1>
+            <div class="materia-meta">
+                <span class="meta-tag"><MudIcon Icon="@Icons.Material.Filled.Tag" Size="Size.Small" Class="mr-1" />@(_materia?.Codigo)</span>
+                <span class="meta-tag"><MudIcon Icon="@Icons.Material.Filled.MeetingRoom" Size="Size.Small" Class="mr-1" />@(_espacio?.Nombre ?? "Aula")</span>
+                <span class="meta-tag"><MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Class="mr-1" />@(_materia?.HoraInicio.ToString(@"hh\:mm")) hrs</span>
+            </div>
+        </div>
+
+        <div class="header-right">
+            <div class="live-clock">
+                <span class="clock-time">@_horaActualString</span>
+                <span class="clock-date">@DateTime.Now.ToString("dddd, dd MMMM yyyy")</span>
+            </div>
+
+            <div class="header-actions">
+                <MudTooltip Text="Iniciar / Reabrir Sesión QR (20 min)">
+                    <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                                   Color="Color.Success"
+                                   OnClick="ReabrirSesionAsync"
+                                   Class="action-btn" />
+                </MudTooltip>
+                <MudTooltip Text="Alternar Pantalla Completa (F11)">
+                    <MudIconButton Icon="@Icons.Material.Filled.Fullscreen"
+                                   Color="Color.Inherit"
+                                   OnClick="AlternarPantallaCompleta"
+                                   Class="action-btn" />
+                </MudTooltip>
+                <MudTooltip Text="Ver Reporte de Faltas">
+                    <MudIconButton Icon="@Icons.Material.Filled.Assessment"
+                                   Color="Color.Inherit"
+                                   OnClick="IrAReportes"
+                                   Class="action-btn" />
+                </MudTooltip>
+                <MudTooltip Text="Volver a Materias">
+                    <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                   Color="Color.Inherit"
+                                   OnClick="VolverAMaterias"
+                                   Class="action-btn" />
+                </MudTooltip>
+            </div>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <div class="loading-state">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+            <p class="mt-4 text-muted">Inicializando sesión de aula y criptografía ES256...</p>
+        </div>
+    }
+    else if (_sesionCerrada)
+    {
+        <div class="session-closed-card">
+            <div class="closed-icon-wrapper">
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircleOutline" Size="Size.Large" Color="Color.Success" />
+            </div>
+            <h2>Sesión de Asistencia Finalizada</h2>
+            <p class="closed-desc">
+                La ventana de 20 minutos de esta sesión ha concluido. Si deseas proyectar el código QR para el aula en este momento, puedes iniciar o reabrir la ventana de asistencia ahora.
+            </p>
+            <div class="closed-stats">
+                <div class="stat-pill">
+                    <span class="stat-num">@_totalPresentes</span>
+                    <span class="stat-lbl">Presentes Registrados</span>
+                </div>
+            </div>
+            <div class="d-flex gap-4 mt-6 flex-wrap justify-center">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Success"
+                           OnClick="ReabrirSesionAsync"
+                           StartIcon="@Icons.Material.Filled.PlayArrow"
+                           Size="Size.Large"
+                           Class="px-6 py-3"
+                           Style="font-weight: 700; font-size: 1rem; border-radius: 12px; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+                    Iniciar / Reabrir Sesión QR (20 min)
+                </MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="IrAReportes" StartIcon="@Icons.Material.Filled.Summarize" Class="py-3">
+                    Ver Reporte de Faltas
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="VolverAMaterias" Class="py-3">
+                    Volver al Panel
+                </MudButton>
+            </div>
+        </div>
+    }
+    else
+    {
+        @if (_sesionSuspendida)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mb-4" Icon="@Icons.Material.Filled.WarningAmber">
+                <b>CLASE SUSPENDIDA DE EMERGENCIA:</b> La sesión ha sido cancelada por el docente. No se computarán faltas oficiales a los alumnos ausentes de esta sesión.
+            </MudAlert>
+        }
+
+        <!-- Contenido Principal: QR + Panel de Información en Vivo -->
+        <main class="proyeccion-body">
+            <!-- Columna Izquierda: Tarjeta QR Dinámica -->
+            <section class="qr-section">
+                <div class="qr-card">
+                    <!-- Status Banner -->
+                    <div class="qr-status-bar">
+                        <div class="status-pulse">
+                            <span class="pulse-dot"></span>
+                            <span class="status-text">SESIÓN ACTIVA &bull; ESCANEO ABIERTO</span>
+                        </div>
+                        <div class="rotation-timer">
+                            <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" Class="mr-1 spin-icon" />
+                            <span>Rotación en <b>@_segundosRestantesRotacion s</b></span>
+                        </div>
+                    </div>
+
+                    <!-- Código QR Vectorial SVG -->
+                    <div class="qr-canvas-wrapper">
+                        @if (!string.IsNullOrEmpty(_qrSvgContent))
+                        {
+                            <div class="qr-svg-container">
+                                @((MarkupString)_qrSvgContent)
+                            </div>
+                        }
+                        else
+                        {
+                            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                        }
+                    </div>
+
+                    <!-- Barra de progreso de rotación (15s) -->
+                    <div class="rotation-progress-bar">
+                        <div class="progress-fill" style="width: @(_porcentajeRotacion)%;"></div>
+                    </div>
+
+                    <!-- Instrucción para el estudiante -->
+                    <div class="qr-footer-instruction">
+                        <MudIcon Icon="@Icons.Material.Filled.CameraAlt" Size="Size.Small" Class="mr-2 text-primary" />
+                        <span>Apunta la cámara de tu teléfono móvil hacia la pantalla para registrar tu asistencia.</span>
+                    </div>
+
+                    <!-- Herramientas de Conectividad y Prueba para el Docente -->
+                    <div class="mt-3 pa-3" style="background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08);">
+                        <div class="d-flex justify-space-between align-center mb-2">
+                            <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 700; text-transform: uppercase;">
+                                <MudIcon Icon="@Icons.Material.Filled.QrCode" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                                Enlace de Escaneo Estudiante
+                            </span>
+                            <span style="font-size: 0.75rem; color: #34d399;">● Activo</span>
+                        </div>
+
+                        <div class="d-flex gap-2 flex-wrap mb-2">
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.ContentCopy"
+                                       OnClick="CopiarEnlacePruebaAsync">
+                                Copiar Enlace Alumno (PC)
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Secondary"
+                                       Size="Size.Small"
+                                       Target="_blank"
+                                       Href="@_urlEscaneoActual"
+                                       StartIcon="@Icons.Material.Filled.OpenInNew">
+                                Abrir Enlace en Pestaña Nueva
+                            </MudButton>
+                        </div>
+
+                        <!-- Selector de Red: Wi-Fi Móvil vs Localhost -->
+                        <div class="d-flex align-center gap-2 mt-2 pt-2" style="border-top: 1px solid rgba(255,255,255,0.06);">
+                            <span style="font-size: 0.75rem; color: #94a3b8;">Destino QR:</span>
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="@(_servidorBasePersonalizado == _ipLocalSugerida ? Variant.Filled : Variant.Outlined)"
+                                     Color="Color.Success"
+                                     OnClick="@(() => CambiarHostBaseAsync(_ipLocalSugerida))">
+                                📱 Wi-Fi Móvil (@_ipLocalSugerida)
+                            </MudChip>
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="@(_servidorBasePersonalizado != _ipLocalSugerida ? Variant.Filled : Variant.Outlined)"
+                                     Color="Color.Default"
+                                     OnClick="@(() => CambiarHostBaseAsync("http://localhost:5257"))">
+                                💻 Localhost (Solo PC)
+                            </MudChip>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Columna Derecha: Métricas y Feed en Vivo -->
+            <aside class="metrics-section">
+                <!-- Tarjeta Contador Asistentes -->
+                <div class="metric-card counter-card">
+                    <div class="counter-header">
+                        <span class="metric-lbl">ESTUDIANTES EN AULA</span>
+                        <MudIcon Icon="@Icons.Material.Filled.PeopleAlt" Color="Color.Primary" Size="Size.Medium" />
+                    </div>
+                    <div class="counter-value">
+                        <span class="big-number">@_totalPresentes</span>
+                        <span class="counter-badge">Alumnos Registrados</span>
+                    </div>
+                </div>
+
+                <!-- Tarjeta Temporizador Sesión 20 min -->
+                <div class="metric-card timer-card">
+                    <div class="counter-header">
+                        <span class="metric-lbl">TIEMPO RESTANTE DE ASISTENCIA</span>
+                        <MudIcon Icon="@Icons.Material.Filled.HourglassTop" Color="Color.Warning" Size="Size.Medium" />
+                    </div>
+                    <div class="timer-display">
+                        <span class="timer-digits">@_tiempoRestanteSesionString</span>
+                        <span class="timer-desc">Cierre automático a los 20 min</span>
+                    </div>
+                    <MudProgressLinear Color="Color.Warning"
+                                       Value="@_porcentajeTiempoSesion"
+                                       Rounded="true"
+                                       Class="my-2"
+                                       Size="Size.Medium" />
+                </div>
+
+                <!-- Feed en Vivo de Últimos Registros -->
+                <div class="metric-card feed-card">
+                    <div class="feed-header">
+                        <div class="d-flex align-center gap-2">
+                            <span class="feed-dot"></span>
+                            <span class="metric-lbl">ASISTENCIA EN VIVO</span>
+                        </div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">SignalR Conectado</MudText>
+                    </div>
+
+                    <div class="feed-list">
+                        @if (_ultimosRegistrados.Count == 0)
+                        {
+                            <div class="feed-empty">
+                                <MudIcon Icon="@Icons.Material.Filled.Sensors" Size="Size.Large" Class="mb-2 text-muted" />
+                                <p>Esperando los primeros escaneos...</p>
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var reg in _ultimosRegistrados)
+                            {
+                                <div class="feed-item slide-in">
+                                    <div class="feed-item-icon">
+                                        <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" />
+                                    </div>
+                                    <div class="feed-item-info">
+                                        <span class="feed-item-name">@reg.Nombre</span>
+                                        <span class="feed-item-code">@reg.Codigo &bull; @reg.Hora</span>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <!-- Acciones del Docente: Revinculación, Suspensión y Cierre -->
+                <div class="actions-card d-flex flex-column gap-2">
+                    <MudBadge Content="@_solicitudesRevinculacionPendientes"
+                              Color="Color.Warning"
+                              Overlap="true"
+                              Visible="@(_solicitudesRevinculacionPendientes > 0)"
+                              Class="w-100">
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Warning"
+                                   FullWidth="true"
+                                   StartIcon="@Icons.Material.Filled.PhonelinkLock"
+                                   OnClick="AbrirDialogoRevinculaciones"
+                                   Class="py-2">
+                            Revinculación de Dispositivos (@_solicitudesRevinculacionPendientes)
+                        </MudButton>
+                    </MudBadge>
+
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Secondary"
+                               FullWidth="true"
+                               StartIcon="@Icons.Material.Filled.ReportProblem"
+                               OnClick="AbrirDialogoSuspensionEmergencia"
+                               Class="py-2">
+                        Suspender Clase (Emergencia)
+                    </MudButton>
+
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Error"
+                               FullWidth="true"
+                               StartIcon="@Icons.Material.Filled.LockClock"
+                               OnClick="CerrarAsistenciaManualmente"
+                               Class="py-2">
+                        Cerrar Asistencia Ahora
+                    </MudButton>
+                </div>
+            </aside>
+        </main>
+    }
+</div>
+
+<style>
+    .proyeccion-container {
+        min-height: 100vh;
+        background: radial-gradient(circle at 50% 10%, #1e1b4b 0%, #090d16 80%);
+        color: #f8fafc;
+        display: flex;
+        flex-direction: column;
+        padding: 1.5rem 2rem;
+        font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+    }
+
+    .proyeccion-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding-bottom: 1.25rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .brand-badge {
+        display: inline-flex;
+        align-items: center;
+        background: rgba(99, 102, 241, 0.15);
+        color: #818cf8;
+        padding: 0.3rem 0.85rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+        border: 1px solid rgba(99, 102, 241, 0.3);
+    }
+
+    .materia-title {
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        margin-bottom: 0.35rem;
+        line-height: 1.2;
+    }
+
+    .materia-meta {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .meta-tag {
+        display: inline-flex;
+        align-items: center;
+        font-size: 0.875rem;
+        color: #94a3b8;
+        background: rgba(255, 255, 255, 0.04);
+        padding: 0.25rem 0.65rem;
+        border-radius: 0.5rem;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .header-right {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+    }
+
+    .live-clock {
+        text-align: right;
+    }
+
+    .clock-time {
+        display: block;
+        font-size: 1.75rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        color: #f1f5f9;
+        line-height: 1.1;
+    }
+
+    .clock-date {
+        font-size: 0.75rem;
+        color: #64748b;
+        text-transform: capitalize;
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .action-btn {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 0.75rem;
+    }
+
+    .proyeccion-body {
+        display: grid;
+        grid-template-columns: 1fr 380px;
+        gap: 2rem;
+        flex: 1;
+        align-items: stretch;
+    }
+
+    @@media (max-width: 960px) {
+        .proyeccion-body {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .qr-section {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .qr-card {
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 2rem;
+        padding: 2rem;
+        width: 100%;
+        max-width: 540px;
+        box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7), 0 0 50px -10px rgba(99, 102, 241, 0.25);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .qr-status-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+        margin-bottom: 1.25rem;
+        font-size: 0.8125rem;
+    }
+
+    .status-pulse {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: #34d399;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+    }
+
+    .pulse-dot {
+        width: 10px;
+        height: 10px;
+        background-color: #10b981;
+        border-radius: 50%;
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+        animation: pulseAnimation 1.5s infinite;
+    }
+
+    @@keyframes pulseAnimation {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+
+    .rotation-timer {
+        color: #94a3b8;
+    }
+
+    .spin-icon {
+        animation: rotate 15s linear infinite;
+    }
+
+    @@keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    .qr-canvas-wrapper {
+        background: #ffffff;
+        padding: 1.5rem;
+        border-radius: 1.5rem;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-bottom: 1.25rem;
+    }
+
+    .qr-svg-container svg {
+        display: block;
+        width: 320px;
+        height: 320px;
+    }
+
+    .rotation-progress-bar {
+        width: 100%;
+        height: 6px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 9999px;
+        overflow: hidden;
+        margin-bottom: 1.25rem;
+    }
+
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #4f46e5, #06b6d4);
+        transition: width 1s linear;
+    }
+
+    .qr-footer-instruction {
+        display: flex;
+        align-items: center;
+        font-size: 0.8125rem;
+        color: #94a3b8;
+        text-align: center;
+        line-height: 1.4;
+    }
+
+    .metrics-section {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+    }
+
+    .metric-card {
+        background: rgba(15, 23, 42, 0.7);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 1.25rem;
+        padding: 1.25rem;
+    }
+
+    .counter-header, .feed-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+    }
+
+    .metric-lbl {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #94a3b8;
+        letter-spacing: 0.06em;
+    }
+
+    .counter-value {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+    }
+
+    .big-number {
+        font-size: 3rem;
+        font-weight: 800;
+        color: #38bdf8;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .counter-badge {
+        font-size: 0.8125rem;
+        color: #94a3b8;
+    }
+
+    .timer-digits {
+        font-size: 2rem;
+        font-weight: 800;
+        color: #fbbf24;
+        font-variant-numeric: tabular-nums;
+        display: block;
+        margin-bottom: 0.25rem;
+    }
+
+    .timer-desc {
+        font-size: 0.75rem;
+        color: #94a3b8;
+    }
+
+    .feed-card {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 220px;
+    }
+
+    .feed-dot {
+        width: 8px;
+        height: 8px;
+        background-color: #38bdf8;
+        border-radius: 50%;
+    }
+
+    .feed-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        overflow-y: auto;
+        max-height: 200px;
+    }
+
+    .feed-empty {
+        text-align: center;
+        color: #64748b;
+        font-size: 0.8125rem;
+        padding: 2rem 0;
+    }
+
+    .feed-item {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.75rem;
+    }
+
+    .feed-item-icon {
+        width: 24px;
+        height: 24px;
+        background: rgba(16, 185, 129, 0.2);
+        color: #34d399;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .feed-item-info {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .feed-item-name {
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: #f1f5f9;
+    }
+
+    .feed-item-code {
+        font-size: 0.6875rem;
+        color: #64748b;
+    }
+
+    .slide-in {
+        animation: slideIn 0.3s ease-out;
+    }
+
+    @@keyframes slideIn {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .loading-state, .session-closed-card {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 3rem;
+    }
+
+    .closed-icon-wrapper {
+        width: 80px;
+        height: 80px;
+        background: rgba(16, 185, 129, 0.15);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .closed-desc {
+        color: #94a3b8;
+        max-width: 480px;
+        margin-top: 0.5rem;
+    }
+
+    .closed-stats {
+        margin-top: 1.5rem;
+    }
+
+    .stat-pill {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 0.75rem 1.5rem;
+        border-radius: 1rem;
+        display: inline-flex;
+        flex-direction: column;
+    }
+
+    .stat-num {
+        font-size: 2rem;
+        font-weight: 800;
+        color: #34d399;
+    }
+
+    .stat-lbl {
+        font-size: 0.75rem;
+        color: #94a3b8;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public Guid MateriaId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "reabrir")]
+    public bool? ReabrirQuery { get; set; }
+
+    private bool _loading = true;
+    private bool _sesionCerrada = false;
+    private Materia? _materia;
+    private Espacio? _espacio;
+    private ListaAsistencia? _sesion;
+
+    // Estado QR y Rotación (cada 15s)
+    private string _qrSvgContent = string.Empty;
+    private int _rotacion = 0;
+    private int _segundosRestantesRotacion = 15;
+    private double _porcentajeRotacion => ((15 - _segundosRestantesRotacion) / 15.0) * 100.0;
+    private DateTimeOffset _horaInicioSesion = DateTimeOffset.UtcNow;
+    private string _urlEscaneoActual = string.Empty;
+    private string _servidorBasePersonalizado = _ipLocalSugerida;
+    private const string _ipLocalSugerida = "http://192.168.0.18:5257";
+
+    // Casos de Borde: Revinculación y Suspensión (Fase 10)
+    private int _solicitudesRevinculacionPendientes = 0;
+    private bool _sesionSuspendida = false;
+
+    // Estado Sesión (20 min)
+    private int _segundosTotalesSesion = 20 * 60;
+    private int _segundosRestantesSesion = 20 * 60;
+    private double _porcentajeTiempoSesion => Math.Max(0, (_segundosRestantesSesion / (double)_segundosTotalesSesion) * 100.0);
+    private string _tiempoRestanteSesionString => TimeSpan.FromSeconds(Math.Max(0, _segundosRestantesSesion)).ToString(@"mm\:ss");
+    private string _horaActualString => DateTime.Now.ToString("HH:mm:ss");
+
+    // Asistentes y SignalR
+    private int _totalPresentes = 0;
+    private readonly List<(string Nombre, string Codigo, string Hora)> _ultimosRegistrados = [];
+    private HubConnection? _hubConnection;
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarMateriaYSesionAsync();
+        await InicializarSignalRAsync();
+        IniciarTemporizadorCiclo();
+    }
+
+    private async Task CargarMateriaYSesionAsync()
+    {
+        _loading = true;
+        try
+        {
+            _materia = await MateriaRepo.ObtenerPorIdAsync(MateriaId);
+            if (_materia != null && _materia.EspacioId != Guid.Empty)
+            {
+                _espacio = await EspacioRepo.GetByIdAsync(_materia.EspacioId);
+            }
+
+            var hoy = DateOnly.FromDateTime(DateTime.Today);
+            var sesionExistente = await ListaRepo.ObtenerPorMateriaYFechaAsync(MateriaId, hoy);
+
+            var docenteId = _materia?.DocenteId != null && _materia.DocenteId != Guid.Empty
+                ? _materia.DocenteId
+                : Guid.Parse("55555555-5555-5555-5555-555555555555");
+            var espacioId = _materia?.EspacioId != null && _materia.EspacioId != Guid.Empty
+                ? _materia.EspacioId
+                : (_espacio?.Id != null && _espacio.Id != Guid.Empty ? _espacio.Id : Guid.Parse("d5cb8783-fe9a-4090-8bd3-c5d96d608fe9"));
+
+            if (sesionExistente == null)
+            {
+                // Crear sesión para hoy si no existía (apertura inmediata)
+                var nueva = new ListaAsistencia
+                {
+                    InstitucionId = _materia?.InstitucionId ?? Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                    MateriaId = MateriaId,
+                    DocenteId = docenteId,
+                    EspacioId = espacioId,
+                    Fecha = hoy,
+                    HoraInicio = _materia?.HoraInicio ?? DateTime.Now.TimeOfDay,
+                    Estado = "Abierta"
+                };
+                _sesion = await ListaRepo.CrearOActualizarAsync(nueva);
+                _horaInicioSesion = DateTimeOffset.UtcNow;
+                _segundosRestantesSesion = 20 * 60;
+                _sesionCerrada = false;
+            }
+            else
+            {
+                _sesion = sesionExistente;
+                if (_sesion.DocenteId == Guid.Empty)
+                {
+                    _sesion.DocenteId = docenteId;
+                }
+                if (_sesion.EspacioId == Guid.Empty)
+                {
+                    _sesion.EspacioId = espacioId;
+                }
+
+                if (ReabrirQuery == true)
+                {
+                    // Si el docente ingresó solicitando proyectar/reabrir
+                    await ListaRepo.ActualizarEstadoAsync(_sesion.Id, "Abierta");
+                    _sesion.Estado = "Abierta";
+                    _horaInicioSesion = DateTimeOffset.UtcNow;
+                    _segundosRestantesSesion = 20 * 60;
+                    _sesionCerrada = false;
+                    _sesionSuspendida = false;
+                }
+                else if (_sesion.Estado == "Programada")
+                {
+                    await ListaRepo.ActualizarEstadoAsync(_sesion.Id, "Abierta");
+                    _sesion.Estado = "Abierta";
+                    _horaInicioSesion = DateTimeOffset.UtcNow;
+                    _segundosRestantesSesion = 20 * 60;
+                    _sesionCerrada = false;
+                }
+                else if (_sesion.Estado == "Cerrada")
+                {
+                    _sesionCerrada = true;
+                    _segundosRestantesSesion = 0;
+                }
+                else if (_sesion.Estado == "Suspendida")
+                {
+                    _sesionSuspendida = true;
+                    _sesionCerrada = true;
+                    _segundosRestantesSesion = 0;
+                }
+                else if (_sesion.Estado == "Abierta")
+                {
+                    var cacheState = await SessionCache.GetActiveSessionAsync(_sesion.Id);
+                    if (cacheState != null && cacheState.EstaAbierta)
+                    {
+                        _horaInicioSesion = cacheState.InicioVigencia;
+                        var transcurrido = (DateTimeOffset.UtcNow - _horaInicioSesion).TotalSeconds;
+                        if (transcurrido >= 20 * 60)
+                        {
+                            _sesionCerrada = true;
+                            _segundosRestantesSesion = 0;
+                        }
+                        else
+                        {
+                            _segundosRestantesSesion = Math.Max(0, (20 * 60) - (int)transcurrido);
+                            _sesionCerrada = false;
+                        }
+                    }
+                    else
+                    {
+                        // Si está abierta pero expiró o recién se abre la proyección, dar 20 min desde ahora
+                        _horaInicioSesion = DateTimeOffset.UtcNow;
+                        _segundosRestantesSesion = 20 * 60;
+                        _sesionCerrada = false;
+                    }
+                }
+
+                _totalPresentes = _sesion.TotalPresentes;
+            }
+
+            // Consultar solicitudes de revinculación pendientes
+            var pendientes = await RevinculacionService.ListarPendientesPorMateriaAsync(MateriaId);
+            _solicitudesRevinculacionPendientes = pendientes.Count;
+
+            if (!_sesionCerrada && _sesion != null)
+            {
+                await RotarCodigoQrAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al iniciar la proyección: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ReabrirSesionAsync()
+    {
+        if (_sesion == null) return;
+
+        try
+        {
+            _loading = true;
+            _horaInicioSesion = DateTimeOffset.UtcNow;
+            _segundosRestantesSesion = 20 * 60;
+            _segundosRestantesRotacion = 15;
+            _rotacion = 0;
+            _sesionCerrada = false;
+            _sesionSuspendida = false;
+
+            await ListaRepo.ActualizarEstadoAsync(_sesion.Id, "Abierta");
+            _sesion.Estado = "Abierta";
+
+            await RotarCodigoQrAsync();
+
+            if (_hubConnection != null && _hubConnection.State == HubConnectionState.Connected)
+            {
+                await _hubConnection.InvokeAsync("JoinClassroomSession", _sesion.Id.ToString());
+            }
+
+            Snackbar.Add("¡Sesión de asistencia abierta! El código QR está activo por 20 minutos.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al abrir la sesión: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task InicializarSignalRAsync()
+    {
+        try
+        {
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(Navigation.ToAbsoluteUri("/hubs/attendance"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hubConnection.On<string, string, int>("AsistenciaRegistrada", (estudianteNombre, estudianteCodigo, totalPresentes) =>
+            {
+                InvokeAsync(() =>
+                {
+                    _totalPresentes = totalPresentes;
+                    _ultimosRegistrados.Insert(0, (estudianteNombre, estudianteCodigo, DateTime.Now.ToString("HH:mm:ss")));
+                    if (_ultimosRegistrados.Count > 10)
+                    {
+                        _ultimosRegistrados.RemoveAt(_ultimosRegistrados.Count - 1);
+                    }
+                    StateHasChanged();
+                });
+            });
+
+            _hubConnection.On<string>("SesionCerrada", (sesionIdStr) =>
+            {
+                if (_sesion != null && sesionIdStr == _sesion.Id.ToString())
+                {
+                    InvokeAsync(() =>
+                    {
+                        _sesionCerrada = true;
+                        StateHasChanged();
+                    });
+                }
+            });
+
+            _hubConnection.On<string, string, string, string>("NuevaSolicitudRevinculacion", (solId, estNombre, estCodigo, hora) =>
+            {
+                InvokeAsync(() =>
+                {
+                    _solicitudesRevinculacionPendientes++;
+                    Snackbar.Add($"⚠️ Solicitud de cambio de dispositivo: {estNombre} ({estCodigo})", Severity.Warning);
+                    StateHasChanged();
+                });
+            });
+
+            _hubConnection.On<string, string>("SesionSuspendida", (sesionIdStr, motivo) =>
+            {
+                if (_sesion != null && sesionIdStr == _sesion.Id.ToString())
+                {
+                    InvokeAsync(() =>
+                    {
+                        _sesionSuspendida = true;
+                        _sesionCerrada = true;
+                        Snackbar.Add($"Clase suspendida de emergencia: {motivo}", Severity.Error);
+                        StateHasChanged();
+                    });
+                }
+            });
+
+            await _hubConnection.StartAsync();
+
+            if (_sesion != null)
+            {
+                await _hubConnection.InvokeAsync("JoinClassroomSession", _sesion.Id.ToString());
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Conexión en tiempo real degradada: {ex.Message}", Severity.Warning);
+        }
+    }
+
+    private void IniciarTemporizadorCiclo()
+    {
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        _ = Task.Run(async () =>
+        {
+            while (!_cts.Token.IsCancellationRequested && _timer != null && await _timer.WaitForNextTickAsync(_cts.Token))
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (_sesionCerrada)
+                    {
+                        return;
+                    }
+
+                    // Decrementar rotación (15s)
+                    _segundosRestantesRotacion--;
+                    if (_segundosRestantesRotacion <= 0)
+                    {
+                        _rotacion++;
+                        _segundosRestantesRotacion = 15;
+                        await RotarCodigoQrAsync();
+                    }
+
+                    // Decrementar tiempo total de apertura (20 min)
+                    _segundosRestantesSesion--;
+                    if (_segundosRestantesSesion <= 0)
+                    {
+                        await FinalizarSesionAsync();
+                    }
+
+                    StateHasChanged();
+                });
+            }
+        }, _cts.Token);
+    }
+
+    private async Task RotarCodigoQrAsync()
+    {
+        if (_sesion == null) return;
+
+        try
+        {
+            var segundosDesdeInicio = Math.Max(0, (int)(DateTimeOffset.UtcNow - _horaInicioSesion).TotalSeconds);
+            _rotacion = segundosDesdeInicio / 15;
+
+            var tokenString = TokenService.GenerateSessionQrToken(
+                _sesion.Id,
+                _sesion.InstitucionId,
+                _horaInicioSesion,
+                ventanaMinutos: 20,
+                rotacionIndex: _rotacion);
+
+            var baseUrl = !string.IsNullOrWhiteSpace(_servidorBasePersonalizado)
+                ? _servidorBasePersonalizado.TrimEnd('/')
+                : (Navigation.BaseUri.Contains("localhost") || Navigation.BaseUri.Contains("127.0.0.1")
+                    ? _ipLocalSugerida
+                    : Navigation.BaseUri.TrimEnd('/'));
+
+            _urlEscaneoActual = $"{baseUrl}/a/{_sesion.Id}?t={tokenString}";
+            _qrSvgContent = QrService.GenerateSvg(_urlEscaneoActual, pixelsPerModule: 10, darkColorHex: "#0F172A", lightColorHex: "#FFFFFF");
+
+            // Actualizar caché de Redis para consistencia
+            var estado = new SessionEphemeralState
+            {
+                SesionId = _sesion.Id,
+                InstitucionId = _sesion.InstitucionId,
+                MateriaId = _sesion.MateriaId,
+                DocenteId = _sesion.DocenteId != Guid.Empty ? _sesion.DocenteId : (_materia?.DocenteId ?? Guid.Empty),
+                InicioVigencia = _horaInicioSesion,
+                Vencimiento = _horaInicioSesion.AddMinutes(20),
+                RotacionIndex = _rotacion,
+                TokenActual = tokenString,
+                ContadorAsistentes = _totalPresentes,
+                EstaAbierta = true
+            };
+            await SessionCache.SetActiveSessionAsync(estado, TimeSpan.FromMinutes(20));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al rotar código QR: {ex.Message}", Severity.Warning);
+        }
+    }
+
+    private async Task CopiarEnlacePruebaAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_urlEscaneoActual)) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _urlEscaneoActual);
+            Snackbar.Add("¡Enlace de alumno copiado al portapapeles! Pégalo en otra pestaña o ventana de incógnito para probar.", Severity.Success);
+        }
+        catch
+        {
+            Snackbar.Add($"Enlace: {_urlEscaneoActual}", Severity.Info);
+        }
+    }
+
+    private async Task CambiarHostBaseAsync(string nuevoHost)
+    {
+        _servidorBasePersonalizado = nuevoHost;
+        await RotarCodigoQrAsync();
+        var hostNombre = string.IsNullOrWhiteSpace(nuevoHost) ? "Localhost (PC)" : nuevoHost;
+        Snackbar.Add($"Destino QR configurado a: {hostNombre}", Severity.Info);
+        StateHasChanged();
+    }
+
+    private async Task FinalizarSesionAsync()
+    {
+        if (_sesion == null) return;
+
+        _sesionCerrada = true;
+        await ListaRepo.ActualizarEstadoAsync(_sesion.Id, "Cerrada", DateTime.Now.TimeOfDay);
+        await SessionCache.InvalidateSessionAsync(_sesion.Id);
+        Snackbar.Add("La ventana de asistencia ha cerrado.", Severity.Info);
+    }
+
+    private async Task CerrarAsistenciaManualmente()
+    {
+        await FinalizarSesionAsync();
+        StateHasChanged();
+    }
+
+    private async Task AbrirDialogoRevinculaciones()
+    {
+        var parameters = new DialogParameters<RevinculacionDialog>
+        {
+            { x => x.MateriaId, MateriaId },
+            { x => x.DocenteNombre, _materia?.NombreDocente ?? "Docente Titular" }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<RevinculacionDialog>("Revinculación de Dispositivos", parameters, options);
+        await dialog.Result;
+
+        var pendientes = await RevinculacionService.ListarPendientesPorMateriaAsync(MateriaId);
+        _solicitudesRevinculacionPendientes = pendientes.Count;
+        StateHasChanged();
+    }
+
+    private async Task AbrirDialogoSuspensionEmergencia()
+    {
+        if (_sesion == null) return;
+
+        var parameters = new DialogParameters<SuspensionClaseDialog>
+        {
+            { x => x.ListaId, _sesion.Id },
+            { x => x.DocenteNombre, _materia?.NombreDocente ?? "Docente Titular" }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<SuspensionClaseDialog>("Suspender Clase de Emergencia", parameters, options);
+        var res = await dialog.Result;
+        if (res != null && !res.Canceled)
+        {
+            _sesionSuspendida = true;
+            _sesionCerrada = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task AlternarPantallaCompleta()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("slacToggleFullscreen");
+        }
+        catch
+        {
+            // Ignorar errores de permisos del navegador si ocurren
+        }
+    }
+
+    private void IrAReportes()
+    {
+        Navigation.NavigateTo($"/docente/reportes?materiaId={MateriaId}");
+    }
+
+    private void VolverAMaterias()
+    {
+        Navigation.NavigateTo("/docente/materias");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+        _timer?.Dispose();
+
+        if (_hubConnection != null)
+        {
+            if (_sesion != null)
+            {
+                try
+                {
+                    await _hubConnection.InvokeAsync("LeaveClassroomSession", _sesion.Id.ToString());
+                }
+                catch { }
+            }
+            await _hubConnection.DisposeAsync();
+        }
+    }
+}

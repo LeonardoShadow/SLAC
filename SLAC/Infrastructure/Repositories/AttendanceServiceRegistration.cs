@@ -13,7 +13,12 @@ public static class AttendanceServiceRegistration
         services.AddScoped<IListaAsistenciaRepository, SupabaseListaAsistenciaRepository>();
         services.AddScoped<IAsistenciaDetalleRepository, SupabaseAsistenciaDetalleRepository>();
         services.AddScoped<ISuscripcionRepository, SupabaseSuscripcionRepository>();
+        services.AddScoped<IAuditoriaRepository, SupabaseAuditoriaRepository>();
         services.AddScoped<ISuscripcionService, SuscripcionService>();
+        services.AddSingleton<IQrCodeGeneratorService, QrCodeGeneratorService>();
+        services.AddScoped<IReporteAsistenciaService, ReporteAsistenciaService>();
+        services.AddScoped<ICorreccionAsistenciaService, CorreccionAsistenciaService>();
+        services.AddScoped<IRevinculacionService, RevinculacionService>();
 
         return services;
     }
@@ -22,6 +27,7 @@ public static class AttendanceServiceRegistration
     {
         services.AddScoped<IEstudianteRepository, SupabaseEstudianteRepository>();
         services.AddScoped<IDispositivoRepository, SupabaseDispositivoRepository>();
+        services.AddScoped<IRevinculacionRepository, SupabaseRevinculacionRepository>();
 
         return services;
     }

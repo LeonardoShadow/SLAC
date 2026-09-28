@@ -20,6 +20,8 @@ public class AttendanceScanResult
     public bool Exito { get; set; }
     public string? MensajeError { get; set; }
     public bool RequiereRegistro { get; set; }
+    public bool RequiereRevinculacion { get; set; }
+    public string? MensajeRevinculacion { get; set; }
     public bool YaRegistradoHoy { get; set; }
 
     public Guid? EstudianteId { get; set; }
@@ -45,6 +47,22 @@ public class AttendanceScanResult
     {
         Exito = false,
         RequiereRegistro = true,
+        MateriaNombre = materiaNombre,
+        MateriaCodigo = materiaCodigo
+    };
+
+    public static AttendanceScanResult RevinculacionRequerida(
+        string mensaje,
+        string? estudianteNombre = null,
+        string? estudianteCodigo = null,
+        string? materiaNombre = null,
+        string? materiaCodigo = null) => new()
+    {
+        Exito = false,
+        RequiereRevinculacion = true,
+        MensajeRevinculacion = mensaje,
+        EstudianteNombre = estudianteNombre,
+        EstudianteCodigo = estudianteCodigo,
         MateriaNombre = materiaNombre,
         MateriaCodigo = materiaCodigo
     };

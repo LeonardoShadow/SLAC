@@ -1,0 +1,115 @@
+@using MudBlazor
+@using SLAC.Core.Attendance.Services
+@inject ICorreccionAsistenciaService CorreccionService
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.Rule" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">Justificar y Corregir Inasistencia</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            Esta acción modificará la falta del estudiante a <b>Presente</b> y quedará registrada de forma inmutable en la tabla institucional de auditoría (SRS RN-03 / 4.6).
+        </MudText>
+
+        <MudPaper Elevation="0" Class="pa-3 mb-4 rounded-lg" Style="background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.08);">
+            <div class="d-flex justify-space-between mb-1">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">ESTUDIANTE:</MudText>
+                <MudText Typo="Typo.body2" Style="font-weight: 700;">@Item.NombreEstudiante (@Item.CodigoEstudiante)</MudText>
+            </div>
+            <div class="d-flex justify-space-between mb-1">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">FECHA DE CLASE:</MudText>
+                <MudText Typo="Typo.body2">@Item.Fecha.ToString("dd/MM/yyyy") - @Item.HoraInicio.ToString(@"hh\:mm") hrs</MudText>
+            </div>
+            <div class="d-flex justify-space-between">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">ESTADO ACTUAL:</MudText>
+                <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">Falta (@(Item.Origen ?? "Ausente"))</MudChip>
+            </div>
+        </MudPaper>
+
+        <MudTextField @bind-Value="_motivo"
+                      Label="Motivo / Justificación Obligatoria"
+                      Placeholder="Ej. Presentó certificado médico del centro de salud institucional..."
+                      Variant="Variant.Outlined"
+                      Lines="3"
+                      Required="true"
+                      HelperText="Especifique el respaldo o motivo que justifica la corrección (mínimo 5 caracteres)."
+                      Class="mb-2" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancelar" Variant="Variant.Text" Color="Color.Default">
+            Cancelar
+        </MudButton>
+        <MudButton OnClick="ConfirmarAsync"
+                   Variant="Variant.Filled"
+                   Color="Color.Success"
+                   Disabled="@(_guardando || string.IsNullOrWhiteSpace(_motivo) || _motivo.Trim().Length < 5)">
+            @if (_guardando)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <span>Registrando...</span>
+            }
+            else
+            {
+                <span>Confirmar Corrección</span>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance? MudDialog { get; set; }
+
+    [Parameter]
+    public ItemReporteFalta Item { get; set; } = null!;
+
+    [Parameter]
+    public string DocenteNombre { get; set; } = "Docente Titular";
+
+    private string _motivo = string.Empty;
+    private bool _guardando = false;
+
+    private void Cancelar() => MudDialog?.Cancel();
+
+    private async Task ConfirmarAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_motivo) || _motivo.Trim().Length < 5)
+        {
+            Snackbar.Add("Debe ingresar un motivo de justificación de al menos 5 caracteres.", Severity.Warning);
+            return;
+        }
+
+        _guardando = true;
+        try
+        {
+            var (exito, error) = await CorreccionService.CorregirAsistenciaAsync(
+                Item.ListaId,
+                Item.EstudianteId,
+                "Presente",
+                _motivo.Trim(),
+                DocenteNombre);
+
+            if (exito)
+            {
+                Snackbar.Add("Asistencia corregida y registrada en auditoría exitosamente.", Severity.Success);
+                MudDialog?.Close(DialogResult.Ok(true));
+            }
+            else
+            {
+                Snackbar.Add(error ?? "No se pudo realizar la corrección.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _guardando = false;
+        }
+    }
+}

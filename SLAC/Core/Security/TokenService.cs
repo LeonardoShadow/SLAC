@@ -54,7 +54,7 @@ public class TokenService(IKeyManager keyManager) : ITokenService
         string tokenString,
         out SessionQrToken? sessionToken,
         out string? errorMessage,
-        int rotacionTolerancia = 1)
+        int rotacionTolerancia = 2)
     {
         sessionToken = null;
         errorMessage = null;
@@ -108,21 +108,21 @@ public class TokenService(IKeyManager keyManager) : ITokenService
 
             var ahoraUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-            // 1. Validar ventana global de la clase (20 minutos)
-            if (ahoraUnix < payload.InicioVigenciaUnix)
+            // 1. Validar ventana global de la clase (20 minutos) con margen de reloj
+            if (ahoraUnix < payload.InicioVigenciaUnix - 15)
             {
                 errorMessage = "La ventana de asistencia aún no ha iniciado.";
                 return false;
             }
 
-            if (ahoraUnix > payload.VencimientoUnix)
+            if (ahoraUnix > payload.VencimientoUnix + 30)
             {
                 errorMessage = "La ventana de asistencia para esta clase ha vencido (token anulado).";
                 return false;
             }
 
             // 2. Validar rotación dinámica (15 segundos) con tolerancia
-            var segundosTranscurridos = ahoraUnix - payload.InicioVigenciaUnix;
+            var segundosTranscurridos = Math.Max(0, ahoraUnix - payload.InicioVigenciaUnix);
             var indiceEsperado = (int)(segundosTranscurridos / 15);
 
             if (payload.RotacionIndex < (indiceEsperado - rotacionTolerancia) || payload.RotacionIndex > (indiceEsperado + 1))

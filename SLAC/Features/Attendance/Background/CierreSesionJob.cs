@@ -43,6 +43,14 @@ public class CierreSesionJob(
 
         _logger.LogInformation("Iniciando Cierre de Sesión para Lista {ListaId} (Materia: {MateriaId})", listaId, materiaId);
 
+        // Si la sesión fue marcada como Suspendida por emergencia, no generar faltas (Paso 39)
+        var lista = await _listaRepo.ObtenerPorIdAsync(listaId, context.CancellationToken);
+        if (lista?.Estado == "Suspendida")
+        {
+            _logger.LogInformation("La sesión {ListaId} fue suspendida previamente de emergencia. Omitiendo generación de inasistencias.", listaId);
+            return;
+        }
+
         var horaCierre = DateTime.Now.TimeOfDay;
 
         // 1. Actualizar estado a 'Cerrada' con hora de cierre en Postgres
