@@ -447,6 +447,17 @@
                     </div>
                 }
 
+                <!-- 4. Dominio / Servidor Base para el QR -->
+                <div class="mb-4">
+                    <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
+                        Dominio / Servidor Base para el QR (Opcional):
+                    </label>
+                    <MudTextField @bind-Value="_servidorBasePersonalizado"
+                                  Placeholder="@(Navigation.BaseUri.TrimEnd('/'))"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  HelperText="Si se deja vacío, el QR usa automáticamente el dominio actual (en MonsterASP.NET usa el dominio público)." />
+                </div>
+
                 <div class="d-flex justify-end gap-2 mt-6">
                     <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="@(() => _mostrarAjustesModal = false)">
                         Cancelar
@@ -881,7 +892,7 @@
     private double _porcentajeRotacion => ((15 - _segundosRestantesRotacion) / 15.0) * 100.0;
     private DateTimeOffset _horaInicioSesion = DateTimeOffset.UtcNow;
     private string _urlEscaneoActual = string.Empty;
-    private string _servidorBasePersonalizado = _ipLocalSugerida;
+    private string _servidorBasePersonalizado = string.Empty;
     private const string _ipLocalSugerida = "http://192.168.0.18:5257";
 
     // Configuración Dinámica de Sesión (Tiempo, Modo y Alcance)
