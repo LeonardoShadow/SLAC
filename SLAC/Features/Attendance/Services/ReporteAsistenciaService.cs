@@ -17,13 +17,25 @@ public class ReporteAsistenciaService(
     IAsistenciaDetalleRepository detalleRepo,
     IEstudianteRepository estudianteRepo,
     IMateriaRepository materiaRepo,
+    ISuscripcionRepository? suscripcionRepo,
     ILogger<ReporteAsistenciaService> logger) : IReporteAsistenciaService
 {
     private readonly IListaAsistenciaRepository _listaRepo = listaRepo;
     private readonly IAsistenciaDetalleRepository _detalleRepo = detalleRepo;
     private readonly IEstudianteRepository _estudianteRepo = estudianteRepo;
     private readonly IMateriaRepository _materiaRepo = materiaRepo;
+    private readonly ISuscripcionRepository? _suscripcionRepo = suscripcionRepo;
     private readonly ILogger<ReporteAsistenciaService> _logger = logger;
+
+    public ReporteAsistenciaService(
+        IListaAsistenciaRepository listaRepo,
+        IAsistenciaDetalleRepository detalleRepo,
+        IEstudianteRepository estudianteRepo,
+        IMateriaRepository materiaRepo,
+        ILogger<ReporteAsistenciaService> logger)
+        : this(listaRepo, detalleRepo, estudianteRepo, materiaRepo, null, logger)
+    {
+    }
 
     public async Task<IReadOnlyList<ItemReporteFalta>> ObtenerReporteFaltasAsync(
         Guid materiaId,
@@ -47,11 +59,32 @@ public class ReporteAsistenciaService(
             listas = [.. listas.Where(l => l.Fecha <= fechaHasta.Value)];
         }
 
+        var estudiantesSuscritosIds = _suscripcionRepo != null
+            ? await _suscripcionRepo.ListarEstudiantesIdsPorMateriaAsync(materiaId, ct)
+            : (IReadOnlyList<Guid>)[];
         var estudiantesCache = new Dictionary<Guid, (string Codigo, string Nombre, string Correo)>();
 
         foreach (var lista in listas)
         {
             var detalles = await _detalleRepo.ListarPorListaAsync(lista.Id, ct);
+
+            // Conciliar e insertar faltas automáticamente si la sesión está Cerrada y hay alumnos inscritos ausentes
+            if (lista.Estado == "Cerrada" && estudiantesSuscritosIds.Count > 0)
+            {
+                var presentesIds = new HashSet<Guid>(detalles.Where(d => d.Estado == "Presente").Select(d => d.EstudianteId));
+                var faltasExistentes = new HashSet<Guid>(detalles.Where(d => d.Estado == "Falta").Select(d => d.EstudianteId));
+                var ausentesPendientes = estudiantesSuscritosIds
+                    .Where(id => !presentesIds.Contains(id) && !faltasExistentes.Contains(id))
+                    .ToList();
+
+                if (ausentesPendientes.Count > 0)
+                {
+                    await _detalleRepo.RegistrarFaltasIdempotenteAsync(lista.Id, lista.InstitucionId, ausentesPendientes, ct);
+                    detalles = await _detalleRepo.ListarPorListaAsync(lista.Id, ct);
+                    await _listaRepo.ActualizarTotalesAsync(lista.Id, estudiantesSuscritosIds.Count, presentesIds.Count, faltasExistentes.Count + ausentesPendientes.Count, ct);
+                }
+            }
+
             var faltas = detalles.Where(d => d.Estado == "Falta");
 
             foreach (var falta in faltas)

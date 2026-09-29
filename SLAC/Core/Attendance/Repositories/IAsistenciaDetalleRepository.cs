@@ -8,4 +8,5 @@ public interface IAsistenciaDetalleRepository
     Task<AsistenciaDetalle?> ObtenerPorListaYEstudianteAsync(Guid listaId, Guid estudianteId, CancellationToken ct = default);
     Task<AsistenciaDetalle> RegistrarAsistenciaAsync(AsistenciaDetalle detalle, CancellationToken ct = default);
     Task<int> RegistrarFaltasIdempotenteAsync(Guid listaId, Guid institucionId, IEnumerable<Guid> estudiantesIds, CancellationToken ct = default);
+    Task EliminarPorListaAsync(Guid listaId, CancellationToken ct = default);
 }

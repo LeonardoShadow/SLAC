@@ -1,0 +1,113 @@
+@using MudBlazor
+@using SLAC.Core.Attendance.Entities
+@using SLAC.Core.Attendance.Repositories
+@using SLAC.Core.Docentes.Entities
+@using SLAC.Core.Estudiantes.Entities
+@using SLAC.Core.Estudiantes.Repositories
+
+@inject IEstudianteRepository EstudianteRepo
+@inject ISuscripcionRepository SuscripcionRepo
+
+<MudDialog>
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.Group" Color="Color.Primary" Size="Size.Large" />
+            <div>
+                <MudText Typo="Typo.h6" Style="font-weight: 700;">Compañeros de Clase - @Materia.Nombre</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Código: <b>@Materia.Codigo</b> &bull; Grupo: <b>@Materia.Grupo</b> &bull; Total Inscritos: <b>@(_cargando ? "..." : _estudiantes.Count)</b>
+                </MudText>
+            </div>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @if (_cargando)
+        {
+            <div class="d-flex justify-center pa-6">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            </div>
+        }
+        else if (_estudiantes.Count == 0)
+        {
+            <div class="text-center pa-6 text-muted">
+                <MudIcon Icon="@Icons.Material.Filled.GroupOff" Size="Size.Large" Class="mb-2" />
+                <MudText Typo="Typo.body2">No se encontraron estudiantes inscritos en esta asignatura.</MudText>
+            </div>
+        }
+        else
+        {
+            <MudTextField @bind-Value="_filtro"
+                          Placeholder="Buscar compañero por nombre..."
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Class="mb-3" />
+
+            <MudTable Items="_estudiantesFiltrados" Dense="true" Hover="true" RowsPerPage="10">
+                <HeaderContent>
+                    <MudTh Style="width: 80px;">N°</MudTh>
+                    <MudTh>Estudiante</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="N°">@(_estudiantesFiltrados.ToList().IndexOf(context) + 1)</MudTd>
+                    <MudTd DataLabel="Estudiante">
+                        <div class="d-flex align-center gap-2">
+                            <MudAvatar Color="Color.Primary" Size="Size.Small">
+                                @(context.Nombres?.FirstOrDefault() ?? 'E')
+                            </MudAvatar>
+                            <b>@context.NombreCompleto</b>
+                        </div>
+                    </MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager />
+                </PagerContent>
+            </MudTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cerrar" Color="Color.Default" Variant="Variant.Filled">Cerrar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public Materia Materia { get; set; } = default!;
+
+    private bool _cargando = true;
+    private string _filtro = string.Empty;
+    private List<Estudiante> _estudiantes = [];
+
+    private IEnumerable<Estudiante> _estudiantesFiltrados =>
+        string.IsNullOrWhiteSpace(_filtro)
+            ? _estudiantes
+            : _estudiantes.Where(e =>
+                (!string.IsNullOrEmpty(e.NombreCompleto) && e.NombreCompleto.Contains(_filtro, StringComparison.OrdinalIgnoreCase)));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cargando = true;
+        try
+        {
+            var ids = await SuscripcionRepo.ListarEstudiantesIdsPorMateriaAsync(Materia.Id);
+            var lista = new List<Estudiante>();
+            foreach (var id in ids)
+            {
+                var est = await EstudianteRepo.ObtenerPorIdAsync(id);
+                if (est != null) lista.Add(est);
+            }
+            _estudiantes = [.. lista.OrderBy(e => e.Apellidos).ThenBy(e => e.Nombres)];
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private void Cerrar() => MudDialog.Close(DialogResult.Ok(true));
+}

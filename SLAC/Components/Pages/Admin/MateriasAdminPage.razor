@@ -1,0 +1,309 @@
+@page "/admin/materias"
+@rendermode InteractiveServer
+@using MudBlazor
+@using SLAC.Core.Attendance.Repositories
+@using SLAC.Core.Docentes.Entities
+@using SLAC.Core.Docentes.Repositories
+@using SLAC.Core.Estudiantes.Repositories
+@using SLAC.Core.Institucional.Entities
+@using SLAC.Core.Institucional.Repositories
+@using SLAC.Features.Attendance.Services
+@using SLAC.Components.Pages.Docente
+
+@inject IUserSessionService SessionService
+@inject IMateriaRepository MateriaRepo
+@inject IDocenteRepository DocenteRepo
+@inject IEspacioRepository EspacioRepo
+@inject IPeriodoAcademicoRepository PeriodoRepo
+@inject ISuscripcionRepository SuscripcionRepo
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<PageTitle>SLAC - Gestión Académica de Materias (Administración)</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-6">
+    <div class="d-flex flex-wrap justify-space-between align-center mb-6 gap-3">
+        <div>
+            <div class="d-flex align-center gap-2">
+                <MudIcon Icon="@Icons.Material.Filled.Class" Color="Color.Primary" Size="Size.Large" />
+                <MudText Typo="Typo.h5" Style="font-weight: 800;">Gestión Académica de Materias</MudText>
+            </div>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Administración institucional de asignaturas: asignación de docentes, aulas, horarios oficiales (RN-01) y padrón de estudiantes.
+            </MudText>
+        </div>
+
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="AbrirDialogoNuevaMateria">
+            Nueva Materia
+        </MudButton>
+    </div>
+
+    @if (_cargando)
+    {
+        <div class="d-flex justify-center align-center pa-12">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+        </div>
+    }
+    else if (!_materias.Any())
+    {
+        <MudCard Elevation="1" Class="pa-8 text-center rounded-xl">
+            <MudIcon Icon="@Icons.Material.Filled.Class" Size="Size.Large" Color="Color.Secondary" Class="mb-3" />
+            <MudText Typo="Typo.h6">No hay materias registradas en la institución</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+                Comienza creando una materia y asignándole docente, aula y horario oficial.
+            </MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="AbrirDialogoNuevaMateria">
+                Crear Materia
+            </MudButton>
+        </MudCard>
+    }
+    else
+    {
+        <MudGrid Spacing="3">
+            @foreach (var mat in _materias)
+            {
+                var docente = _docentes.FirstOrDefault(d => d.Id == mat.DocenteId);
+                var espacio = _espacios.FirstOrDefault(e => e.Id == mat.EspacioId);
+                var inscritosCount = _conteoInscritos.GetValueOrDefault(mat.Id, 0);
+
+                <MudItem xs="12" md="6" lg="4">
+                    <MudCard Elevation="3" Class="rounded-xl h-100 d-flex flex-column" Style="overflow: hidden; border: 1px solid var(--mud-palette-lines-default);">
+                        <div style="height: 6px; background: var(--mud-palette-primary);"></div>
+                        
+                        <MudCardContent Class="flex-grow-1 pa-5">
+                            <div class="d-flex justify-space-between align-center mb-2">
+                                <div class="d-flex gap-1 align-center">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Style="font-weight: 700;">
+                                        @mat.Codigo
+                                    </MudChip>
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                                        Grupo @mat.Grupo
+                                    </MudChip>
+                                </div>
+                                <MudChip T="string" Size="Size.Small" Color="@(mat.Estado == "activa" ? Color.Success : Color.Default)" Variant="Variant.Filled">
+                                    @mat.Estado.ToUpperInvariant()
+                                </MudChip>
+                            </div>
+
+                            <MudText Typo="Typo.h6" Style="font-weight: 700; line-height: 1.3;" Class="mb-3">
+                                @mat.Nombre
+                            </MudText>
+
+                            <!-- Datos del Docente -->
+                            <div class="pa-3 mb-3 rounded-lg" style="background: rgba(79, 70, 229, 0.05); border: 1px solid rgba(79, 70, 229, 0.15);">
+                                <div class="d-flex align-center gap-2 mb-1">
+                                    <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" Color="Color.Primary" />
+                                    <MudText Typo="Typo.caption" Style="font-weight: 700; color: var(--mud-palette-primary);">DOCENTE ASIGNADO:</MudText>
+                                </div>
+                                @if (docente != null)
+                                {
+                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@docente.NombreCompleto</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block">
+                                        Código: <b>@docente.Codigo</b> &bull; @docente.Correo
+                                    </MudText>
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Error">Sin docente asignado</MudText>
+                                }
+                            </div>
+
+                            <!-- Aula y Horario -->
+                            <div class="d-flex flex-column gap-2 mb-3">
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.MeetingRoom" Size="Size.Small" Color="Color.Secondary" />
+                                    <MudText Typo="Typo.body2">
+                                        Aula: <b>@(espacio != null ? $"{espacio.Nombre} ({espacio.Tipo} - Cap: {espacio.Capacidad})" : "Sin aula")</b>
+                                    </MudText>
+                                </div>
+
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.AccessTime" Size="Size.Small" Color="Color.Warning" />
+                                    <MudText Typo="Typo.body2">
+                                        Hora Inicio: <b>@mat.HoraInicio.ToString(@"hh\:mm")</b> &bull; Días: <b>@mat.Dias</b>
+                                    </MudText>
+                                </div>
+
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.Groups" Size="Size.Small" Color="Color.Info" />
+                                    <MudText Typo="Typo.body2">
+                                        Estudiantes Inscritos: <b>@inscritosCount</b>
+                                    </MudText>
+                                </div>
+                            </div>
+                        </MudCardContent>
+
+                        <MudCardActions Class="pa-4 pt-0 d-flex justify-space-between align-center" Style="border-top: 1px solid var(--mud-palette-lines-default);">
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Edit"
+                                       OnClick="@(() => AbrirDialogoEditarMateria(mat))">
+                                Horario / Datos
+                            </MudButton>
+
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Secondary"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.PeopleAlt"
+                                       OnClick="@(() => AbrirGestionEstudiantes(mat))">
+                                Estudiantes (@inscritosCount)
+                            </MudButton>
+                        </MudCardActions>
+                    </MudCard>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+</MudContainer>
+
+@code {
+    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private bool _cargando = true;
+    private List<Materia> _materias = [];
+    private List<Docente> _docentes = [];
+    private List<Espacio> _espacios = [];
+    private List<PeriodoAcademico> _periodos = [];
+    private Dictionary<Guid, int> _conteoInscritos = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!SessionService.EstaAutenticado || SessionService.RolActual != RolUsuario.Administrador)
+        {
+            Navigation.NavigateTo("/login?rol=admin");
+            return;
+        }
+
+        await CargarDatosAsync();
+    }
+
+    private async Task CargarDatosAsync()
+    {
+        _cargando = true;
+        try
+        {
+            _docentes = [..(await DocenteRepo.ListarPorInstitucionAsync(_institucionId)).OrderBy(d => d.Apellidos)];
+            _espacios = [..(await EspacioRepo.GetByInstitucionAsync(_institucionId))];
+            _periodos = [..(await PeriodoRepo.GetByInstitucionAsync(_institucionId))];
+
+            var materias = await MateriaRepo.ListarPorInstitucionAsync(_institucionId);
+            _materias = materias.OrderBy(m => m.Codigo).ThenBy(m => m.Grupo).ToList();
+
+            _conteoInscritos.Clear();
+            foreach (var m in _materias)
+            {
+                var inscritos = await SuscripcionRepo.ListarPorMateriaAsync(m.Id);
+                _conteoInscritos[m.Id] = inscritos.Count;
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al cargar materias: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private async Task AbrirDialogoNuevaMateria()
+    {
+        if (_periodos.Count == 0 || _espacios.Count == 0 || _docentes.Count == 0)
+        {
+            Snackbar.Add("Se requiere registrar al menos un periodo, un aula y un docente previamente.", Severity.Warning);
+            return;
+        }
+
+        var nuevaMateria = new Materia
+        {
+            InstitucionId = _institucionId,
+            DocenteId = _docentes.First().Id,
+            PeriodoId = _periodos.First().Id,
+            EspacioId = _espacios.First().Id,
+            HoraInicio = new TimeSpan(7, 0, 0),
+            Dias = "L,M,V"
+        };
+
+        var parameters = new DialogParameters<MateriaDialog>
+        {
+            { x => x.Materia, nuevaMateria },
+            { x => x.Periodos, _periodos },
+            { x => x.Espacios, _espacios },
+            { x => x.Docentes, _docentes },
+            { x => x.EsAdmin, true }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<MateriaDialog>("Crear Nueva Materia (Administración)", parameters, options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled && result.Data is Materia materiaGuardada)
+        {
+            await MateriaRepo.GuardarAsync(materiaGuardada);
+            Snackbar.Add("Materia creada exitosamente.", Severity.Success);
+            await CargarDatosAsync();
+        }
+    }
+
+    private async Task AbrirDialogoEditarMateria(Materia materia)
+    {
+        var clone = new Materia
+        {
+            Id = materia.Id,
+            InstitucionId = materia.InstitucionId,
+            DocenteId = materia.DocenteId,
+            PeriodoId = materia.PeriodoId,
+            Codigo = materia.Codigo,
+            Nombre = materia.Nombre,
+            Grupo = materia.Grupo,
+            EspacioId = materia.EspacioId,
+            HoraInicio = materia.HoraInicio,
+            Dias = materia.Dias,
+            Estado = materia.Estado,
+            CreadoEn = materia.CreadoEn
+        };
+
+        var parameters = new DialogParameters<MateriaDialog>
+        {
+            { x => x.Materia, clone },
+            { x => x.Periodos, _periodos },
+            { x => x.Espacios, _espacios },
+            { x => x.Docentes, _docentes },
+            { x => x.EsAdmin, true }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<MateriaDialog>("Editar Materia y Horario (Administración)", parameters, options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled && result.Data is Materia materiaActualizada)
+        {
+            await MateriaRepo.GuardarAsync(materiaActualizada);
+            Snackbar.Add("Materia y horario actualizados exitosamente.", Severity.Success);
+            await CargarDatosAsync();
+        }
+    }
+
+    private async Task AbrirGestionEstudiantes(Materia materia)
+    {
+        var parameters = new DialogParameters<GestionEstudiantesDialog>
+        {
+            { x => x.Materia, materia }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            CloseButton = true
+        };
+
+        var dialog = await DialogService.ShowAsync<GestionEstudiantesDialog>("Padrón de Estudiantes", parameters, options);
+        await dialog.Result;
+        await CargarDatosAsync();
+    }
+}

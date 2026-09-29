@@ -19,6 +19,7 @@ public static class AttendanceServiceRegistration
         services.AddScoped<IReporteAsistenciaService, ReporteAsistenciaService>();
         services.AddScoped<ICorreccionAsistenciaService, CorreccionAsistenciaService>();
         services.AddScoped<IRevinculacionService, RevinculacionService>();
+        services.AddScoped<IUserSessionService, UserSessionService>();
 
         return services;
     }

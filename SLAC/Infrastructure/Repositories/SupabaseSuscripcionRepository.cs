@@ -98,6 +98,29 @@ public class SupabaseSuscripcionRepository(Client supabaseClient, ILogger<Supaba
         return suscripcion;
     }
 
+    public async Task<bool> DesinscribirAsync(Guid materiaId, Guid estudianteId, CancellationToken ct = default)
+    {
+        try
+        {
+            await _supabaseClient
+                .From<SuscripcionDbModel>()
+                .Where(x => x.MateriaId == materiaId && x.EstudianteId == estudianteId)
+                .Delete(cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error al desinscribir estudiante {EstudianteId} de materia {MateriaId} en Supabase.", estudianteId, materiaId);
+        }
+
+        var match = _fallbackStore.FirstOrDefault(x => x.Value.MateriaId == materiaId && x.Value.EstudianteId == estudianteId);
+        if (match.Key != Guid.Empty)
+        {
+            _fallbackStore.TryRemove(match.Key, out _);
+        }
+
+        return true;
+    }
+
     private static Suscripcion MapToEntity(SuscripcionDbModel m) => new()
     {
         Id = m.Id,

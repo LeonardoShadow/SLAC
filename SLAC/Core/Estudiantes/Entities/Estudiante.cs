@@ -13,6 +13,7 @@ public class Estudiante
     public string Nombres { get; set; } = string.Empty;
     public string Apellidos { get; set; } = string.Empty;
     public string Correo { get; set; } = string.Empty;
+    public string? DocumentoIdentidad { get; set; }
     public DateTimeOffset? ConsentimientoEn { get; set; }
     public DateTimeOffset CreadoEn { get; set; } = DateTimeOffset.UtcNow;
 

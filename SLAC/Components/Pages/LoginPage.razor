@@ -1,0 +1,280 @@
+@page "/login"
+@rendermode InteractiveServer
+@using SLAC.Core.Docentes.Entities
+@using SLAC.Core.Docentes.Repositories
+@using SLAC.Core.Estudiantes.Entities
+@using SLAC.Core.Estudiantes.Repositories
+@using SLAC.Features.Attendance.Services
+
+@inject IUserSessionService SessionService
+@inject IEstudianteRepository EstudianteRepo
+@inject IDocenteRepository DocenteRepo
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>SLAC - Iniciar Sesión</PageTitle>
+
+<div class="login-wrapper">
+    <MudCard Elevation="8" Class="login-card pa-6 pa-md-8 rounded-xl">
+        <div class="text-center mb-6">
+            <div class="d-inline-flex pa-3 rounded-circle mb-3" style="background: rgba(79, 70, 229, 0.1);">
+                <MudIcon Icon="@Icons.Material.Filled.QrCodeScanner" Size="Size.Large" Color="Color.Primary" />
+            </div>
+            <MudText Typo="Typo.h4" Style="font-weight: 800; letter-spacing: -0.5px;" Color="Color.Primary">
+                SLAC
+            </MudText>
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">
+                Sistema de Lista de Asistencia a Clases
+            </MudText>
+            <MudText Typo="Typo.caption" Color="Color.Default">
+                Selecciona tu perfil institucional para ingresar
+            </MudText>
+        </div>
+
+        <MudTabs @bind-ActivePanelIndex="_tabActiva" Rounded="true" ApplyEffectsToContainer="true" Elevation="1" Color="Color.Primary" Centered="true">
+            <!-- PESTAÑA 1: ESTUDIANTE -->
+            <MudTabPanel Text="Estudiante" Icon="@Icons.Material.Filled.School">
+                <div class="pa-4">
+                    <MudText Typo="Typo.body2" Class="mb-3 text-center text-muted">
+                        Ingresa con tu Código de Estudiante, CI o Correo Institucional
+                    </MudText>
+
+                    <MudTextField @bind-Value="_codigoEstudianteInput"
+                                  Label="Código de Estudiante, CI o Correo *"
+                                  Variant="Variant.Outlined"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Badge"
+                                  Class="mb-4" />
+
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               FullWidth="true"
+                               Size="Size.Large"
+                               StartIcon="@Icons.Material.Filled.Login"
+                               OnClick="IngresarComoEstudianteAsync"
+                               Disabled="_cargando">
+                        @(_cargando ? "Verificando..." : "Ingresar como Estudiante")
+                    </MudButton>
+                </div>
+            </MudTabPanel>
+
+            <!-- PESTAÑA 2: DOCENTE -->
+            <MudTabPanel Text="Docente" Icon="@Icons.Material.Filled.Person">
+                <div class="pa-4">
+                    <MudText Typo="Typo.body2" Class="mb-3 text-center text-muted">
+                        Accede con tu Correo Institucional o Código de Docente
+                    </MudText>
+
+                    <MudTextField @bind-Value="_docenteInput"
+                                  Label="Correo Institucional o Código de Docente *"
+                                  Variant="Variant.Outlined"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Email"
+                                  Class="mb-4" />
+
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               FullWidth="true"
+                               Size="Size.Large"
+                               StartIcon="@Icons.Material.Filled.Class"
+                               OnClick="IngresarComoDocenteAsync"
+                               Disabled="_cargando">
+                        @(_cargando ? "Verificando..." : "Ingresar como Docente")
+                    </MudButton>
+                </div>
+            </MudTabPanel>
+
+            <!-- PESTAÑA 3: ADMINISTRADOR -->
+            <MudTabPanel Text="Administrador" Icon="@Icons.Material.Filled.AdminPanelSettings">
+                <div class="pa-4">
+                    <MudText Typo="Typo.body2" Class="mb-3 text-center text-muted">
+                        Gestión académica institucional (Docentes, Materias, Horarios y Aulas)
+                    </MudText>
+
+                    <MudTextField @bind-Value="_correoAdminInput"
+                                  Label="Correo de Administrador *"
+                                  Variant="Variant.Outlined"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.AlternateEmail"
+                                  Class="mb-3" />
+
+                    <MudTextField @bind-Value="_codigoAdminInput"
+                                  Label="Código / PIN de Administrador *"
+                                  InputType="InputType.Password"
+                                  Variant="Variant.Outlined"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.VpnKey"
+                                  Class="mb-4" />
+
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Success"
+                               FullWidth="true"
+                               Size="Size.Large"
+                               StartIcon="@Icons.Material.Filled.DashboardCustomize"
+                               OnClick="IngresarComoAdmin"
+                               Disabled="_cargando">
+                        Ingresar al Panel Administrador
+                    </MudButton>
+                </div>
+            </MudTabPanel>
+        </MudTabs>
+    </MudCard>
+</div>
+
+<style>
+    .login-wrapper {
+        min-height: 80vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+    }
+    .login-card {
+        width: 100%;
+        max-width: 520px;
+        background: var(--mud-palette-surface);
+        border: 1px solid rgba(226, 232, 240, 0.8);
+    }
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "rol")]
+    public string? RolParam { get; set; }
+
+    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private bool _cargando = false;
+    private int _tabActiva = 0;
+
+    private string _codigoEstudianteInput = string.Empty;
+    private string _docenteInput = string.Empty;
+    private string _correoAdminInput = string.Empty;
+    private string _codigoAdminInput = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(RolParam, "docente", StringComparison.OrdinalIgnoreCase))
+        {
+            _tabActiva = 1;
+        }
+        else if (string.Equals(RolParam, "admin", StringComparison.OrdinalIgnoreCase))
+        {
+            _tabActiva = 2;
+        }
+        else
+        {
+            _tabActiva = 0;
+        }
+    }
+
+    private async Task IngresarComoEstudianteAsync()
+    {
+        var input = _codigoEstudianteInput?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            Snackbar.Add("Por favor ingresa tu código de estudiante, CI o correo institucional.", Severity.Warning);
+            return;
+        }
+
+        _cargando = true;
+        try
+        {
+            // 1. Intentar por código directo
+            var est = await EstudianteRepo.ObtenerPorCodigoAsync(_institucionId, input);
+
+            // 2. Si no se encontró por código, buscar en el listado por código, correo o carnet de forma segura (sin NRE)
+            if (est == null)
+            {
+                var todos = await EstudianteRepo.ListarPorInstitucionAsync(_institucionId);
+                est = todos.FirstOrDefault(e =>
+                    (!string.IsNullOrEmpty(e.Codigo) && string.Equals(e.Codigo.Trim(), input, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(e.Correo) && string.Equals(e.Correo.Trim(), input, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(e.DocumentoIdentidad) && string.Equals(e.DocumentoIdentidad.Trim(), input, StringComparison.OrdinalIgnoreCase))
+                );
+            }
+
+            if (est != null)
+            {
+                SessionService.IniciarSesionEstudiante(est);
+                Snackbar.Add($"Bienvenido, {est.NombreCompleto}", Severity.Success);
+                Navigation.NavigateTo("/estudiante/materias");
+            }
+            else
+            {
+                Snackbar.Add("No se encontró ningún estudiante con ese código o correo en la institución.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al iniciar sesión: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private async Task IngresarComoDocenteAsync()
+    {
+        var input = _docenteInput?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            Snackbar.Add("Por favor ingresa tu correo institucional o código de docente.", Severity.Warning);
+            return;
+        }
+
+        _cargando = true;
+        try
+        {
+            var docentes = await DocenteRepo.ListarPorInstitucionAsync(_institucionId);
+            var docente = docentes.FirstOrDefault(d =>
+                (!string.IsNullOrEmpty(d.Correo) && string.Equals(d.Correo.Trim(), input, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(d.Codigo) && string.Equals(d.Codigo.Trim(), input, StringComparison.OrdinalIgnoreCase))
+            );
+
+            if (docente == null)
+            {
+                Snackbar.Add("Docente no encontrado. Verifica tu correo o código registrado.", Severity.Error);
+                return;
+            }
+
+            SessionService.IniciarSesionDocente(docente);
+            Snackbar.Add($"Bienvenido docente, {docente.NombreCompleto}", Severity.Success);
+            Navigation.NavigateTo("/docente/materias");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al ingresar docente: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private void IngresarComoAdmin()
+    {
+        var correo = _correoAdminInput?.Trim() ?? string.Empty;
+        var codigo = _codigoAdminInput?.Trim() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(correo) || string.IsNullOrWhiteSpace(codigo))
+        {
+            Snackbar.Add("Ingresa el correo y código de administrador.", Severity.Warning);
+            return;
+        }
+
+        // Credenciales oficiales de administración:
+        // Correo: sc.upds.m@upds.net.bo
+        // Código: 75604458
+        if (string.Equals(correo, "sc.upds.m@upds.net.bo", StringComparison.OrdinalIgnoreCase) && codigo == "75604458")
+        {
+            SessionService.IniciarSesionAdmin(_institucionId);
+            Snackbar.Add("Sesión iniciada como Administrador Institucional.", Severity.Success);
+            Navigation.NavigateTo("/admin/materias");
+        }
+        else
+        {
+            Snackbar.Add("Credenciales de Administrador incorrectas. Revisa credenciales.txt", Severity.Error);
+        }
+    }
+}
+

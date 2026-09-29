@@ -16,5 +16,8 @@ public class AsistenciaDetalle
     public DateTimeOffset? HoraLlegada { get; set; }
     public int? MinutosDesdeInicio { get; set; }
     public Guid? DispositivoId { get; set; }
+    public double? Latitud { get; set; }
+    public double? Longitud { get; set; }
+    public double? PrecisionGps { get; set; }
     public DateTimeOffset CreadoEn { get; set; } = DateTimeOffset.UtcNow;
 }

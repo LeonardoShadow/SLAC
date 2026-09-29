@@ -159,11 +159,13 @@ public static class AttendanceStudentView
         string qrToken,
         string materiaNombre,
         string materiaCodigo,
-        string? errorMensaje = null)
+        string? errorMensaje = null,
+        string modo = "gps")
     {
         var tokenSeguro = EncodeHtml(qrToken);
         var materia = EncodeHtml(materiaNombre);
         var codigoMat = EncodeHtml(materiaCodigo);
+        var esWifi = string.Equals(modo, "wifi", StringComparison.OrdinalIgnoreCase);
         var errorHtml = string.IsNullOrWhiteSpace(errorMensaje)
             ? ""
             : $$"""
@@ -300,45 +302,279 @@ public static class AttendanceStudentView
             <div class="card">
                 <div class="header-tag">{{codigoMat}}</div>
                 <h1>{{materia}}</h1>
-                <p class="desc">Primer escaneo detectado. Registra tus datos para vincular este dispositivo y marcar asistencia.</p>
+                <p class="desc">Primer escaneo detectado. Vincula este teléfono móvil a tu identidad estudiantil para registrar tu asistencia de hoy.</p>
 
                 {{errorHtml}}
 
-                <form method="POST" action="/a/{{sesionId}}">
+                @if (esWifi)
+                {
+                    <div id="gps-status" style="display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 0.75rem; padding: 0.65rem 0.85rem; font-size: 0.8125rem; color: #34d399; margin-bottom: 1.25rem;">
+                        <span>📶 <b>Modo Red Wi-Fi Aula:</b> Conexión autorizada directamente por código de sesión.</span>
+                    </div>
+                }
+                else
+                {
+                    <div id="gps-status" style="display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 0.75rem; padding: 0.65rem 0.85rem; font-size: 0.8125rem; color: #93c5fd; margin-bottom: 1.25rem;">
+                        <span>📡 Calibrando ubicación GPS para confirmar asistencia en aula...</span>
+                    </div>
+                }
+
+                <form method="POST" action="/a/{{sesionId}}" id="regForm">
                     <input type="hidden" name="t" value="{{tokenSeguro}}" />
+                    <input type="hidden" name="modo" value="{{modo}}" />
+                    <input type="hidden" id="lat" name="lat" />
+                    <input type="hidden" id="lon" name="lon" />
+                    <input type="hidden" id="acc" name="acc" />
 
                     <div class="form-group">
-                        <label for="codigo">Código o Matrícula Institucional *</label>
-                        <input type="text" id="codigo" name="codigo" required placeholder="Ej. 17894520" autofocus />
-                    </div>
-
-                    <div class="form-group">
-                        <label for="nombres">Nombres *</label>
-                        <input type="text" id="nombres" name="nombres" required placeholder="Tus nombres" />
-                    </div>
-
-                    <div class="form-group">
-                        <label for="apellidos">Apellidos *</label>
-                        <input type="text" id="apellidos" name="apellidos" required placeholder="Tus apellidos" />
-                    </div>
-
-                    <div class="form-group">
-                        <label for="correo">Correo Institucional *</label>
-                        <input type="email" id="correo" name="correo" required placeholder="estudiante@universidad.edu" />
+                        <label for="identificador">Código de Estudiante o Correo Institucional (CI) *</label>
+                        <input type="text" id="identificador" name="identificador" required placeholder="Ej. 8127564 o correo institucional" autofocus />
+                        <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 0.25rem;">
+                            Tu código de estudiante y carnet (CI) son el mismo valor (ej. 8127564).
+                        </span>
                     </div>
 
                     <div class="terms-box">
-                        <input type="checkbox" id="acepta" name="aceptaTerminos" value="true" required />
+                        <input type="checkbox" id="acepta" name="aceptaTerminos" value="true" required checked />
                         <label for="acepta" class="terms-text">
-                            Autorizo la vinculación de este dispositivo y acepto las políticas de asistencia institucional bajo firma criptográfica.
+                            Autorizo la vinculación de este teléfono celular como mi dispositivo oficial de asistencia bajo firma criptográfica ES256.
                         </label>
                     </div>
 
-                    <button type="submit" class="submit-btn">
-                        Registrar y Marcar Asistencia
+                    <button type="submit" class="submit-btn" id="submitBtn">
+                        @(esWifi ? "📱 Vincular Teléfono y Marcar Asistencia" : "📍 Vincular Teléfono y Marcar Asistencia")
                     </button>
                 </form>
             </div>
+
+            <script>
+                const esWifi = {{esWifi.ToString().ToLowerInvariant()}};
+                if (!esWifi) {
+                    const gpsBox = document.getElementById('gps-status');
+                    if (navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition(
+                            (pos) => {
+                                document.getElementById('lat').value = pos.coords.latitude;
+                                document.getElementById('lon').value = pos.coords.longitude;
+                                document.getElementById('acc').value = pos.coords.accuracy;
+                                gpsBox.style.background = 'rgba(16, 185, 129, 0.15)';
+                                gpsBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                                gpsBox.style.color = '#34d399';
+                                gpsBox.innerHTML = '✅ <b>Ubicación GPS fijada:</b> Precisión de ' + Math.round(pos.coords.accuracy) + 'm';
+                            },
+                            (err) => {
+                                gpsBox.style.background = 'rgba(239, 68, 68, 0.15)';
+                                gpsBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                                gpsBox.style.color = '#fca5a5';
+                                gpsBox.innerHTML = '⚠️ <b>Permiso de GPS Requerido:</b> Activa la ubicación en tu navegador para validar asistencia en el aula.';
+                            },
+                            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+                        );
+                    } else {
+                        gpsBox.style.background = 'rgba(239, 68, 68, 0.15)';
+                        gpsBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                        gpsBox.style.color = '#fca5a5';
+                        gpsBox.innerHTML = '⚠️ Tu navegador no soporta geolocalización GPS.';
+                    }
+                }
+            </script>
+        </body>
+        </html>
+        """;
+    }
+
+    public static string RenderGpsAutoVerifyView(Guid sesionId, string qrToken, string materiaNombre, string materiaCodigo)
+    {
+        var materia = EncodeHtml(materiaNombre);
+        var codigoMat = EncodeHtml(materiaCodigo);
+        var tokenSeguro = EncodeHtml(qrToken);
+
+        return $$"""
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Verificando GPS en Aula | SLAC</title>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+            <style>
+                :root {
+                    --bg-dark: #090d16;
+                    --card-bg: rgba(17, 24, 39, 0.85);
+                    --border: rgba(255, 255, 255, 0.08);
+                    --primary: #4f46e5;
+                    --success: #10b981;
+                    --text-main: #f8fafc;
+                    --text-muted: #94a3b8;
+                }
+                * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+                body {
+                    background: radial-gradient(circle at top center, #1e1b4b 0%, var(--bg-dark) 70%);
+                    color: var(--text-main);
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 1.25rem;
+                }
+                .card {
+                    background: var(--card-bg);
+                    backdrop-filter: blur(16px);
+                    border: 1px solid var(--border);
+                    border-radius: 1.5rem;
+                    padding: 2.25rem 1.75rem;
+                    width: 100%;
+                    max-width: 440px;
+                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+                    text-align: center;
+                    animation: fadeIn 0.3s ease-out;
+                }
+                @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+                .radar-box {
+                    position: relative;
+                    width: 90px;
+                    height: 90px;
+                    margin: 0 auto 1.5rem auto;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .pulse-ring {
+                    position: absolute;
+                    width: 100%;
+                    height: 100%;
+                    border-radius: 50%;
+                    border: 2px solid #6366f1;
+                    animation: pulse 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+                }
+                .pulse-ring:nth-child(2) { animation-delay: 0.6s; }
+                .pulse-ring:nth-child(3) { animation-delay: 1.2s; }
+                @keyframes pulse {
+                    0% { transform: scale(0.6); opacity: 0.9; }
+                    100% { transform: scale(1.6); opacity: 0; }
+                }
+                .radar-core {
+                    position: relative;
+                    width: 60px;
+                    height: 60px;
+                    background: rgba(79, 70, 229, 0.2);
+                    border: 2px solid #6366f1;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #818cf8;
+                    z-index: 2;
+                }
+                .tag {
+                    display: inline-block;
+                    background: rgba(99, 102, 241, 0.15);
+                    color: #818cf8;
+                    font-size: 0.75rem;
+                    font-weight: 700;
+                    padding: 0.3rem 0.75rem;
+                    border-radius: 9999px;
+                    letter-spacing: 0.05em;
+                    text-transform: uppercase;
+                    margin-bottom: 0.5rem;
+                    border: 1px solid rgba(99, 102, 241, 0.3);
+                }
+                h1 { font-size: 1.4rem; font-weight: 800; margin-bottom: 0.4rem; }
+                p.sub { font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1.25rem; line-height: 1.4; }
+                .status-badge {
+                    background: rgba(255, 255, 255, 0.04);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 0.75rem;
+                    padding: 0.75rem 1rem;
+                    font-size: 0.875rem;
+                    color: #cbd5e1;
+                    margin-bottom: 1.5rem;
+                }
+                .btn {
+                    width: 100%;
+                    background: var(--primary);
+                    color: #fff;
+                    font-size: 0.9375rem;
+                    font-weight: 700;
+                    padding: 0.85rem;
+                    border: none;
+                    border-radius: 0.75rem;
+                    cursor: pointer;
+                    display: none;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="radar-box">
+                    <div class="pulse-ring"></div>
+                    <div class="pulse-ring"></div>
+                    <div class="radar-core">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="3 11 22 2 13 21 11 13 3 11"></polygon>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="tag">{{codigoMat}}</div>
+                <h1>{{materia}}</h1>
+                <p class="sub">Dispositivo oficial reconocido. Validando tu presencia física en el aula mediante GPS...</p>
+
+                <div class="status-badge" id="statusBadge">
+                    📡 Conectando con satélites GPS...
+                </div>
+
+                <form method="POST" action="/a/{{sesionId}}/confirmar-gps" id="gpsForm">
+                    <input type="hidden" name="t" value="{{tokenSeguro}}" />
+                    <input type="hidden" id="lat" name="lat" />
+                    <input type="hidden" id="lon" name="lon" />
+                    <input type="hidden" id="acc" name="acc" />
+                </form>
+
+                <button class="btn" id="retryBtn" onclick="solicitarUbicacion()">
+                    🔄 Reintentar Detección GPS
+                </button>
+            </div>
+
+            <script>
+                function solicitarUbicacion() {
+                    const badge = document.getElementById('statusBadge');
+                    const retryBtn = document.getElementById('retryBtn');
+                    badge.innerHTML = '📡 Obteniendo coordenadas satelitales...';
+                    badge.style.borderColor = 'rgba(99, 102, 241, 0.3)';
+                    retryBtn.style.display = 'none';
+
+                    if (!navigator.geolocation) {
+                        badge.innerHTML = '⚠️ Tu navegador no soporta geolocalización GPS.';
+                        badge.style.color = '#fca5a5';
+                        return;
+                    }
+
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            badge.innerHTML = '✅ Ubicación verificada (' + Math.round(pos.coords.accuracy) + 'm). Registrando asistencia...';
+                            badge.style.color = '#34d399';
+                            document.getElementById('lat').value = pos.coords.latitude;
+                            document.getElementById('lon').value = pos.coords.longitude;
+                            document.getElementById('acc').value = pos.coords.accuracy;
+                            document.getElementById('gpsForm').submit();
+                        },
+                        (err) => {
+                            badge.innerHTML = '⚠️ <b>Permiso Requerido:</b> Debes conceder permiso de ubicación al navegador para confirmar tu presencia en el aula.';
+                            badge.style.color = '#fca5a5';
+                            badge.style.background = 'rgba(239, 68, 68, 0.15)';
+                            badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                            retryBtn.style.display = 'block';
+                        },
+                        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+                    );
+                }
+
+                // Iniciar solicitud inmediata al cargar
+                window.addEventListener('DOMContentLoaded', solicitarUbicacion);
+            </script>
         </body>
         </html>
         """;
@@ -437,12 +673,16 @@ public static class AttendanceStudentView
         string? estudianteNombre,
         string? estudianteCodigo,
         string? materiaNombre,
-        string? mensaje)
+        string? mensaje,
+        Guid? solicitudId = null,
+        Guid? sesionId = null)
     {
         var nom = EncodeHtml(estudianteNombre ?? "Estudiante");
         var cod = EncodeHtml(estudianteCodigo ?? "");
         var mat = EncodeHtml(materiaNombre ?? "Clase");
         var msg = EncodeHtml(mensaje ?? "Solicita a tu docente en el aula que autorice tu nuevo dispositivo.");
+        var solIdStr = solicitudId?.ToString() ?? "";
+        var sesIdStr = sesionId?.ToString() ?? "";
 
         return $$"""
         <!DOCTYPE html>
@@ -541,15 +781,15 @@ public static class AttendanceStudentView
         </head>
         <body>
             <div class="card">
-                <div class="icon-circle">
+                <div class="icon-circle" id="iconBox">
                     <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
                         <line x1="12" y1="18" x2="12.01" y2="18"></line>
                     </svg>
                 </div>
-                <div class="badge">Revinculación en Proceso (RN-05)</div>
-                <h1>Solicitud de Autorización</h1>
-                <p class="desc">{{msg}}</p>
+                <div class="badge" id="statusBadge">Revinculación en Proceso (RN-05)</div>
+                <h1 id="statusTitle">Solicitud de Autorización</h1>
+                <p class="desc" id="statusDesc">{{msg}}</p>
 
                 <div class="info-box">
                     <div style="margin-bottom: 0.4rem;"><b>Estudiante:</b> {{nom}}</div>
@@ -557,10 +797,44 @@ public static class AttendanceStudentView
                     <div><b>Asignatura:</b> {{mat}}</div>
                 </div>
 
-                <button onclick="window.location.reload();" class="btn">
+                <button onclick="window.location.reload();" class="btn" id="reloadBtn">
                     Recargar Página (Verificar Aprobación)
                 </button>
             </div>
+
+            <script>
+                const solId = "{{solIdStr}}";
+                const sesId = "{{sesIdStr}}";
+                if (solId && solId.length > 10) {
+                    const timer = setInterval(async () => {
+                        try {
+                            const res = await fetch(`/a/revinculacion-status/${solId}?sesionId=${sesId}`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (data && data.estado === "aprobada") {
+                                    clearInterval(timer);
+                                    const b = document.getElementById("statusBadge");
+                                    if (b) {
+                                        b.style.background = "rgba(16, 185, 129, 0.2)";
+                                        b.style.color = "#10b981";
+                                        b.style.borderColor = "rgba(16, 185, 129, 0.5)";
+                                        b.innerText = "¡AUTORIZADO POR EL DOCENTE!";
+                                    }
+                                    const t = document.getElementById("statusTitle");
+                                    if (t) t.innerText = "¡Dispositivo Aprobado!";
+                                    const d = document.getElementById("statusDesc");
+                                    if (d) d.innerText = "Tu docente ha autorizado este teléfono exitosamente. Registrando tu asistencia en pantalla...";
+                                    setTimeout(() => {
+                                        window.location.reload();
+                                    }, 1000);
+                                }
+                            }
+                        } catch (e) {
+                            console.warn("Poll check error:", e);
+                        }
+                    }, 2000);
+                }
+            </script>
         </body>
         </html>
         """;

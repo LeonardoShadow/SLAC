@@ -79,6 +79,9 @@ public class SupabaseAsistenciaDetalleRepository(Client supabaseClient, ILogger<
                 HoraLlegada = detalle.HoraLlegada?.UtcDateTime,
                 MinutosDesdeInicio = detalle.MinutosDesdeInicio,
                 DispositivoId = detalle.DispositivoId,
+                Latitud = detalle.Latitud,
+                Longitud = detalle.Longitud,
+                PrecisionGps = detalle.PrecisionGps,
                 CreadoEn = detalle.CreadoEn.UtcDateTime
             };
 
@@ -146,6 +149,27 @@ public class SupabaseAsistenciaDetalleRepository(Client supabaseClient, ILogger<
         return count;
     }
 
+    public async Task EliminarPorListaAsync(Guid listaId, CancellationToken ct = default)
+    {
+        var idsToRemove = _fallbackStore.Values.Where(d => d.ListaId == listaId).Select(d => d.Id).ToList();
+        foreach (var id in idsToRemove)
+        {
+            _fallbackStore.TryRemove(id, out _);
+        }
+
+        try
+        {
+            await _supabaseClient
+                .From<AsistenciaDetalleDbModel>()
+                .Filter("lista_id", Postgrest.Constants.Operator.Equals, listaId.ToString())
+                .Delete(cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error eliminando detalles de asistencia para lista {ListaId} en Supabase.", listaId);
+        }
+    }
+
     private static AsistenciaDetalle MapToEntity(AsistenciaDetalleDbModel m) => new()
     {
         Id = m.Id,
@@ -154,9 +178,14 @@ public class SupabaseAsistenciaDetalleRepository(Client supabaseClient, ILogger<
         EstudianteId = m.EstudianteId,
         Estado = m.Estado,
         Origen = m.Origen,
-        HoraLlegada = m.HoraLlegada,
+        HoraLlegada = m.HoraLlegada.HasValue
+            ? new DateTimeOffset(DateTime.SpecifyKind(m.HoraLlegada.Value, DateTimeKind.Utc))
+            : null,
         MinutosDesdeInicio = m.MinutosDesdeInicio,
         DispositivoId = m.DispositivoId,
-        CreadoEn = m.CreadoEn
+        Latitud = m.Latitud,
+        Longitud = m.Longitud,
+        PrecisionGps = m.PrecisionGps,
+        CreadoEn = new DateTimeOffset(DateTime.SpecifyKind(m.CreadoEn, DateTimeKind.Utc))
     };
 }

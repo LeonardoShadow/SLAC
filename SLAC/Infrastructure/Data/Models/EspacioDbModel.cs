@@ -21,6 +21,15 @@ public class EspacioDbModel : BaseModel
     [Column("capacidad")]
     public int Capacidad { get; set; } = 30;
 
+    [Column("latitud")]
+    public double? Latitud { get; set; }
+
+    [Column("longitud")]
+    public double? Longitud { get; set; }
+
+    [Column("radio_metros")]
+    public int RadioMetros { get; set; } = 300;
+
     [Column("creado_en")]
     public DateTime CreadoEn { get; set; } = DateTime.UtcNow;
 }

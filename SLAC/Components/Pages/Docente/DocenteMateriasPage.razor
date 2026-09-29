@@ -1,9 +1,17 @@
 @page "/docente/materias"
 @rendermode InteractiveServer
+@using SLAC.Core.Estudiantes.Repositories
+@using SLAC.Core.Estudiantes.Entities
+@using SLAC.Core.Attendance.Repositories
+@using SLAC.Core.Attendance.Entities
+@using SLAC.Features.Attendance.Services
 @inject IMateriaRepository MateriaRepo
 @inject IDocenteRepository DocenteRepo
 @inject IPeriodoAcademicoRepository PeriodoRepo
 @inject IEspacioRepository EspacioRepo
+@inject IEstudianteRepository EstudianteRepo
+@inject ISuscripcionRepository SuscripcionRepo
+@inject IUserSessionService SessionService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
@@ -165,14 +173,23 @@
                             </div>
                         </MudCardContent>
 
-                        <MudCardActions Class="pa-4 pt-0 d-flex justify-space-between align-center">
-                            <MudButton Variant="Variant.Filled"
-                                       Color="Color.Primary"
-                                       Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.QrCode2"
-                                       OnClick="@(() => IniciarProyeccion(materia.Id))">
-                                Proyectar QR
-                            </MudButton>
+                        <MudCardActions Class="pa-4 pt-0 d-flex justify-space-between align-center flex-wrap gap-2">
+                            <div class="d-flex gap-2">
+                                <MudButton Variant="Variant.Filled"
+                                           Color="Color.Primary"
+                                           Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.QrCode2"
+                                           OnClick="@(() => IniciarProyeccion(materia.Id))">
+                                    Proyectar QR
+                                </MudButton>
+                                <MudButton Variant="Variant.Outlined"
+                                           Color="Color.Info"
+                                           Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.Group"
+                                           OnClick="@(() => AbrirGestionEstudiantes(materia))">
+                                    Estudiantes
+                                </MudButton>
+                            </div>
 
                             <div class="d-flex gap-1">
                                 <MudIconButton Icon="@Icons.Material.Filled.Edit"
@@ -208,6 +225,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!SessionService.EstaAutenticado || (SessionService.RolActual != RolUsuario.Docente && SessionService.RolActual != RolUsuario.Administrador))
+        {
+            Navigation.NavigateTo("/login?rol=docente");
+            return;
+        }
+
         CalcularDiaHoy();
         await CargarDatosAsync();
     }
@@ -268,7 +291,7 @@
                 _espacios = [aula1, aula2];
             }
 
-            // 2. Cargar docente actual o crear demo
+            // 2. Cargar docente actual o crear demo oficial
             var docentes = await DocenteRepo.ListarPorInstitucionAsync(_institucionId);
             _docenteActual = docentes.FirstOrDefault();
             if (_docenteActual == null)
@@ -276,12 +299,19 @@
                 _docenteActual = new Docente
                 {
                     InstitucionId = _institucionId,
-                    UserId = Guid.Parse("22222222-2222-2222-2222-222222222222"),
-                    Nombres = "Prof. Carlos",
-                    Apellidos = "Mendoza",
-                    Correo = "cmendoza@universidad.edu"
+                    UserId = Guid.Parse("55555555-5555-5555-5555-555555555555"),
+                    Nombres = "Jimmy",
+                    Apellidos = "Requena",
+                    Correo = "sc.jimmy.requena.l@upds.edu.bo",
+                    Codigo = "87438"
                 };
                 await DocenteRepo.GuardarAsync(_docenteActual);
+            }
+
+            if (SessionService.UsuarioActual?.DocenteId.HasValue == true)
+            {
+                var docSesion = await DocenteRepo.ObtenerPorIdAsync(SessionService.UsuarioActual.DocenteId.Value);
+                if (docSesion != null) _docenteActual = docSesion;
             }
 
             // 3. Cargar materias del docente
@@ -292,6 +322,55 @@
             _materiasHoy = _materias
                 .Where(m => m.Estado == "activa" && m.ObtenerListaDias().Contains(_diaHoySigla))
                 .ToList();
+
+            // 5. Pre-cargar estudiante oficial de prueba (Leonardo David Vargas Monasterio) si no existe
+            var estLeo = await EstudianteRepo.ObtenerPorCodigoAsync(_institucionId, "8127564");
+            if (estLeo == null)
+            {
+                estLeo = new Estudiante
+                {
+                    InstitucionId = _institucionId,
+                    Codigo = "8127564",
+                    Nombres = "Leonardo David",
+                    Apellidos = "Vargas Monasterio",
+                    Correo = "sc.leonardo.vargas.m@upds.net.bo",
+                    DocumentoIdentidad = "8127564",
+                    ConsentimientoEn = DateTimeOffset.UtcNow
+                };
+                estLeo = await EstudianteRepo.CrearOActualizarAsync(estLeo);
+            }
+
+            // Inscribir en las materias activas para que esté listo en el padrón
+            foreach (var mat in _materias)
+            {
+                var sub = await SuscripcionRepo.ObtenerAsync(mat.Id, estLeo.Id);
+                if (sub == null)
+                {
+                    await SuscripcionRepo.SuscribirAsync(new Suscripcion
+                    {
+                        InstitucionId = _institucionId,
+                        MateriaId = mat.Id,
+                        EstudianteId = estLeo.Id,
+                        Fecha = DateTimeOffset.UtcNow,
+                        Estado = "activa"
+                    });
+                }
+            }
+
+            // 6. Purgar registros obsoletos o no deseados (ej. 'Ana María García López')
+            var todosEstudiantes = await EstudianteRepo.ListarPorInstitucionAsync(_institucionId);
+            foreach (var estObsoleto in todosEstudiantes.Where(e =>
+                e.Codigo == "100234" ||
+                e.Codigo == "7654321" ||
+                (e.Correo != null && e.Correo.Contains("ana.garcia", StringComparison.OrdinalIgnoreCase)) ||
+                (e.Nombres != null && e.Nombres.Contains("Ana María", StringComparison.OrdinalIgnoreCase))))
+            {
+                foreach (var mat in _materias)
+                {
+                    await SuscripcionRepo.DesinscribirAsync(mat.Id, estObsoleto.Id);
+                }
+                await EstudianteRepo.EliminarAsync(estObsoleto.Id);
+            }
         }
         catch (Exception ex)
         {
@@ -331,7 +410,8 @@
         {
             { x => x.Materia, nuevaMateria },
             { x => x.Periodos, _periodos },
-            { x => x.Espacios, _espacios }
+            { x => x.Espacios, _espacios },
+            { x => x.EsAdmin, false }
         };
 
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
@@ -368,7 +448,8 @@
         {
             { x => x.Materia, clone },
             { x => x.Periodos, _periodos },
-            { x => x.Espacios, _espacios }
+            { x => x.Espacios, _espacios },
+            { x => x.EsAdmin, false }
         };
 
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
@@ -402,5 +483,17 @@
     private void IniciarProyeccion(Guid materiaId)
     {
         Navigation.NavigateTo($"/proyeccion/{materiaId}?reabrir=true");
+    }
+
+    private async Task AbrirGestionEstudiantes(Materia materia)
+    {
+        var parameters = new DialogParameters<GestionEstudiantesDialog>
+        {
+            { x => x.Materia, materia }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<GestionEstudiantesDialog>($"Padrón de Estudiantes - {materia.Nombre}", parameters, options);
+        await dialog.Result;
     }
 }

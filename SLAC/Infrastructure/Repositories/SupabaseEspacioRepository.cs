@@ -31,6 +31,9 @@ public class SupabaseEspacioRepository(Client supabaseClient, ILogger<SupabaseEs
                     Nombre = m.Nombre,
                     Tipo = m.Tipo,
                     Capacidad = m.Capacidad,
+                    Latitud = m.Latitud ?? -17.7762,
+                    Longitud = m.Longitud ?? -63.1951,
+                    RadioMetros = m.RadioMetros > 0 ? m.RadioMetros : 300,
                     CreadoEn = m.CreadoEn
                 })];
             }
@@ -61,6 +64,9 @@ public class SupabaseEspacioRepository(Client supabaseClient, ILogger<SupabaseEs
                     Nombre = response.Nombre,
                     Tipo = response.Tipo,
                     Capacidad = response.Capacidad,
+                    Latitud = response.Latitud ?? -17.7762,
+                    Longitud = response.Longitud ?? -63.1951,
+                    RadioMetros = response.RadioMetros > 0 ? response.RadioMetros : 300,
                     CreadoEn = response.CreadoEn
                 };
             }
@@ -84,6 +90,9 @@ public class SupabaseEspacioRepository(Client supabaseClient, ILogger<SupabaseEs
                 Nombre = espacio.Nombre,
                 Tipo = espacio.Tipo,
                 Capacidad = espacio.Capacidad,
+                Latitud = espacio.Latitud,
+                Longitud = espacio.Longitud,
+                RadioMetros = espacio.RadioMetros,
                 CreadoEn = espacio.CreadoEn.UtcDateTime
             };
 
@@ -111,6 +120,9 @@ public class SupabaseEspacioRepository(Client supabaseClient, ILogger<SupabaseEs
                 Nombre = espacio.Nombre,
                 Tipo = espacio.Tipo,
                 Capacidad = espacio.Capacidad,
+                Latitud = espacio.Latitud,
+                Longitud = espacio.Longitud,
+                RadioMetros = espacio.RadioMetros,
                 CreadoEn = espacio.CreadoEn.UtcDateTime
             };
 

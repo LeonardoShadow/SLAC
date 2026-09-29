@@ -27,7 +27,18 @@
             </MudText>
         </div>
 
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-wrap">
+            @if (_materiaSeleccionadaId != Guid.Empty)
+            {
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.QrCodeScanner"
+                           Href="@($"/proyeccion/{_materiaSeleccionadaId}")"
+                           Size="Size.Medium">
+                    Volver a Proyección QR
+                </MudButton>
+            }
+
             <MudButton Variant="Variant.Filled"
                        Color="Color.Success"
                        StartIcon="@Icons.Custom.FileFormats.FileExcel"
@@ -38,7 +49,7 @@
             </MudButton>
 
             <MudButton Variant="Variant.Outlined"
-                       Color="Color.Primary"
+                       Color="Color.Secondary"
                        StartIcon="@Icons.Material.Filled.FileDownload"
                        OnClick="ExportarCsvAsync"
                        Disabled="@(_loading || _faltas.Count == 0)"
@@ -57,7 +68,8 @@
                            Value="_materiaSeleccionadaId"
                            ValueChanged="OnMateriaCambiada"
                            Dense="true"
-                           Variant="Variant.Outlined">
+                           Variant="Variant.Outlined"
+                           ToStringFunc="@(id => _materias.FirstOrDefault(m => m.Id == id) is { } m ? $"{m.Nombre} ({m.Codigo})" : "Seleccione una materia...")">
                     @foreach (var m in _materias)
                     {
                         <MudSelectItem Value="@m.Id">@m.Nombre (@m.Codigo)</MudSelectItem>
@@ -247,12 +259,24 @@
         {
             var todas = await MateriaRepo.ListarPorInstitucionAsync(_institucionId);
             _materias = [.. todas.Where(m => m.Estado == "activa")];
-
-            if (MateriaIdQuery.HasValue && _materias.Any(m => m.Id == MateriaIdQuery.Value))
+            if (_materias.Count == 0 && todas.Count > 0)
             {
+                _materias = [.. todas];
+            }
+
+            if (MateriaIdQuery.HasValue)
+            {
+                if (!_materias.Any(m => m.Id == MateriaIdQuery.Value))
+                {
+                    var matQuery = await MateriaRepo.ObtenerPorIdAsync(MateriaIdQuery.Value);
+                    if (matQuery != null)
+                    {
+                        _materias.Insert(0, matQuery);
+                    }
+                }
                 _materiaSeleccionadaId = MateriaIdQuery.Value;
             }
-            else if (_materias.Count > 0)
+            else if (_materias.Count > 0 && _materiaSeleccionadaId == Guid.Empty)
             {
                 _materiaSeleccionadaId = _materias[0].Id;
             }

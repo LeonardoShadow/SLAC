@@ -10,5 +10,8 @@ public class Espacio
     public string Nombre { get; set; } = string.Empty;
     public string Tipo { get; set; } = "aula"; // 'aula', 'laboratorio'
     public int Capacidad { get; set; } = 30;
+    public double? Latitud { get; set; } = -17.7762;
+    public double? Longitud { get; set; } = -63.1951;
+    public int RadioMetros { get; set; } = 300;
     public DateTimeOffset CreadoEn { get; set; } = DateTimeOffset.UtcNow;
 }

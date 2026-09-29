@@ -1,0 +1,45 @@
+========================================================================
+SLAC - SISTEMA DE LISTA DE ASISTENCIA A CLASES
+CREDENCIALES INSTITUCIONALES OFICIALES
+========================================================================
+
+1. ADMINISTRADOR DE LA UNIDAD EDUCATIVA / INSTITUCIÓN
+------------------------------------------------------------------------
+Rol:       Administrador Institucional (Acceso Total)
+Correo:    sc.upds.m@upds.net.bo
+Código:    75604458
+Permisos:  - Catálogo de Aulas y Laboratorios
+           - Periodos Académicos
+           - Feriados y Días No Lectivos
+           - Gestión y edición de Profesores (Nombre, Código, Correo)
+           - Asignación de Profesores y Aulas a Materias
+           - Ver todas las materias con sus profesores y estudiantes inscritos
+           - Edición de Estudiantes y cambio exclusivo de horarios de clase
+
+2. PROFESOR / DOCENTE
+------------------------------------------------------------------------
+Rol:       Docente Titular
+Nombre:    Jimmy Requena
+Correo:    sc.jimmy.requena.l@upds.edu.bo
+Código:    87438
+Materia:   Programación Web II (SIS-0301)
+Permisos:  - Ver sus asignaturas asignadas
+           - Proyección del Código QR dinámico en sala
+           - Consulta del padrón de alumnos de su materia
+           - Reporte de Inasistencias Oficiales y Justificaciones
+           - Gestión de solicitudes de revinculación de celulares
+
+3. ESTUDIANTE OFICIAL DE PRUEBA
+------------------------------------------------------------------------
+Rol:       Estudiante
+Nombre:    Leonardo David Vargas Monasterio
+Código/CI: 8127564
+Correo:    sc.leonardo.vargas.m@upds.net.bo
+Permisos:  - Escaneo de QR en aula mediante celular
+           - Portal Estudiante: Ver materias inscritas
+           - Ver compañeros de clase
+           - Ver su historial personal de faltas y asistencias
+
+========================================================================
+GUARDAR ESTE DOCUMENTO PARA REFERENCIA DE INICIO DE SESIÓN
+========================================================================

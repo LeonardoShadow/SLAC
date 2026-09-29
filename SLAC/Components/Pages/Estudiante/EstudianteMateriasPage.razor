@@ -1,0 +1,238 @@
+@page "/estudiante/materias"
+@rendermode InteractiveServer
+@using SLAC.Core.Attendance.Entities
+@using SLAC.Core.Attendance.Repositories
+@using SLAC.Core.Docentes.Entities
+@using SLAC.Core.Docentes.Repositories
+@using SLAC.Core.Institucional.Entities
+@using SLAC.Core.Institucional.Repositories
+@using SLAC.Core.Estudiantes.Entities
+@using SLAC.Core.Estudiantes.Repositories
+@using SLAC.Features.Attendance.Services
+
+@inject IUserSessionService SessionService
+@inject IMateriaRepository MateriaRepo
+@inject ISuscripcionRepository SuscripcionRepo
+@inject IListaAsistenciaRepository ListaRepo
+@inject IAsistenciaDetalleRepository DetalleRepo
+@inject IEspacioRepository EspacioRepo
+@inject IEstudianteRepository EstudianteRepo
+@inject IDialogService DialogService
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>SLAC - Mis Materias (Estudiante)</PageTitle>
+
+<div class="pa-4 pa-md-6">
+    <div class="d-flex flex-column flex-sm-row justify-space-between align-start align-sm-center mb-6 gap-3">
+        <div>
+            <div class="d-flex align-center gap-2 mb-1">
+                <MudIcon Icon="@Icons.Material.Filled.School" Color="Color.Primary" Size="Size.Large" />
+                <MudText Typo="Typo.h4" Style="font-weight: 700;">Mis Materias Inscritas</MudText>
+            </div>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Estudiante: <b>@(_estudianteActual?.NombreCompleto ?? "Estudiante")</b> &bull; Código: <b>@(_estudianteActual?.Codigo ?? "N/D")</b>
+            </MudText>
+        </div>
+
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Warning"
+                   StartIcon="@Icons.Material.Filled.Assessment"
+                   Href="/estudiante/faltas">
+            Ver Mi Historial de Faltas
+        </MudButton>
+    </div>
+
+    @if (_cargando)
+    {
+        <div class="d-flex justify-center pa-12">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+        </div>
+    }
+    else if (_materiasConStats.Count == 0)
+    {
+        <MudCard Elevation="1" Class="pa-8 text-center rounded-lg">
+            <MudIcon Icon="@Icons.Material.Filled.Inbox" Size="Size.Large" Color="Color.Secondary" Class="mb-3" />
+            <MudText Typo="Typo.h6">No tienes materias inscritas actualmente</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Si crees que esto es un error, consulta con el docente de tu asignatura para verificar tu inscripción.
+            </MudText>
+        </MudCard>
+    }
+    else
+    {
+        <MudGrid>
+            @foreach (var item in _materiasConStats)
+            {
+                <MudItem xs="12" md="6" lg="4">
+                    <MudCard Elevation="3" Class="rounded-lg h-100 d-flex flex-column" Style="border-top: 4px solid var(--mud-palette-primary);">
+                        <MudCardHeader>
+                            <CardHeaderAvatar>
+                                <MudAvatar Color="Color.Primary" Variant="Variant.Filled">
+                                    <MudIcon Icon="@Icons.Material.Filled.MenuBook" />
+                                </MudAvatar>
+                            </CardHeaderAvatar>
+                            <CardHeaderContent>
+                                <MudText Typo="Typo.h6" Style="font-weight: 700;">@item.Materia.Nombre</MudText>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    <b>@item.Materia.Codigo</b> &bull; Grupo: <b>@item.Materia.Grupo</b>
+                                </MudText>
+                            </CardHeaderContent>
+                        </MudCardHeader>
+
+                        <MudCardContent Class="flex-grow-1">
+                            <div class="d-flex flex-column gap-2 mb-4">
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.AccessTime" Size="Size.Small" Color="Color.Secondary" />
+                                    <MudText Typo="Typo.body2">
+                                        <b>Horario:</b> @item.Materia.HoraInicio.ToString(@"hh\:mm") hrs (@item.Materia.Dias)
+                                    </MudText>
+                                </div>
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.MeetingRoom" Size="Size.Small" Color="Color.Secondary" />
+                                    <MudText Typo="Typo.body2">
+                                        <b>Aula:</b> @(item.EspacioNombre ?? "Por asignar")
+                                    </MudText>
+                                </div>
+                            </div>
+
+                            <!-- Métricas de Asistencia del Alumno -->
+                            <div class="pa-3 rounded-lg" style="background: rgba(79, 70, 229, 0.05); border: 1px solid rgba(79, 70, 229, 0.15);">
+                                <MudText Typo="Typo.caption" Style="font-weight: 700; color: #4338ca; text-transform: uppercase;">
+                                    Tu Asistencia en la Materia
+                                </MudText>
+                                <div class="d-flex justify-space-between align-center mt-2">
+                                    <div class="text-center">
+                                        <MudText Typo="Typo.h6" Style="font-weight: 700;" Color="Color.Success">@item.TotalAsistencias</MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Asistencias</MudText>
+                                    </div>
+                                    <div class="text-center">
+                                        <MudText Typo="Typo.h6" Style="font-weight: 700;" Color="Color.Error">@item.TotalFaltas</MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Faltas</MudText>
+                                    </div>
+                                    <div class="text-center">
+                                        <MudText Typo="Typo.h6" Style="font-weight: 700;" Color="Color.Primary">@item.TotalClases</MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Clases</MudText>
+                                    </div>
+                                </div>
+                            </div>
+                        </MudCardContent>
+
+                        <MudCardActions Class="pa-3 pt-0 d-flex justify-space-between">
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Group"
+                                       OnClick="@(() => AbrirDialogoCompaneros(item.Materia))">
+                                Ver Compañeros
+                            </MudButton>
+
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       Size="Size.Small"
+                                       EndIcon="@Icons.Material.Filled.ArrowForward"
+                                       Href="@($"/estudiante/faltas?materiaId={item.Materia.Id}")">
+                                Ver Detalle
+                            </MudButton>
+                        </MudCardActions>
+                    </MudCard>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+</div>
+
+@code {
+    private record MateriaStatsItem(
+        Materia Materia,
+        string? EspacioNombre,
+        int TotalClases,
+        int TotalAsistencias,
+        int TotalFaltas);
+
+    private bool _cargando = true;
+    private Estudiante? _estudianteActual;
+    private List<MateriaStatsItem> _materiasConStats = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!SessionService.EstaAutenticado || (SessionService.RolActual != RolUsuario.Estudiante && SessionService.RolActual != RolUsuario.Administrador))
+        {
+            Navigation.NavigateTo("/login?rol=estudiante");
+            return;
+        }
+
+        _cargando = true;
+        try
+        {
+            if (SessionService.UsuarioActual?.EstudianteId.HasValue == true)
+            {
+                var estId = SessionService.UsuarioActual.EstudianteId.Value;
+                _estudianteActual = await EstudianteRepo.ObtenerPorIdAsync(estId);
+                await CargarDatosEstudianteAsync(estId, SessionService.UsuarioActual.InstitucionId);
+            }
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private async Task<Estudiante?> ObtenerOEstablecerEstudianteDemoAsync(Guid institucionId)
+    {
+        var est = await EstudianteRepo.ObtenerPorCodigoAsync(institucionId, "8127564");
+        if (est != null) return est;
+
+        var todos = await EstudianteRepo.ListarPorInstitucionAsync(institucionId);
+        return todos.FirstOrDefault();
+    }
+
+    private async Task CargarDatosEstudianteAsync(Guid estudianteId, Guid institucionId)
+    {
+        var materias = await MateriaRepo.ListarPorInstitucionAsync(institucionId);
+        var stats = new List<MateriaStatsItem>();
+
+        foreach (var mat in materias)
+        {
+            var sub = await SuscripcionRepo.ObtenerAsync(mat.Id, estudianteId);
+            if (sub != null)
+            {
+                string? espacioNombre = null;
+                if (mat.EspacioId != Guid.Empty)
+                {
+                    var esp = await EspacioRepo.GetByIdAsync(mat.EspacioId);
+                    espacioNombre = esp?.Nombre;
+                }
+
+                var listas = await ListaRepo.ListarPorMateriaAsync(mat.Id);
+                int presentes = 0;
+                int faltas = 0;
+
+                foreach (var l in listas)
+                {
+                    var det = await DetalleRepo.ObtenerPorListaYEstudianteAsync(l.Id, estudianteId);
+                    if (det != null)
+                    {
+                        if (det.Estado == "Presente") presentes++;
+                        else if (det.Estado == "Falta") faltas++;
+                    }
+                }
+
+                stats.Add(new MateriaStatsItem(mat, espacioNombre, listas.Count, presentes, faltas));
+            }
+        }
+
+        _materiasConStats = stats;
+    }
+
+    private async Task AbrirDialogoCompaneros(Materia materia)
+    {
+        var parameters = new DialogParameters<EstudianteCompanerosDialog>
+        {
+            { x => x.Materia, materia }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        await DialogService.ShowAsync<EstudianteCompanerosDialog>($"Compañeros - {materia.Nombre}", parameters, options);
+    }
+}

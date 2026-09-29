@@ -1,0 +1,963 @@
+@using MudBlazor
+@using ClosedXML.Excel
+@using System.IO
+@using System.Text
+@using SLAC.Core.Attendance.Entities
+@using SLAC.Core.Attendance.Repositories
+@using SLAC.Core.Docentes.Entities
+@using SLAC.Core.Estudiantes.Entities
+@using SLAC.Core.Estudiantes.Repositories
+
+@inject IEstudianteRepository EstudianteRepo
+@inject ISuscripcionRepository SuscripcionRepo
+@inject IDispositivoRepository DispositivoRepo
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<MudDialog>
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.School" Color="Color.Primary" Size="Size.Large" />
+            <div>
+                <MudText Typo="Typo.h6" Style="font-weight: 700;">Padrón de Estudiantes: @Materia.Nombre</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Código: <b>@Materia.Codigo</b> &bull; Grupo: <b>@Materia.Grupo</b> &bull; Total Inscritos: <b>@_estudiantesInscritos.Count</b>
+                </MudText>
+            </div>
+        </div>
+    </TitleContent>
+
+    <DialogContent>
+        <MudTabs Rounded="true" ApplyEffectsToContainer="true" Elevation="2" Color="Color.Surface">
+            
+            <!-- PESTAÑA 1: CARGAR EXCEL / CSV -->
+            <MudTabPanel Text="Cargar Nómina (Excel / CSV)" Icon="@Icons.Material.Filled.UploadFile">
+                
+                <!-- Guía de Formato Requerido y Compatibilidad UPDS -->
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4" Icon="@Icons.Material.Filled.CheckCircle">
+                    <MudText Typo="Typo.subtitle2" Style="font-weight: 700;" Class="mb-1">
+                        📋 Soporte Inteligente de Planillas (Compatible con Planilla UPDS Oficial):
+                    </MudText>
+                    <MudText Typo="Typo.body2" Class="mb-2">
+                        Puedes importar directamente la <b>Planilla de Asistencia Consolidada oficial de la UPDS</b> o una plantilla personalizada. El sistema detecta automáticamente los encabezados sin importar en qué fila comience el archivo.
+                    </MudText>
+                    <div class="d-flex gap-2 flex-wrap mb-2">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">🎓 Planilla UPDS: <b>Estudiante</b> + <b>CI</b></MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled">📄 Formato Estándar: <b>Codigo</b>, <b>Nombres</b>, <b>Apellidos</b>, <b>Correo</b></MudChip>
+                    </div>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        * Si el archivo no incluye la columna de correo, el sistema generará automáticamente el correo institucional con el CI/Código del estudiante.
+                    </MudText>
+                </MudAlert>
+
+                <!-- Ejemplo visual del Excel -->
+                <div class="pa-3 mb-4 rounded-lg" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);">
+                    <div class="d-flex justify-space-between align-center mb-2">
+                        <MudText Typo="Typo.caption" Style="font-weight: 700; text-transform: uppercase; color: #94a3b8;">
+                            Vista Previa de Estructura Válida:
+                        </MudText>
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Success"
+                                   Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.FileDownload"
+                                   OnClick="DescargarPlantillaExcelAsync">
+                            Descargar Plantilla Oficial Excel (.xlsx)
+                        </MudButton>
+                    </div>
+
+                    <MudSimpleTable Dense="true" Hover="true" Bordered="true" Style="background: transparent;">
+                        <thead>
+                            <tr style="background: rgba(79, 70, 229, 0.15);">
+                                <th><b>Codigo</b></th>
+                                <th><b>Nombres</b></th>
+                                <th><b>Apellidos</b></th>
+                                <th><b>Correo</b></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>10203040</td>
+                                <td>Juan Carlos</td>
+                                <td>Pérez López</td>
+                                <td>sc.juan.perez.m@upds.net.bo</td>
+                            </tr>
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+
+                <!-- Subir Archivo -->
+                <div class="d-flex flex-column align-center justify-center pa-6 rounded-xl text-center mb-4"
+                     style="border: 2px dashed rgba(255,255,255,0.2); background: rgba(15, 23, 42, 0.4);">
+                    <MudIcon Icon="@Icons.Material.Filled.CloudUpload" Size="Size.Large" Color="Color.Primary" Class="mb-2" />
+                    <MudText Typo="Typo.subtitle1" Style="font-weight: 600;">
+                        Selecciona o arrastra el archivo de nómina de estudiantes
+                    </MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">
+                        Formatos soportados: Microsoft Excel (.xlsx) y Archivos Delimitados por Comas (.csv)
+                    </MudText>
+
+                    <InputFile id="fileInputExcel" OnChange="ProcesarArchivoExcelAsync" hidden accept=".xlsx, .csv" />
+                    <MudButton HtmlTag="label"
+                               for="fileInputExcel"
+                               Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               Size="Size.Medium"
+                               StartIcon="@Icons.Material.Filled.AttachFile">
+                        Examinar Archivo...
+                    </MudButton>
+                </div>
+
+                <!-- Vista previa de importación si hay filas leídas -->
+                @if (_filasImportadas.Count > 0)
+                {
+                    <MudCard Elevation="2" Class="pa-4 rounded-lg mt-4" Style="border: 1px solid var(--mud-palette-success);">
+                        <div class="d-flex justify-space-between align-center mb-3">
+                            <div>
+                                <MudText Typo="Typo.subtitle1" Color="Color.Success" Style="font-weight: 700;">
+                                    ✅ Se detectaron @_filasImportadas.Count estudiantes listos para importar
+                                </MudText>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    Revisa la previsualización y confirma la inscripción en la materia.
+                                </MudText>
+                            </div>
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Success"
+                                       Size="Size.Medium"
+                                       StartIcon="@Icons.Material.Filled.Check"
+                                       OnClick="ConfirmarImportacionAsync"
+                                       Disabled="@_importando">
+                                @(_importando ? "Inscribiendo..." : $"Inscribir {_filasImportadas.Count} Estudiantes")
+                            </MudButton>
+                        </div>
+
+                        <MudTable Items="@_filasImportadas" Dense="true" Hover="true" RowsPerPage="5">
+                            <HeaderContent>
+                                <MudTh>Código</MudTh>
+                                <MudTh>Nombres</MudTh>
+                                <MudTh>Apellidos</MudTh>
+                                <MudTh>Correo</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Código"><b>@context.Codigo</b></MudTd>
+                                <MudTd DataLabel="Nombres">@context.Nombres</MudTd>
+                                <MudTd DataLabel="Apellidos">@context.Apellidos</MudTd>
+                                <MudTd DataLabel="Correo">@context.Correo</MudTd>
+                            </RowTemplate>
+                            <PagerContent>
+                                <MudTablePager />
+                            </PagerContent>
+                        </MudTable>
+                    </MudCard>
+                }
+            </MudTabPanel>
+
+            <!-- PESTAÑA 2: INSCRIBIR INDIVIDUALMENTE -->
+            <MudTabPanel Text="Inscribir Individualmente" Icon="@Icons.Material.Filled.PersonAdd">
+                <MudCard Elevation="1" Class="pa-4 rounded-lg">
+                    <MudText Typo="Typo.subtitle1" Style="font-weight: 700;" Class="mb-1">
+                        Registrar un estudiante directamente sin archivo
+                    </MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+                        Completa los datos del estudiante para inscribirlo de inmediato a esta materia.
+                    </MudText>
+
+                    <MudGrid>
+                        <MudItem xs="12">
+                            <MudTextField @bind-Value="_nuevoCodigo"
+                                          Label="Código de Estudiante *"
+                                          Placeholder="Ej. 8127564"
+                                          Variant="Variant.Outlined"
+                                          HelperText="Código único institucional del estudiante"
+                                          Required="true" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudTextField @bind-Value="_nuevosNombres"
+                                          Label="Nombres *"
+                                          Variant="Variant.Outlined"
+                                          Required="true" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudTextField @bind-Value="_nuevosApellidos"
+                                          Label="Apellidos *"
+                                          Variant="Variant.Outlined"
+                                          Required="true" />
+                        </MudItem>
+                        <MudItem xs="12">
+                            <MudTextField @bind-Value="_nuevoCorreo"
+                                          Label="Correo Institucional *"
+                                          Variant="Variant.Outlined"
+                                          Required="true" />
+                        </MudItem>
+                    </MudGrid>
+
+                    <div class="d-flex justify-end mt-4">
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   Size="Size.Medium"
+                                   StartIcon="@Icons.Material.Filled.AddCircle"
+                                   OnClick="InscribirIndividualAsync"
+                                   Disabled="@_guardandoManual">
+                            @(_guardandoManual ? "Guardando..." : "Inscribir en Materia")
+                        </MudButton>
+                    </div>
+                </MudCard>
+            </MudTabPanel>
+
+            <!-- PESTAÑA 3: PADRÓN DE INSCRITOS -->
+            <MudTabPanel Text="@($"Inscritos ({_estudiantesInscritos.Count})")" Icon="@Icons.Material.Filled.PeopleAlt">
+                <div class="d-flex justify-space-between align-center mb-3">
+                    <MudTextField @bind-Value="_filtroBusqueda"
+                                  Placeholder="Buscar por código, nombre o correo..."
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Immediate="true"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="max-w-md" />
+
+                    <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled">
+                        <b>@_estudiantesInscritos.Count</b> Alumnos Registrados
+                    </MudChip>
+                </div>
+
+                @if (_cargandoLista)
+                {
+                    <div class="d-flex justify-center pa-6">
+                        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                    </div>
+                }
+                else if (!_estudiantesFiltrados.Any())
+                {
+                    <div class="text-center pa-8" style="color: #94a3b8;">
+                        <MudIcon Icon="@Icons.Material.Filled.GroupOff" Size="Size.Large" Class="mb-2" />
+                        <p>No hay estudiantes que coincidan con la búsqueda.</p>
+                    </div>
+                }
+                else
+                {
+                    <MudTable Items="@_estudiantesFiltrados" Dense="true" Hover="true" RowsPerPage="10">
+                        <HeaderContent>
+                            <MudTh>Código</MudTh>
+                            <MudTh>Estudiante</MudTh>
+                            <MudTh>Correo Institucional</MudTh>
+                            <MudTh>Estado Dispositivo</MudTh>
+                            <MudTh Style="text-align: right;">Acciones</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Código"><b>@context.Estudiante.Codigo</b></MudTd>
+                            <MudTd DataLabel="Estudiante">@context.Estudiante.NombreCompleto</MudTd>
+                            <MudTd DataLabel="Correo">@context.Estudiante.Correo</MudTd>
+                            <MudTd DataLabel="Estado Dispositivo">
+                                @if (context.TieneDispositivoVinculado)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled" Icon="@Icons.Material.Filled.Smartphone">
+                                        Móvil Vinculado
+                                    </MudChip>
+                                }
+                                else
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.HourglassEmpty">
+                                        Pendiente
+                                    </MudChip>
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Acciones" Style="text-align: right;">
+                                <div class="d-flex justify-end gap-1">
+                                    <MudTooltip Text="Editar datos del estudiante">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                                       Size="Size.Small"
+                                                       Color="Color.Primary"
+                                                       OnClick="@(() => IniciarEdicionEstudiante(context.Estudiante))" />
+                                    </MudTooltip>
+                                    @if (context.TieneDispositivoVinculado)
+                                    {
+                                        <MudTooltip Text="Resetear vinculación de celular (si el alumno extravió su teléfono)">
+                                            <MudIconButton Icon="@Icons.Material.Filled.PhonelinkErase"
+                                                           Size="Size.Small"
+                                                           Color="Color.Warning"
+                                                           OnClick="@(() => ResetearDispositivoAsync(context.Estudiante))" />
+                                        </MudTooltip>
+                                    }
+                                    <MudTooltip Text="Eliminar estudiante de esta materia y del sistema">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                       Size="Size.Small"
+                                                       Color="Color.Error"
+                                                       OnClick="@(() => EliminarEstudianteAsync(context.Estudiante))" />
+                                    </MudTooltip>
+                                </div>
+                            </MudTd>
+                        </RowTemplate>
+                        <PagerContent>
+                            <MudTablePager />
+                        </PagerContent>
+                    </MudTable>
+                }
+            </MudTabPanel>
+
+        </MudTabs>
+
+        @if (_mostrarModalEdicion)
+        {
+            <MudCard Elevation="4" Class="mt-4 pa-4 rounded-lg" Style="border: 2px solid var(--mud-palette-primary); background-color: var(--mud-palette-background-grey);">
+                <div class="d-flex justify-space-between align-center mb-3">
+                    <div class="d-flex align-center gap-2">
+                        <MudIcon Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" />
+                        <MudText Typo="Typo.subtitle1" Style="font-weight: 700;">Editar Datos del Estudiante</MudText>
+                    </div>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="CancelarEdicionEstudiante" />
+                </div>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="4">
+                        <MudTextField @bind-Value="_editCodigo" Label="Código / Carnet de Identidad *" Variant="Variant.Outlined" Margin="Margin.Dense" Required="true" />
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudTextField @bind-Value="_editNombres" Label="Nombres *" Variant="Variant.Outlined" Margin="Margin.Dense" Required="true" />
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudTextField @bind-Value="_editApellidos" Label="Apellidos *" Variant="Variant.Outlined" Margin="Margin.Dense" Required="true" />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudTextField @bind-Value="_editCorreo" Label="Correo Institucional *" Variant="Variant.Outlined" Margin="Margin.Dense" Required="true" />
+                    </MudItem>
+                </MudGrid>
+                <div class="d-flex justify-end gap-2 mt-3">
+                    <MudButton OnClick="CancelarEdicionEstudiante" Size="Size.Small" Variant="Variant.Outlined">Cancelar</MudButton>
+                    <MudButton OnClick="GuardarEdicionEstudianteAsync" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Disabled="_guardandoEdicion">
+                        @(_guardandoEdicion ? "Guardando..." : "Guardar Cambios")
+                    </MudButton>
+                </div>
+            </MudCard>
+        }
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="Cerrar" Color="Color.Default" Variant="Variant.Filled">
+            Cerrar
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public Materia Materia { get; set; } = default!;
+
+    private bool _cargandoLista = true;
+    private bool _importando = false;
+    private bool _guardandoManual = false;
+    private string _filtroBusqueda = string.Empty;
+
+    // Formulario Manual
+    private string _nuevoCodigo = string.Empty;
+    private string _nuevosNombres = string.Empty;
+    private string _nuevosApellidos = string.Empty;
+    private string _nuevoCorreo = string.Empty;
+
+    // Importación Excel
+    private record FilaEstudianteImportado(string Codigo, string Nombres, string Apellidos, string Correo);
+    private List<FilaEstudianteImportado> _filasImportadas = [];
+
+    // Padrón Inscritos
+    private record EstudianteInscritoItem(Estudiante Estudiante, bool TieneDispositivoVinculado);
+    private List<EstudianteInscritoItem> _estudiantesInscritos = [];
+
+    private IEnumerable<EstudianteInscritoItem> _estudiantesFiltrados =>
+        string.IsNullOrWhiteSpace(_filtroBusqueda)
+            ? _estudiantesInscritos
+            : _estudiantesInscritos.Where(x =>
+                x.Estudiante.Codigo.Contains(_filtroBusqueda, StringComparison.OrdinalIgnoreCase) ||
+                x.Estudiante.NombreCompleto.Contains(_filtroBusqueda, StringComparison.OrdinalIgnoreCase) ||
+                x.Estudiante.Correo.Contains(_filtroBusqueda, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarPadronInscritosAsync();
+    }
+
+    private async Task CargarPadronInscritosAsync()
+    {
+        _cargandoLista = true;
+        try
+        {
+            var estudiantesIds = await SuscripcionRepo.ListarEstudiantesIdsPorMateriaAsync(Materia.Id);
+            var items = new List<EstudianteInscritoItem>();
+
+            foreach (var estId in estudiantesIds)
+            {
+                var est = await EstudianteRepo.ObtenerPorIdAsync(estId);
+                if (est != null)
+                {
+                    var disp = await DispositivoRepo.ObtenerVinculacionActivaAsync(est.Id, Materia.InstitucionId);
+                    items.Add(new EstudianteInscritoItem(est, disp != null));
+                }
+            }
+
+            _estudiantesInscritos = items.OrderBy(x => x.Estudiante.Apellidos).ThenBy(x => x.Estudiante.Nombres).ToList();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error cargando el padrón: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _cargandoLista = false;
+        }
+    }
+
+    private async Task DescargarPlantillaExcelAsync()
+    {
+        try
+        {
+            using var workbook = new XLWorkbook();
+            var worksheet = workbook.Worksheets.Add("Estudiantes");
+
+            // Encabezados (Solo Código, Nombres, Apellidos, Correo)
+            worksheet.Cell(1, 1).Value = "Codigo";
+            worksheet.Cell(1, 2).Value = "Nombres";
+            worksheet.Cell(1, 3).Value = "Apellidos";
+            worksheet.Cell(1, 4).Value = "Correo";
+
+            // Formato de encabezados
+            var headerRange = worksheet.Range(1, 1, 1, 4);
+            headerRange.Style.Font.Bold = true;
+            headerRange.Style.Font.FontColor = XLColor.White;
+            headerRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#4F46E5");
+            headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            // Datos de ejemplo
+            worksheet.Cell(2, 1).Value = "8127564";
+            worksheet.Cell(2, 2).Value = "Leonardo David";
+            worksheet.Cell(2, 3).Value = "Vargas Monasterio";
+            worksheet.Cell(2, 4).Value = "sc.leonardo.vargas.m@upds.net.bo";
+
+            worksheet.Columns().AdjustToContents();
+
+            using var memoryStream = new MemoryStream();
+            workbook.SaveAs(memoryStream);
+            var base64 = Convert.ToBase64String(memoryStream.ToArray());
+
+            await JS.InvokeVoidAsync("slacDownloadFile", "Plantilla_Estudiantes_SLAC.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", base64);
+            Snackbar.Add("Plantilla Excel descargada correctamente.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al generar plantilla: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ProcesarArchivoExcelAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        try
+        {
+            _filasImportadas.Clear();
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            using var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            memoryStream.Position = 0;
+
+            if (file.Name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+            {
+                // Procesar CSV inteligentemente
+                using var reader = new StreamReader(memoryStream, Encoding.UTF8);
+                var allLines = new List<string>();
+                string? line;
+                while ((line = await reader.ReadLineAsync()) != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(line)) allLines.Add(line);
+                }
+
+                int headerIdx = -1;
+                int colCod = -1, colNom = -1, colApe = -1, colCor = -1, colEst = -1;
+
+                // Buscar cabecera en las primeras 35 líneas
+                for (int i = 0; i < Math.Min(35, allLines.Count); i++)
+                {
+                    var parts = allLines[i].Split(',', ';').Select(p => p.Trim(' ', '"', '\t')).ToArray();
+                    int cCod = -1, cNom = -1, cApe = -1, cCor = -1, cEst = -1;
+
+                    for (int c = 0; c < parts.Length; c++)
+                    {
+                        var h = parts[c].ToLowerInvariant();
+                        if (string.IsNullOrWhiteSpace(h)) continue;
+
+                        if (h == "ci" || h.StartsWith("ci ") || h.Contains("carnet") || h.Contains("código") || h.Contains("codigo") || h.Contains("dni") || h == "cod")
+                            cCod = c;
+                        else if (h.Contains("estudiante") || h.Contains("alumno") || h.Contains("nombre completo") || h == "postulante")
+                            cEst = c;
+                        else if (h.Contains("nombre") || h == "nombres")
+                            cNom = c;
+                        else if (h.Contains("apellido") || h == "apellidos")
+                            cApe = c;
+                        else if (h.Contains("corr") || h.Contains("mail") || h.Contains("correo"))
+                            cCor = c;
+                    }
+
+                    if (cCod != -1 && (cEst != -1 || cNom != -1))
+                    {
+                        headerIdx = i;
+                        colCod = cCod;
+                        colEst = cEst;
+                        colNom = cNom;
+                        colApe = cApe;
+                        colCor = cCor;
+                        break;
+                    }
+                }
+
+                var startRow = headerIdx != -1 ? headerIdx + 1 : 1;
+                for (int i = startRow; i < allLines.Count; i++)
+                {
+                    var parts = allLines[i].Split(',', ';').Select(p => p.Trim(' ', '"', '\t')).ToArray();
+                    var rawCod = colCod != -1 && parts.Length > colCod ? parts[colCod] : "";
+                    if (string.IsNullOrWhiteSpace(rawCod) || rawCod.Length < 3) continue;
+
+                    string nom = "", ape = "", cor = "";
+                    if (colEst != -1 && parts.Length > colEst)
+                    {
+                        (nom, ape) = SepararNombreCompleto(parts[colEst]);
+                    }
+                    else
+                    {
+                        nom = colNom != -1 && parts.Length > colNom ? parts[colNom] : "";
+                        ape = colApe != -1 && parts.Length > colApe ? parts[colApe] : "";
+                    }
+
+                    if (colCor != -1 && parts.Length > colCor)
+                    {
+                        cor = parts[colCor];
+                    }
+
+                    if (string.IsNullOrWhiteSpace(cor))
+                    {
+                        cor = GenerarCorreoInstitucional(rawCod, nom, ape);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(rawCod) && !string.IsNullOrWhiteSpace(nom))
+                    {
+                        _filasImportadas.Add(new FilaEstudianteImportado(rawCod, nom, ape, cor));
+                    }
+                }
+            }
+            else
+            {
+                // Procesar Excel (.xlsx) con ClosedXML
+                using var workbook = new XLWorkbook(memoryStream);
+                var worksheet = workbook.Worksheets.FirstOrDefault();
+                if (worksheet == null)
+                {
+                    Snackbar.Add("El archivo Excel no contiene hojas de cálculo válidas.", Severity.Warning);
+                    return;
+                }
+
+                int lastRow = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+                int lastCol = worksheet.LastColumnUsed()?.ColumnNumber() ?? 1;
+
+                int filaCabecera = -1;
+                int colCod = -1, colNom = -1, colApe = -1, colCor = -1, colEst = -1;
+
+                // Escaneo inteligente de cabecera en las primeras 35 filas
+                for (int r = 1; r <= Math.Min(35, lastRow); r++)
+                {
+                    int cCod = -1, cNom = -1, cApe = -1, cCor = -1, cEst = -1;
+                    for (int c = 1; c <= Math.Min(30, lastCol); c++)
+                    {
+                        var text = worksheet.Cell(r, c).GetString().Trim().ToLowerInvariant();
+                        if (string.IsNullOrWhiteSpace(text)) continue;
+
+                        if (text == "ci" || text.StartsWith("ci ") || text.Contains("carnet") || text.Contains("código") || text.Contains("codigo") || text.Contains("dni") || text == "cod")
+                        {
+                            cCod = c;
+                        }
+                        else if (text.Contains("estudiante") || text.Contains("alumno") || text.Contains("nombre completo") || text == "postulante")
+                        {
+                            cEst = c;
+                        }
+                        else if (text.Contains("nombre") || text == "nombres")
+                        {
+                            cNom = c;
+                        }
+                        else if (text.Contains("apellido") || text == "apellidos")
+                        {
+                            cApe = c;
+                        }
+                        else if (text.Contains("corr") || text.Contains("mail") || text.Contains("correo"))
+                        {
+                            cCor = c;
+                        }
+                    }
+
+                    if (cCod != -1 && (cEst != -1 || cNom != -1))
+                    {
+                        filaCabecera = r;
+                        colCod = cCod;
+                        colEst = cEst;
+                        colNom = cNom;
+                        colApe = cApe;
+                        colCor = cCor;
+                        break;
+                    }
+                }
+
+                // Si no se detectó cabecera formal, intentar filas por defecto (Col 1: Codigo, Col 2: Nombre)
+                if (filaCabecera == -1)
+                {
+                    colCod = 1; colNom = 2; colApe = 3; colCor = 4;
+                    filaCabecera = 1;
+                }
+
+                for (int r = filaCabecera + 1; r <= lastRow; r++)
+                {
+                    var rawCod = colCod != -1 ? worksheet.Cell(r, colCod).GetString().Trim() : "";
+                    if (string.IsNullOrWhiteSpace(rawCod)) continue;
+
+                    // Filtrar filas de metadatos o resúmenes al pie de página
+                    if (rawCod.StartsWith("total", StringComparison.OrdinalIgnoreCase) ||
+                        rawCod.StartsWith("nota", StringComparison.OrdinalIgnoreCase) ||
+                        rawCod.StartsWith("docente", StringComparison.OrdinalIgnoreCase) ||
+                        rawCod.StartsWith("firma", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string nom = "", ape = "", cor = "";
+                    if (colEst != -1)
+                    {
+                        var rawEst = worksheet.Cell(r, colEst).GetString().Trim();
+                        if (string.IsNullOrWhiteSpace(rawEst)) continue;
+                        (nom, ape) = SepararNombreCompleto(rawEst);
+                    }
+                    else
+                    {
+                        nom = colNom != -1 ? worksheet.Cell(r, colNom).GetString().Trim() : "";
+                        ape = colApe != -1 ? worksheet.Cell(r, colApe).GetString().Trim() : "";
+                    }
+
+                    if (colCor != -1)
+                    {
+                        cor = worksheet.Cell(r, colCor).GetString().Trim();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(cor))
+                    {
+                        cor = GenerarCorreoInstitucional(rawCod, nom, ape);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(rawCod) && !string.IsNullOrWhiteSpace(nom))
+                    {
+                        _filasImportadas.Add(new FilaEstudianteImportado(rawCod, nom, ape, cor));
+                    }
+                }
+            }
+
+            if (_filasImportadas.Count == 0)
+            {
+                Snackbar.Add("No se encontraron registros de estudiantes válidos en el archivo. Verifica que contenga columnas de Estudiante/Nombre y CI/Código.", Severity.Warning);
+            }
+            else
+            {
+                Snackbar.Add($"¡Excelente! Se detectaron y leyeron {_filasImportadas.Count} estudiantes de la nómina. Haz clic en 'Inscribir Estudiantes'.", Severity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al leer el archivo: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private static (string Nombres, string Apellidos) SepararNombreCompleto(string nombreCompleto)
+    {
+        if (string.IsNullOrWhiteSpace(nombreCompleto)) return ("", "");
+
+        if (nombreCompleto.Contains(','))
+        {
+            var parts = nombreCompleto.Split(',', 2);
+            return (parts[1].Trim(), parts[0].Trim());
+        }
+
+        var words = nombreCompleto.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0) return ("", "");
+        if (words.Length == 1) return (words[0], "-");
+        if (words.Length == 2) return (words[1], words[0]);
+        if (words.Length == 3)
+        {
+            return (words[2], $"{words[0]} {words[1]}");
+        }
+
+        var ape = $"{words[0]} {words[1]}";
+        var nom = string.Join(" ", words.Skip(2));
+        return (nom, ape);
+    }
+
+    private static string NormalizarTextoParaCorreo(string texto)
+    {
+        if (string.IsNullOrWhiteSpace(texto)) return "";
+        var normalizedString = texto.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in normalizedString)
+        {
+            var unicodeCategory = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c);
+            if (unicodeCategory != System.Globalization.UnicodeCategory.NonSpacingMark && char.IsLetterOrDigit(c))
+            {
+                sb.Append(c);
+            }
+        }
+        return sb.ToString().Normalize(System.Text.NormalizationForm.FormC).ToLowerInvariant();
+    }
+
+    private static string GenerarCorreoInstitucional(string codigo, string nombres, string apellidos)
+    {
+        var primerNombre = NormalizarTextoParaCorreo(nombres?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "");
+        var primerApellido = NormalizarTextoParaCorreo(apellidos?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "");
+
+        if (!string.IsNullOrWhiteSpace(primerNombre) && !string.IsNullOrWhiteSpace(primerApellido))
+        {
+            return $"sc.{primerNombre}.{primerApellido}.m@upds.net.bo";
+        }
+
+        if (!string.IsNullOrWhiteSpace(primerApellido))
+        {
+            return $"sc.estudiante.{primerApellido}.m@upds.net.bo";
+        }
+
+        var codLimpio = new string((codigo ?? "").Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+        return $"sc.{codLimpio}.m@upds.net.bo";
+    }
+
+    private async Task ConfirmarImportacionAsync()
+    {
+        if (_filasImportadas.Count == 0) return;
+
+        _importando = true;
+        try
+        {
+            int nuevos = 0;
+            int yaExistentes = 0;
+
+            foreach (var fila in _filasImportadas)
+            {
+                var est = await EstudianteRepo.ObtenerPorCodigoAsync(Materia.InstitucionId, fila.Codigo);
+                if (est == null)
+                {
+                    est = new Estudiante
+                    {
+                        InstitucionId = Materia.InstitucionId,
+                        Codigo = fila.Codigo,
+                        Nombres = fila.Nombres,
+                        Apellidos = fila.Apellidos,
+                        Correo = fila.Correo,
+                        DocumentoIdentidad = fila.Codigo,
+                        ConsentimientoEn = DateTimeOffset.UtcNow
+                    };
+                    est = await EstudianteRepo.CrearOActualizarAsync(est);
+                    nuevos++;
+                }
+                else
+                {
+                    est.DocumentoIdentidad = fila.Codigo;
+                    if (!string.IsNullOrWhiteSpace(fila.Correo))
+                    {
+                        est.Correo = fila.Correo;
+                    }
+                    await EstudianteRepo.CrearOActualizarAsync(est);
+                    yaExistentes++;
+                }
+
+                // Inscribir a la materia (Suscripción)
+                var sub = await SuscripcionRepo.ObtenerAsync(Materia.Id, est.Id);
+                if (sub == null)
+                {
+                    await SuscripcionRepo.SuscribirAsync(new Suscripcion
+                    {
+                        InstitucionId = Materia.InstitucionId,
+                        MateriaId = Materia.Id,
+                        EstudianteId = est.Id,
+                        Fecha = DateTimeOffset.UtcNow,
+                        Estado = "activa"
+                    });
+                }
+            }
+
+            Snackbar.Add($"¡Importación completada! {nuevos} estudiantes creados, {yaExistentes} actualizados e inscritos en {Materia.Nombre}.", Severity.Success);
+            _filasImportadas.Clear();
+            await CargarPadronInscritosAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error durante la importación: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _importando = false;
+        }
+    }
+
+    private async Task InscribirIndividualAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_nuevoCodigo) || string.IsNullOrWhiteSpace(_nuevosNombres))
+        {
+            Snackbar.Add("Código de Estudiante y Nombres son campos obligatorios.", Severity.Warning);
+            return;
+        }
+
+        _guardandoManual = true;
+        try
+        {
+            var codigoLimpio = _nuevoCodigo.Trim();
+            var est = await EstudianteRepo.ObtenerPorCodigoAsync(Materia.InstitucionId, codigoLimpio);
+            if (est == null)
+            {
+                est = new Estudiante
+                {
+                    InstitucionId = Materia.InstitucionId,
+                    Codigo = codigoLimpio,
+                    Nombres = _nuevosNombres.Trim(),
+                    Apellidos = _nuevosApellidos.Trim(),
+                    Correo = string.IsNullOrWhiteSpace(_nuevoCorreo) ? GenerarCorreoInstitucional(codigoLimpio, _nuevosNombres, _nuevosApellidos) : _nuevoCorreo.Trim(),
+                    DocumentoIdentidad = codigoLimpio,
+                    ConsentimientoEn = DateTimeOffset.UtcNow
+                };
+                est = await EstudianteRepo.CrearOActualizarAsync(est);
+            }
+            else
+            {
+                est.DocumentoIdentidad = codigoLimpio;
+                if (!string.IsNullOrWhiteSpace(_nuevoCorreo)) est.Correo = _nuevoCorreo.Trim();
+                await EstudianteRepo.CrearOActualizarAsync(est);
+            }
+
+            var sub = await SuscripcionRepo.ObtenerAsync(Materia.Id, est.Id);
+            if (sub == null)
+            {
+                await SuscripcionRepo.SuscribirAsync(new Suscripcion
+                {
+                    InstitucionId = Materia.InstitucionId,
+                    MateriaId = Materia.Id,
+                    EstudianteId = est.Id,
+                    Fecha = DateTimeOffset.UtcNow,
+                    Estado = "activa"
+                });
+            }
+
+            Snackbar.Add($"Estudiante {est.NombreCompleto} ({est.Codigo}) inscrito correctamente.", Severity.Success);
+
+            // Limpiar campos
+            _nuevoCodigo = string.Empty;
+            _nuevosNombres = string.Empty;
+            _nuevosApellidos = string.Empty;
+            _nuevoCorreo = string.Empty;
+
+            await CargarPadronInscritosAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al inscribir: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _guardandoManual = false;
+        }
+    }
+
+    private async Task ResetearDispositivoAsync(Estudiante est)
+    {
+        try
+        {
+            var vinc = await DispositivoRepo.ObtenerVinculacionActivaAsync(est.Id, Materia.InstitucionId);
+            if (vinc != null)
+            {
+                await DispositivoRepo.RevocarDispositivoAsync(vinc.DispositivoId);
+                Snackbar.Add($"Dispositivo móvil desvinculado para {est.NombreCompleto}. Ahora podrá vincular un nuevo teléfono.", Severity.Info);
+                await CargarPadronInscritosAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al desvincular dispositivo: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task EliminarEstudianteAsync(Estudiante est)
+    {
+        try
+        {
+            await SuscripcionRepo.DesinscribirAsync(Materia.Id, est.Id);
+            await EstudianteRepo.EliminarAsync(est.Id);
+            Snackbar.Add($"Estudiante {est.NombreCompleto} ({est.Codigo}) eliminado del sistema.", Severity.Success);
+            await CargarPadronInscritosAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al eliminar estudiante: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private Estudiante? _editandoEstudiante;
+    private bool _mostrarModalEdicion;
+    private bool _guardandoEdicion;
+    private string _editCodigo = string.Empty;
+    private string _editNombres = string.Empty;
+    private string _editApellidos = string.Empty;
+    private string _editCorreo = string.Empty;
+
+    private void IniciarEdicionEstudiante(Estudiante est)
+    {
+        _editandoEstudiante = est;
+        _editCodigo = est.Codigo;
+        _editNombres = est.Nombres;
+        _editApellidos = est.Apellidos;
+        _editCorreo = est.Correo;
+        _mostrarModalEdicion = true;
+    }
+
+    private void CancelarEdicionEstudiante()
+    {
+        _mostrarModalEdicion = false;
+        _editandoEstudiante = null;
+    }
+
+    private async Task GuardarEdicionEstudianteAsync()
+    {
+        if (_editandoEstudiante == null) return;
+        if (string.IsNullOrWhiteSpace(_editCodigo) || string.IsNullOrWhiteSpace(_editNombres))
+        {
+            Snackbar.Add("El código y los nombres son obligatorios.", Severity.Warning);
+            return;
+        }
+
+        _guardandoEdicion = true;
+        try
+        {
+            _editandoEstudiante.Codigo = _editCodigo.Trim();
+            _editandoEstudiante.DocumentoIdentidad = _editCodigo.Trim();
+            _editandoEstudiante.Nombres = _editNombres.Trim();
+            _editandoEstudiante.Apellidos = _editApellidos.Trim();
+            _editandoEstudiante.Correo = string.IsNullOrWhiteSpace(_editCorreo)
+                ? GenerarCorreoInstitucional(_editCodigo, _editNombres, _editApellidos)
+                : _editCorreo.Trim();
+
+            await EstudianteRepo.CrearOActualizarAsync(_editandoEstudiante);
+            Snackbar.Add($"Estudiante {_editandoEstudiante.NombreCompleto} actualizado correctamente.", Severity.Success);
+            _mostrarModalEdicion = false;
+            _editandoEstudiante = null;
+            await CargarPadronInscritosAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al actualizar: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _guardandoEdicion = false;
+        }
+    }
+
+    private void Cerrar()
+    {
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+}

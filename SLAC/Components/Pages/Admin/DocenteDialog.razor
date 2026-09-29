@@ -1,0 +1,95 @@
+@using MudBlazor
+@using SLAC.Core.Docentes.Entities
+
+<MudDialog>
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@(Docente.Id == Guid.Empty ? Icons.Material.Filled.PersonAdd : Icons.Material.Filled.Edit)" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">@(Docente.Id == Guid.Empty ? "Nuevo Docente" : "Editar Docente")</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@_errorMessage</MudAlert>
+        }
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="Docente.Nombres"
+                              Label="Nombres *"
+                              Required="true"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="Docente.Apellidos"
+                              Label="Apellidos *"
+                              Required="true"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="Docente.Codigo"
+                              Label="Código de Docente *"
+                              Required="true"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="Docente.Correo"
+                              Label="Correo Institucional *"
+                              Required="true"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Text">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit">Guardar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter]
+    public Docente Docente { get; set; } = new();
+
+    private string? _errorMessage;
+
+    private void Submit()
+    {
+        _errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(Docente.Nombres))
+        {
+            _errorMessage = "El nombre del docente es obligatorio.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Docente.Apellidos))
+        {
+            _errorMessage = "Los apellidos del docente son obligatorios.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Docente.Codigo))
+        {
+            _errorMessage = "El código del docente es obligatorio.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Docente.Correo) || !Docente.Correo.Contains("@"))
+        {
+            _errorMessage = "Ingresa un correo institucional válido.";
+            return;
+        }
+
+        MudDialog.Close(DialogResult.Ok(Docente));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

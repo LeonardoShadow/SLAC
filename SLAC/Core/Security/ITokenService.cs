@@ -27,7 +27,8 @@ public interface ITokenService
         string tokenString,
         out SessionQrToken? sessionToken,
         out string? errorMessage,
-        int rotacionTolerancia = 2);
+        int rotacionTolerancia = 4,
+        bool validarRotacion = true);
 
     /// <summary>
     /// Emite la credencial criptográfica de dispositivo para el navegador del estudiante.

@@ -12,7 +12,7 @@ public class SupabaseEstudianteRepository(
 {
     private readonly Supabase.Client _supabaseClient = supabaseClient;
     private readonly ILogger<SupabaseEstudianteRepository> _logger = logger;
-    private readonly ConcurrentDictionary<Guid, Estudiante> _fallbackStore = new();
+    private static readonly ConcurrentDictionary<Guid, Estudiante> _fallbackStore = new();
 
     public async Task<Estudiante?> ObtenerPorIdAsync(Guid id, CancellationToken ct = default)
     {
@@ -137,6 +137,22 @@ public class SupabaseEstudianteRepository(
         }
 
         return [.. _fallbackStore.Values.Where(x => x.InstitucionId == institucionId)];
+    }
+
+    public async Task<bool> EliminarAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            await _supabaseClient.From<EstudianteDbModel>()
+                .Where(x => x.Id == id)
+                .Delete(cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error al eliminar estudiante {Id} en Supabase.", id);
+        }
+
+        return _fallbackStore.TryRemove(id, out _);
     }
 
     private static Estudiante MapToEntity(EstudianteDbModel model) => new()

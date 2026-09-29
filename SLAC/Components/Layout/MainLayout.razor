@@ -1,4 +1,8 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@using SLAC.Features.Attendance.Services
+@inject IUserSessionService SessionService
+@inject NavigationManager Navigation
 
 <MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" />
 <MudPopoverProvider />
@@ -9,37 +13,113 @@
     <MudAppBar Elevation="1" Dense="true" Color="Color.Surface">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
         <MudText Typo="Typo.h6" Class="ml-2 font-weight-bold" Color="Color.Primary">SLAC</MudText>
-        <MudText Typo="Typo.caption" Class="ml-2 mt-1 text-muted">Sistema de Lista de Asistencia a Clases</MudText>
-        <MudSpacer />
-        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" 
-                       Color="Color.Inherit" 
-                       OnClick="@(() => _isDarkMode = !_isDarkMode)" />
-    </MudAppBar>
+        <MudText Typo="Typo.caption" Class="ml-2 mt-1 text-muted d-none d-sm-flex">Sistema de Asistencia</MudText>
 
-    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
-        <MudDrawerHeader Class="d-flex align-center">
-            <MudIcon Icon="@Icons.Material.Filled.School" Color="Color.Primary" Class="mr-2" />
-            <MudText Typo="Typo.subtitle1" Class="font-weight-bold">Administración</MudText>
-        </MudDrawerHeader>
-        <MudNavMenu>
-            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Inicio</MudNavLink>
-            <MudNavGroup Title="Catálogos Institucionales" Icon="@Icons.Material.Filled.AccountBalance" Expanded="true">
+        <MudSpacer />
+
+        <!-- Estado de Sesión / Perfil Activo -->
+        @if (SessionService.EstaAutenticado)
+        {
+            <div class="d-flex align-center gap-2 mr-3">
+                <MudChip T="string"
+                Size="Size.Small"
+                Color="@ObtenerColorRol(SessionService.RolActual)"
+                Variant="Variant.Filled"
+                Icon="@ObtenerIconoRol(SessionService.RolActual)">
+                @SessionService.RolActual.ToString(): <b>@SessionService.UsuarioActual?.NombreCompleto</b>
+            </MudChip>
+            <MudTooltip Text="Cerrar Sesión">
+                <MudIconButton Icon="@Icons.Material.Filled.Logout"
+                Color="Color.Error"
+                Size="Size.Small"
+                OnClick="CerrarSesion" />
+            </MudTooltip>
+        </div>
+    }
+    else
+    {
+        <MudButton Variant="Variant.Outlined"
+        Color="Color.Primary"
+        Size="Size.Small"
+        StartIcon="@Icons.Material.Filled.Login"
+        Href="/login"
+        Class="mr-3">
+        Iniciar Sesión
+    </MudButton>
+}
+
+<MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+Color="Color.Inherit"
+OnClick="@(() => _isDarkMode = !_isDarkMode)" />
+</MudAppBar>
+
+<MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
+    <MudDrawerHeader Class="d-flex align-center">
+        <MudIcon Icon="@Icons.Material.Filled.School" Color="Color.Primary" Class="mr-2" />
+        <MudText Typo="Typo.subtitle1" Class="font-weight-bold">
+            @(SessionService.EstaAutenticado ? SessionService.RolActual.ToString() : "Navegación")
+        </MudText>
+    </MudDrawerHeader>
+    <MudNavMenu>
+        <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Portal Inicio</MudNavLink>
+
+        @if (!SessionService.EstaAutenticado)
+        {
+            <MudNavLink Href="/login" Icon="@Icons.Material.Filled.Login" IconColor="Color.Primary">
+                Iniciar Sesión
+            </MudNavLink>
+        }
+
+        <!-- Menú Exclusivo para Administrador Institucional -->
+        @if (SessionService.EstaAutenticado && SessionService.RolActual == RolUsuario.Administrador)
+        {
+            <MudNavGroup Title="Administración Académica" Icon="@Icons.Material.Filled.AdminPanelSettings" Expanded="true">
+                <MudNavLink Href="/admin/docentes" Icon="@Icons.Material.Filled.SupervisorAccount">Gestión de Docentes</MudNavLink>
+                <MudNavLink Href="/admin/materias" Icon="@Icons.Material.Filled.Class">Materias y Horarios</MudNavLink>
                 <MudNavLink Href="/admin/espacios" Icon="@Icons.Material.Filled.MeetingRoom">Aulas y Labs</MudNavLink>
                 <MudNavLink Href="/admin/periodos" Icon="@Icons.Material.Filled.CalendarMonth">Periodos Académicos</MudNavLink>
                 <MudNavLink Href="/admin/feriados" Icon="@Icons.Material.Filled.EventBusy">Días No Lectivos</MudNavLink>
             </MudNavGroup>
-            <MudNavGroup Title="Docente" Icon="@Icons.Material.Filled.Person">
+
+            <MudNavGroup Title="Supervisión Docente" Icon="@Icons.Material.Filled.Person" Expanded="false">
+                <MudNavLink Href="/docente/materias" Icon="@Icons.Material.Filled.Class">Vista de Docente</MudNavLink>
+                <MudNavLink Href="/docente/faltas" Icon="@Icons.Material.Filled.Assessment">Reporte de Faltas</MudNavLink>
+            </MudNavGroup>
+        }
+
+        <!-- Menú Exclusivo para Docente -->
+        @if (SessionService.EstaAutenticado && SessionService.RolActual == RolUsuario.Docente)
+        {
+            <MudNavGroup Title="Docente" Icon="@Icons.Material.Filled.Person" Expanded="true">
                 <MudNavLink Href="/docente/materias" Icon="@Icons.Material.Filled.Class">Mis Materias</MudNavLink>
                 <MudNavLink Href="/docente/faltas" Icon="@Icons.Material.Filled.Assessment">Reporte de Faltas</MudNavLink>
             </MudNavGroup>
-        </MudNavMenu>
-    </MudDrawer>
+        }
 
-    <MudMainContent Class="pt-16 px-4 pb-8">
-        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
-            @Body
-        </MudContainer>
-    </MudMainContent>
+        <!-- Menú Exclusivo para Estudiante -->
+        @if (SessionService.EstaAutenticado && SessionService.RolActual == RolUsuario.Estudiante)
+        {
+            <MudNavGroup Title="Estudiante" Icon="@Icons.Material.Filled.School" Expanded="true">
+                <MudNavLink Href="/estudiante/materias" Icon="@Icons.Material.Filled.MenuBook">Mis Materias Inscritas</MudNavLink>
+                <MudNavLink Href="/estudiante/faltas" Icon="@Icons.Material.Filled.HistoryEdu">Historial de Faltas</MudNavLink>
+            </MudNavGroup>
+        }
+
+        @if (SessionService.EstaAutenticado)
+        {
+            <MudDivider Class="my-2" />
+            <MudNavLink Icon="@Icons.Material.Filled.Logout" IconColor="Color.Error" OnClick="CerrarSesion">
+                Cerrar Sesión
+            </MudNavLink>
+        }
+    </MudNavMenu>
+</MudDrawer>
+
+<MudMainContent Class="pt-16 px-4 pb-8">
+    <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+        @Body
+    </MudContainer>
+</MudMainContent>
 </MudLayout>
 
 @code {
@@ -50,7 +130,7 @@
     {
         PaletteLight = new PaletteLight()
         {
-            Primary = "#1E40AF", // Azul elegante
+            Primary = "#1E40AF",
             Secondary = "#0D9488",
             AppbarBackground = "#FFFFFF",
             Background = "#F8FAFC",
@@ -67,8 +147,45 @@
         }
     };
 
+    protected override void OnInitialized()
+    {
+        SessionService.OnChange += OnSessionChanged;
+    }
+
+    private void OnSessionChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        SessionService.OnChange -= OnSessionChanged;
+    }
+
     private void DrawerToggle()
     {
         _drawerOpen = !_drawerOpen;
     }
+
+    private void CerrarSesion()
+    {
+        SessionService.CerrarSesion();
+        Navigation.NavigateTo("/login");
+    }
+
+    private static Color ObtenerColorRol(RolUsuario rol) => rol switch
+    {
+        RolUsuario.Administrador => Color.Success,
+        RolUsuario.Docente => Color.Primary,
+        RolUsuario.Estudiante => Color.Info,
+        _ => Color.Default
+    };
+
+    private static string ObtenerIconoRol(RolUsuario rol) => rol switch
+    {
+        RolUsuario.Administrador => Icons.Material.Filled.AdminPanelSettings,
+        RolUsuario.Docente => Icons.Material.Filled.Person,
+        RolUsuario.Estudiante => Icons.Material.Filled.School,
+        _ => Icons.Material.Filled.AccountCircle
+    };
 }

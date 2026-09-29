@@ -33,6 +33,15 @@ public class AsistenciaDetalleDbModel : BaseModel
     [Column("dispositivo_id")]
     public Guid? DispositivoId { get; set; }
 
+    [Column("latitud")]
+    public double? Latitud { get; set; }
+
+    [Column("longitud")]
+    public double? Longitud { get; set; }
+
+    [Column("precision_gps")]
+    public double? PrecisionGps { get; set; }
+
     [Column("creado_en")]
     public DateTime CreadoEn { get; set; } = DateTime.UtcNow;
 }

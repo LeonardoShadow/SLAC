@@ -1,0 +1,222 @@
+@page "/admin/docentes"
+@rendermode InteractiveServer
+@using MudBlazor
+@using SLAC.Core.Docentes.Entities
+@using SLAC.Core.Docentes.Repositories
+@using SLAC.Features.Attendance.Services
+
+@inject IUserSessionService SessionService
+@inject IDocenteRepository DocenteRepo
+@inject IMateriaRepository MateriaRepo
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<PageTitle>SLAC - Gestión de Docentes (Administración)</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-6">
+    <div class="d-flex flex-wrap justify-space-between align-center mb-6 gap-3">
+        <div>
+            <div class="d-flex align-center gap-2">
+                <MudIcon Icon="@Icons.Material.Filled.SupervisorAccount" Color="Color.Primary" Size="Size.Large" />
+                <MudText Typo="Typo.h5" Style="font-weight: 800;">Gestión de Docentes</MudText>
+            </div>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Administración exclusiva del plantel docente institucional: nombres, códigos, correos y asignaciones.
+            </MudText>
+        </div>
+
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.PersonAdd"
+                   OnClick="AbrirDialogoNuevoDocente">
+            Registrar Nuevo Docente
+        </MudButton>
+    </div>
+
+    @if (_cargando)
+    {
+        <div class="d-flex justify-center align-center pa-12">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+        </div>
+    }
+    else if (!_docentes.Any())
+    {
+        <MudCard Elevation="1" Class="pa-8 text-center rounded-xl">
+            <MudIcon Icon="@Icons.Material.Filled.PersonOff" Size="Size.Large" Color="Color.Secondary" Class="mb-3" />
+            <MudText Typo="Typo.h6">No hay docentes registrados</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+                Comienza registrando al primer docente de la institución.
+            </MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="AbrirDialogoNuevoDocente">
+                Registrar Docente
+            </MudButton>
+        </MudCard>
+    }
+    else
+    {
+        <MudCard Elevation="2" Class="rounded-xl overflow-hidden">
+            <MudTable Items="@_docentes" Dense="false" Hover="true" Breakpoint="Breakpoint.Sm">
+                <HeaderContent>
+                    <MudTh>Código</MudTh>
+                    <MudTh>Docente</MudTh>
+                    <MudTh>Correo Institucional</MudTh>
+                    <MudTh>Materias Asignadas</MudTh>
+                    <MudTh Style="text-align: right;">Acciones</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Código">
+                        <MudChip T="string" Color="Color.Primary" Size="Size.Small" Variant="Variant.Outlined">
+                            <b>@context.Codigo</b>
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Docente">
+                        <div class="d-flex align-center gap-2">
+                            <MudAvatar Color="Color.Primary" Size="Size.Small">
+                                @(context.Nombres.FirstOrDefault())
+                            </MudAvatar>
+                            <MudText Typo="Typo.body2" Style="font-weight: 600;">
+                                @context.NombreCompleto
+                            </MudText>
+                        </div>
+                    </MudTd>
+                    <MudTd DataLabel="Correo">
+                        <span style="font-family: monospace; font-size: 0.9rem;">@context.Correo</span>
+                    </MudTd>
+                    <MudTd DataLabel="Materias Asignadas">
+                        @{
+                            var materiasDelDocente = _materiasPorDocente.GetValueOrDefault(context.Id, []);
+                        }
+                        @if (materiasDelDocente.Any())
+                        {
+                            <div class="d-flex gap-1 flex-wrap">
+                                @foreach (var mat in materiasDelDocente)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">
+                                        @mat.Codigo - Grupo @mat.Grupo
+                                    </MudChip>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Sin asignaturas asignadas</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Acciones" Style="text-align: right;">
+                        <MudTooltip Text="Editar datos del docente (Nombres, Código, Correo)">
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Edit"
+                                       OnClick="@(() => AbrirDialogoEditarDocente(context))">
+                                Editar
+                            </MudButton>
+                        </MudTooltip>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudCard>
+    }
+</MudContainer>
+
+@code {
+    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private bool _cargando = true;
+    private List<Docente> _docentes = [];
+    private Dictionary<Guid, List<Materia>> _materiasPorDocente = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!SessionService.EstaAutenticado || SessionService.RolActual != RolUsuario.Administrador)
+        {
+            Navigation.NavigateTo("/login?rol=admin");
+            return;
+        }
+
+        await CargarDatosAsync();
+    }
+
+    private async Task CargarDatosAsync()
+    {
+        _cargando = true;
+        try
+        {
+            var docentes = await DocenteRepo.ListarPorInstitucionAsync(_institucionId);
+            _docentes = docentes.OrderBy(d => d.Apellidos).ThenBy(d => d.Nombres).ToList();
+
+            var materias = await MateriaRepo.ListarPorInstitucionAsync(_institucionId);
+            _materiasPorDocente = materias
+                .GroupBy(m => m.DocenteId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al cargar docentes: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private async Task AbrirDialogoNuevoDocente()
+    {
+        var nuevoDocente = new Docente
+        {
+            InstitucionId = _institucionId,
+            UserId = Guid.NewGuid(),
+            Nombres = string.Empty,
+            Apellidos = string.Empty,
+            Correo = string.Empty,
+            Codigo = string.Empty
+        };
+
+        var parameters = new DialogParameters<DocenteDialog>
+        {
+            { x => x.Docente, nuevoDocente }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<DocenteDialog>("Registrar Docente", parameters, options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled && result.Data is Docente docenteGuardado)
+        {
+            await DocenteRepo.GuardarAsync(docenteGuardado);
+            Snackbar.Add("Docente registrado exitosamente.", Severity.Success);
+            await CargarDatosAsync();
+        }
+    }
+
+    private async Task AbrirDialogoEditarDocente(Docente docente)
+    {
+        var clone = new Docente
+        {
+            Id = docente.Id,
+            InstitucionId = docente.InstitucionId,
+            UserId = docente.UserId,
+            Nombres = docente.Nombres,
+            Apellidos = docente.Apellidos,
+            Codigo = docente.Codigo,
+            Correo = docente.Correo,
+            CreadoEn = docente.CreadoEn
+        };
+
+        var parameters = new DialogParameters<DocenteDialog>
+        {
+            { x => x.Docente, clone }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<DocenteDialog>("Editar Docente", parameters, options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled && result.Data is Docente docenteActualizado)
+        {
+            await DocenteRepo.GuardarAsync(docenteActualizado);
+            Snackbar.Add("Datos del docente actualizados exitosamente.", Severity.Success);
+            await CargarDatosAsync();
+        }
+    }
+}
