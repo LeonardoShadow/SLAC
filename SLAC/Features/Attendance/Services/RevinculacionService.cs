@@ -40,6 +40,19 @@ public class RevinculacionService(
         }
 
         var estudiante = await _estudianteRepo.ObtenerPorCodigoAsync(lista.InstitucionId, codigoEstudiante.Trim(), ct);
+        if (estudiante == null && codigoEstudiante.Contains('@'))
+        {
+            estudiante = await _estudianteRepo.ObtenerPorCorreoAsync(lista.InstitucionId, codigoEstudiante.Trim(), ct);
+        }
+        if (estudiante == null)
+        {
+            var todos = await _estudianteRepo.ListarPorInstitucionAsync(lista.InstitucionId, ct);
+            estudiante = todos.FirstOrDefault(e =>
+                e.Codigo.Equals(codigoEstudiante, StringComparison.OrdinalIgnoreCase) ||
+                e.Correo.Equals(codigoEstudiante, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(e.DocumentoIdentidad) && e.DocumentoIdentidad.Equals(codigoEstudiante, StringComparison.OrdinalIgnoreCase)));
+        }
+
         if (estudiante == null)
         {
             return new SolicitudRevinculacionResult(false, false, null, "Estudiante no encontrado en la institución.", null, null);
@@ -77,7 +90,8 @@ public class RevinculacionService(
         // Notificar en tiempo real al docente en la pantalla de proyección (SignalR)
         try
         {
-            await _hubContext.Clients.Group(sesionId.ToString())
+            var groupName = AttendanceHub.GetGroupName(sesionId.ToString());
+            await _hubContext.Clients.Group(groupName)
                 .SendAsync("NuevaSolicitudRevinculacion",
                     solicitud.Id.ToString(),
                     estudiante.NombreCompleto,

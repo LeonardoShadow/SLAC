@@ -6,13 +6,24 @@ public class AttendanceScanRequest
     public string QrToken { get; set; } = string.Empty;
     public string? DeviceToken { get; set; }
 
-    // Datos para formulario de estudiante nuevo (si no cuenta con credencial válida)
+    // Datos para vinculación inicial de dispositivo (Código o Correo Institucional + CI/PIN)
+    public string? Identificador { get; set; }
+    public string? DocumentoIdentidad { get; set; }
+
+    // Datos de retrocompatibilidad
     public string? Codigo { get; set; }
     public string? Nombres { get; set; }
     public string? Apellidos { get; set; }
     public string? Correo { get; set; }
-    public bool AceptaTerminos { get; set; }
+    public bool AceptaTerminos { get; set; } = true;
     public string? UserAgent { get; set; }
+
+    // Geolocalización GPS y Modo de Validación ("gps" o "wifi")
+    public string Modo { get; set; } = "gps";
+    public bool RequiereGps => !string.Equals(Modo, "wifi", StringComparison.OrdinalIgnoreCase);
+    public double? Latitud { get; set; }
+    public double? Longitud { get; set; }
+    public double? PrecisionGpsMetros { get; set; }
 }
 
 public class AttendanceScanResult
@@ -37,6 +48,8 @@ public class AttendanceScanResult
     /// </summary>
     public string? NuevaDeviceCookie { get; set; }
 
+    public Guid? SolicitudRevinculacionId { get; set; }
+
     public static AttendanceScanResult Error(string mensaje) => new()
     {
         Exito = false,
@@ -56,7 +69,9 @@ public class AttendanceScanResult
         string? estudianteNombre = null,
         string? estudianteCodigo = null,
         string? materiaNombre = null,
-        string? materiaCodigo = null) => new()
+        string? materiaCodigo = null,
+        Guid? solicitudRevinculacionId = null,
+        Guid? estudianteId = null) => new()
     {
         Exito = false,
         RequiereRevinculacion = true,
@@ -64,6 +79,8 @@ public class AttendanceScanResult
         EstudianteNombre = estudianteNombre,
         EstudianteCodigo = estudianteCodigo,
         MateriaNombre = materiaNombre,
-        MateriaCodigo = materiaCodigo
+        MateriaCodigo = materiaCodigo,
+        SolicitudRevinculacionId = solicitudRevinculacionId,
+        EstudianteId = estudianteId
     };
 }

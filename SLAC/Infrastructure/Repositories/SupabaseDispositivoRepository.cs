@@ -14,27 +14,31 @@ public class SupabaseDispositivoRepository(
     private readonly Supabase.Client _supabaseClient = supabaseClient;
     private readonly IEstudianteRepository _estudianteRepo = estudianteRepo;
     private readonly ILogger<SupabaseDispositivoRepository> _logger = logger;
-    private readonly ConcurrentDictionary<Guid, Dispositivo> _dispositivosStore = new();
-    private readonly ConcurrentDictionary<Guid, (Guid EstudianteId, Guid InstitucionId, bool Activo)> _vinculacionesStore = new();
+    private static readonly ConcurrentDictionary<Guid, Dispositivo> _dispositivosStore = new();
+    private static readonly ConcurrentDictionary<Guid, (Guid EstudianteId, Guid InstitucionId, bool Activo)> _vinculacionesStore = new();
+    private readonly bool _hasClient = supabaseClient != null;
 
     public async Task<Dispositivo?> ObtenerPorIdAsync(Guid id, CancellationToken ct = default)
     {
-        try
+        if (_hasClient)
         {
-            var response = await _supabaseClient.From<DispositivoDbModel>()
-                .Where(x => x.Id == id)
-                .Single(cancellationToken: ct);
-
-            if (response != null)
+            try
             {
-                var disp = MapToEntity(response);
-                _dispositivosStore[disp.Id] = disp;
-                return disp;
+                var response = await _supabaseClient.From<DispositivoDbModel>()
+                    .Where(x => x.Id == id)
+                    .Single(cancellationToken: ct);
+
+                if (response != null)
+                {
+                    var disp = MapToEntity(response);
+                    _dispositivosStore[disp.Id] = disp;
+                    return disp;
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error buscando dispositivo {Id} en Supabase.", id);
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error buscando dispositivo {Id} en Supabase.", id);
+            }
         }
 
         _dispositivosStore.TryGetValue(id, out var fallback);
@@ -43,22 +47,25 @@ public class SupabaseDispositivoRepository(
 
     public async Task<Dispositivo?> ObtenerPorJtiHashAsync(string jtiHash, CancellationToken ct = default)
     {
-        try
+        if (_hasClient)
         {
-            var response = await _supabaseClient.From<DispositivoDbModel>()
-                .Where(x => x.JtiHash == jtiHash)
-                .Single(cancellationToken: ct);
-
-            if (response != null)
+            try
             {
-                var disp = MapToEntity(response);
-                _dispositivosStore[disp.Id] = disp;
-                return disp;
+                var response = await _supabaseClient.From<DispositivoDbModel>()
+                    .Where(x => x.JtiHash == jtiHash)
+                    .Single(cancellationToken: ct);
+
+                if (response != null)
+                {
+                    var disp = MapToEntity(response);
+                    _dispositivosStore[disp.Id] = disp;
+                    return disp;
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error buscando dispositivo por jti_hash en Supabase.");
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error buscando dispositivo por jti_hash en Supabase.");
+            }
         }
 
         return _dispositivosStore.Values.FirstOrDefault(x => x.JtiHash == jtiHash);
@@ -71,40 +78,44 @@ public class SupabaseDispositivoRepository(
             dispositivo.Id = Guid.NewGuid();
         }
 
-        try
+        if (_hasClient)
         {
-            // 1. Guardar o actualizar registro de dispositivo
-            var dispModel = MapToModel(dispositivo);
-            var resp = await _supabaseClient.From<DispositivoDbModel>()
-                .Upsert(dispModel, cancellationToken: ct);
-
-            if (resp.Models.Count > 0)
+            try
             {
-                dispositivo = MapToEntity(resp.Models[0]);
+                // 1. Guardar o actualizar registro de dispositivo
+                var dispModel = MapToModel(dispositivo);
+                var resp = await _supabaseClient.From<DispositivoDbModel>()
+                    .Upsert(dispModel, cancellationToken: ct);
+
+                if (resp.Models.Count > 0)
+                {
+                    dispositivo = MapToEntity(resp.Models[0]);
+                }
+
+                // 2. Desactivar vinculaciones previas del estudiante si existen
+                await _supabaseClient.From<DispositivoEstudianteDbModel>()
+                    .Filter("estudiante_id", Postgrest.Constants.Operator.Equals, estudianteId.ToString())
+                    .Filter("institucion_id", Postgrest.Constants.Operator.Equals, institucionId.ToString())
+                    .Set(x => x.Activo, false)
+                    .Update(cancellationToken: ct);
+
+                // 3. Crear vinculación activa
+                var vincModel = new DispositivoEstudianteDbModel
+                {
+                    Id = Guid.NewGuid(),
+                    DispositivoId = dispositivo.Id,
+                    EstudianteId = estudianteId,
+                    InstitucionId = institucionId,
+                    Activo = true,
+                    CreadoEn = DateTime.UtcNow
+                };
+                await _supabaseClient.From<DispositivoEstudianteDbModel>()
+                    .Insert(vincModel, cancellationToken: ct);
             }
-
-            // 2. Desactivar vinculaciones previas del estudiante si existen
-            await _supabaseClient.From<DispositivoEstudianteDbModel>()
-                .Where(x => x.EstudianteId == estudianteId && x.InstitucionId == institucionId)
-                .Set(x => x.Activo, false)
-                .Update(cancellationToken: ct);
-
-            // 3. Crear vinculación activa
-            var vincModel = new DispositivoEstudianteDbModel
+            catch (Exception ex)
             {
-                Id = Guid.NewGuid(),
-                DispositivoId = dispositivo.Id,
-                EstudianteId = estudianteId,
-                InstitucionId = institucionId,
-                Activo = true,
-                CreadoEn = DateTime.UtcNow
-            };
-            await _supabaseClient.From<DispositivoEstudianteDbModel>()
-                .Insert(vincModel, cancellationToken: ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error registrando dispositivo y vinculación en Supabase. Se almacena localmente.");
+                _logger.LogWarning(ex, "Error registrando dispositivo y vinculación en Supabase. Se almacena localmente.");
+            }
         }
 
         _dispositivosStore[dispositivo.Id] = dispositivo;
@@ -114,20 +125,26 @@ public class SupabaseDispositivoRepository(
 
     public async Task<Estudiante?> ObtenerEstudiantePorDispositivoAsync(Guid dispositivoId, Guid institucionId, CancellationToken ct = default)
     {
-        try
+        if (_hasClient)
         {
-            var vinculacion = await _supabaseClient.From<DispositivoEstudianteDbModel>()
-                .Where(x => x.DispositivoId == dispositivoId && x.InstitucionId == institucionId && x.Activo)
-                .Single(cancellationToken: ct);
-
-            if (vinculacion != null)
+            try
             {
-                return await _estudianteRepo.ObtenerPorIdAsync(vinculacion.EstudianteId, ct);
+                var response = await _supabaseClient.From<DispositivoEstudianteDbModel>()
+                    .Filter("dispositivo_id", Postgrest.Constants.Operator.Equals, dispositivoId.ToString())
+                    .Filter("institucion_id", Postgrest.Constants.Operator.Equals, institucionId.ToString())
+                    .Filter("activo", Postgrest.Constants.Operator.Equals, "true")
+                    .Get(cancellationToken: ct);
+
+                var vinculacion = response.Models.FirstOrDefault();
+                if (vinculacion != null)
+                {
+                    return await _estudianteRepo.ObtenerPorIdAsync(vinculacion.EstudianteId, ct);
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error obteniendo estudiante para dispositivo {DispositivoId} en Supabase.", dispositivoId);
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error obteniendo estudiante para dispositivo {DispositivoId} en Supabase.", dispositivoId);
+            }
         }
 
         if (_vinculacionesStore.TryGetValue(dispositivoId, out var vinc) && vinc.InstitucionId == institucionId && vinc.Activo)
@@ -141,16 +158,19 @@ public class SupabaseDispositivoRepository(
     public async Task ActualizarUltimoUsoAsync(Guid dispositivoId, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
-        try
+        if (_hasClient)
         {
-            await _supabaseClient.From<DispositivoDbModel>()
-                .Where(x => x.Id == dispositivoId)
-                .Set(x => x.UltimoUsoEn, now)
-                .Update(cancellationToken: ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error actualizando ultimo_uso_en para dispositivo {DispositivoId} en Supabase.", dispositivoId);
+            try
+            {
+                await _supabaseClient.From<DispositivoDbModel>()
+                    .Filter("id", Postgrest.Constants.Operator.Equals, dispositivoId.ToString())
+                    .Set(x => x.UltimoUsoEn, now)
+                    .Update(cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error actualizando ultimo_uso_en para dispositivo {DispositivoId} en Supabase.", dispositivoId);
+            }
         }
 
         if (_dispositivosStore.TryGetValue(dispositivoId, out var disp))
@@ -162,21 +182,24 @@ public class SupabaseDispositivoRepository(
     public async Task RevocarDispositivoAsync(Guid dispositivoId, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
-        try
+        if (_hasClient)
         {
-            await _supabaseClient.From<DispositivoDbModel>()
-                .Where(x => x.Id == dispositivoId)
-                .Set(x => x.RevocadoEn!, now)
-                .Update(cancellationToken: ct);
+            try
+            {
+                await _supabaseClient.From<DispositivoDbModel>()
+                    .Filter("id", Postgrest.Constants.Operator.Equals, dispositivoId.ToString())
+                    .Set(x => x.RevocadoEn!, now)
+                    .Update(cancellationToken: ct);
 
-            await _supabaseClient.From<DispositivoEstudianteDbModel>()
-                .Where(x => x.DispositivoId == dispositivoId)
-                .Set(x => x.Activo, false)
-                .Update(cancellationToken: ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error revocando dispositivo {DispositivoId} en Supabase.", dispositivoId);
+                await _supabaseClient.From<DispositivoEstudianteDbModel>()
+                    .Filter("dispositivo_id", Postgrest.Constants.Operator.Equals, dispositivoId.ToString())
+                    .Set(x => x.Activo, false)
+                    .Update(cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error revocando dispositivo {DispositivoId} en Supabase.", dispositivoId);
+            }
         }
 
         if (_dispositivosStore.TryGetValue(dispositivoId, out var disp))
@@ -191,28 +214,34 @@ public class SupabaseDispositivoRepository(
 
     public async Task<DispositivoEstudiante?> ObtenerVinculacionActivaAsync(Guid estudianteId, Guid institucionId, CancellationToken ct = default)
     {
-        try
+        if (_hasClient)
         {
-            var vinculacion = await _supabaseClient.From<DispositivoEstudianteDbModel>()
-                .Where(x => x.EstudianteId == estudianteId && x.InstitucionId == institucionId && x.Activo)
-                .Single(cancellationToken: ct);
-
-            if (vinculacion != null)
+            try
             {
-                return new DispositivoEstudiante
+                var response = await _supabaseClient.From<DispositivoEstudianteDbModel>()
+                    .Filter("estudiante_id", Postgrest.Constants.Operator.Equals, estudianteId.ToString())
+                    .Filter("institucion_id", Postgrest.Constants.Operator.Equals, institucionId.ToString())
+                    .Filter("activo", Postgrest.Constants.Operator.Equals, "true")
+                    .Get(cancellationToken: ct);
+
+                var vinculacion = response.Models.FirstOrDefault();
+                if (vinculacion != null)
                 {
-                    Id = vinculacion.Id,
-                    DispositivoId = vinculacion.DispositivoId,
-                    EstudianteId = vinculacion.EstudianteId,
-                    InstitucionId = vinculacion.InstitucionId,
-                    Activo = vinculacion.Activo,
-                    CreadoEn = new DateTimeOffset(vinculacion.CreadoEn, TimeSpan.Zero)
-                };
+                    return new DispositivoEstudiante
+                    {
+                        Id = vinculacion.Id,
+                        DispositivoId = vinculacion.DispositivoId,
+                        EstudianteId = vinculacion.EstudianteId,
+                        InstitucionId = vinculacion.InstitucionId,
+                        Activo = vinculacion.Activo,
+                        CreadoEn = new DateTimeOffset(vinculacion.CreadoEn, TimeSpan.Zero)
+                    };
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error buscando vinculación activa para estudiante {EstudianteId}.", estudianteId);
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error buscando vinculación activa para estudiante {EstudianteId}.", estudianteId);
+            }
         }
 
         var entry = _vinculacionesStore.FirstOrDefault(x => x.Value.EstudianteId == estudianteId && x.Value.InstitucionId == institucionId && x.Value.Activo);

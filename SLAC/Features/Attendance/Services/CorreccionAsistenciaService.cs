@@ -129,7 +129,8 @@ public class CorreccionAsistenciaService(
         await _sessionCache.InvalidateSessionAsync(listaId, ct);
 
         // 3. Notificar vía SignalR a pantallas de proyección conectadas
-        await _hubContext.Clients.Group(listaId.ToString())
+        var groupName = AttendanceHub.GetGroupName(listaId.ToString());
+        await _hubContext.Clients.Group(groupName)
             .SendAsync("SesionSuspendida", listaId.ToString(), motivo.Trim(), cancellationToken: ct);
 
         // 4. Registrar auditoría inmutable
@@ -150,7 +151,7 @@ public class CorreccionAsistenciaService(
         };
         await _auditoriaRepo.RegistrarEventoAsync(auditoria, ct);
 
-        _logger.LogWarning("Sesión de clase {ListaId} suspendida de emergencia por {Actor}. Motivo: {Motivo}",
+        _logger.LogInformation("Sesión de clase {ListaId} suspendida de emergencia por {Actor}. Motivo: {Motivo}",
             listaId, actorDocente, motivo);
 
         return (true, null);

@@ -231,6 +231,77 @@ public class StudentAttendanceFlowTests
     }
 
     [Fact]
+    public async Task ProcesarEscaneo_InitialLinkingWithEmailAndCi_BindsDeviceAndRecordsAttendanceImmediately()
+    {
+        // Arrange
+        var fakes = new AttendanceTestFakes(_institucionId);
+        var sesionId = Guid.NewGuid();
+        var materiaId = Guid.NewGuid();
+        fakes.SetupActiveSession(sesionId, materiaId);
+
+        // Pre-cargar estudiante en el padrón con CI
+        var est = new Estudiante
+        {
+            InstitucionId = _institucionId,
+            Codigo = "8127564",
+            Nombres = "Leonardo David",
+            Apellidos = "Vargas Monasterio",
+            Correo = "sc.leonardo.vargas.m@upds.net.bo",
+            DocumentoIdentidad = "8127564"
+        };
+        await fakes.EstudianteRepo.CrearOActualizarAsync(est);
+
+        var qrToken = fakes.GenerateValidQrToken(sesionId);
+        var service = fakes.CreateSuscripcionService();
+
+        // 1. Intento con CI incorrecto -> Falla con mensaje claro
+        var requestErrorCi = new AttendanceScanRequest
+        {
+            SesionId = sesionId,
+            QrToken = qrToken,
+            Identificador = "sc.leonardo.vargas.m@upds.net.bo",
+            DocumentoIdentidad = "0000000",
+            AceptaTerminos = true
+        };
+        var resError = await service.ProcesarEscaneoAsync(requestErrorCi);
+        Assert.False(resError.Exito);
+        Assert.Contains("Documento de Identidad", resError.MensajeError);
+
+        // 2. Intento válido con correo y CI correcto -> Vincula y marca presente
+        var requestValido = new AttendanceScanRequest
+        {
+            SesionId = sesionId,
+            QrToken = qrToken,
+            Identificador = "sc.leonardo.vargas.m@upds.net.bo",
+            DocumentoIdentidad = "8127564",
+            AceptaTerminos = true,
+            UserAgent = "Android Chrome Mobile"
+        };
+        var resValido = await service.ProcesarEscaneoAsync(requestValido);
+        Assert.True(resValido.Exito);
+        Assert.NotNull(resValido.NuevaDeviceCookie);
+        Assert.Equal("Leonardo David Vargas Monasterio", resValido.EstudianteNombre);
+        Assert.Equal("8127564", resValido.EstudianteCodigo);
+
+        // Verificar que la asistencia se registró en la sesión
+        var detalle = await fakes.DetalleRepo.ObtenerPorListaYEstudianteAsync(sesionId, est.Id);
+        Assert.NotNull(detalle);
+        Assert.Equal("Presente", detalle.Estado);
+
+        // 3. Segundo escaneo (subsiguiente): Solo envía la cookie emitida -> Asistencia instantánea sin formulario
+        var requestCookie = new AttendanceScanRequest
+        {
+            SesionId = sesionId,
+            QrToken = qrToken,
+            DeviceToken = resValido.NuevaDeviceCookie
+        };
+        var resCookie = await service.ProcesarEscaneoAsync(requestCookie);
+        Assert.True(resCookie.Exito);
+        Assert.False(resCookie.RequiereRegistro);
+        Assert.True(resCookie.YaRegistradoHoy);
+    }
+
+    [Fact]
     public void AttendanceStudentView_GeneratesValidHtmlViews()
     {
         // Act & Assert Success View
@@ -253,7 +324,8 @@ public class StudentAttendanceFlowTests
         var regHtml = AttendanceStudentView.RenderRegistrationView(Guid.NewGuid(), "mock_token", "Física II", "FIS-201", "Faltan datos");
         Assert.Contains("Física II", regHtml);
         Assert.Contains("Faltan datos", regHtml);
-        Assert.Contains("Código o Matrícula Institucional", regHtml);
+        Assert.Contains("Código de Estudiante o Correo Institucional", regHtml);
+        Assert.Contains("carnet (CI)", regHtml);
 
         // Act & Assert Error View
         var errorHtml = AttendanceStudentView.RenderErrorView("Código Expirado", "Por favor solicita un nuevo código.");
@@ -371,7 +443,7 @@ public class StudentAttendanceFlowTests
             return tokenStr;
         }
 
-        public bool TryValidateSessionQrToken(string tokenString, out SessionQrToken? sessionToken, out string? errorMessage, int rotacionTolerancia = 1)
+        public bool TryValidateSessionQrToken(string tokenString, out SessionQrToken? sessionToken, out string? errorMessage, int rotacionTolerancia = 4, bool validarRotacion = true)
         {
             if (_sessionTokens.TryGetValue(tokenString, out var token))
             {
@@ -436,6 +508,17 @@ public class StudentAttendanceFlowTests
 
         public Task<IReadOnlyList<Estudiante>> ListarPorInstitucionAsync(Guid institucionId, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<Estudiante>>([.. _items.Where(x => x.InstitucionId == institucionId)]);
+
+        public Task<bool> EliminarAsync(Guid id, CancellationToken ct = default)
+        {
+            var item = _items.FirstOrDefault(x => x.Id == id);
+            if (item != null)
+            {
+                _items.Remove(item);
+                return Task.FromResult(true);
+            }
+            return Task.FromResult(false);
+        }
     }
 
     private sealed class FakeDispositivoRepository : IDispositivoRepository
@@ -581,6 +664,12 @@ public class StudentAttendanceFlowTests
             return Task.FromResult(detalle);
         }
 
+        public Task EliminarPorListaAsync(Guid listaId, CancellationToken ct = default)
+        {
+            _items.RemoveAll(x => x.ListaId == listaId);
+            return Task.CompletedTask;
+        }
+
         public Task<int> RegistrarFaltasIdempotenteAsync(Guid listaId, Guid institucionId, IEnumerable<Guid> estudiantesIds, CancellationToken ct = default)
         {
             var count = 0;
@@ -623,6 +712,17 @@ public class StudentAttendanceFlowTests
                 _items.Add(suscripcion);
             }
             return Task.FromResult(suscripcion);
+        }
+
+        public Task<bool> DesinscribirAsync(Guid materiaId, Guid estudianteId, CancellationToken ct = default)
+        {
+            var match = _items.FirstOrDefault(x => x.MateriaId == materiaId && x.EstudianteId == estudianteId);
+            if (match != null)
+            {
+                _items.Remove(match);
+                return Task.FromResult(true);
+            }
+            return Task.FromResult(false);
         }
     }
 
@@ -678,6 +778,12 @@ public class StudentAttendanceFlowTests
         public List<(Guid sesionId, int totalPresentes, string? estudianteCodigo)> RecordedCalls { get; } = [];
 
         public Task NotifyAttendanceRecordedAsync(Guid sesionId, int totalPresentes, string? estudianteCodigo, CancellationToken cancellationToken = default)
+        {
+            RecordedCalls.Add((sesionId, totalPresentes, estudianteCodigo));
+            return Task.CompletedTask;
+        }
+
+        public Task NotifyAttendanceRecordedAsync(Guid sesionId, int totalPresentes, string estudianteNombre, string? estudianteCodigo, CancellationToken cancellationToken = default)
         {
             RecordedCalls.Add((sesionId, totalPresentes, estudianteCodigo));
             return Task.CompletedTask;

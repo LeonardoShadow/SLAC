@@ -1,0 +1,215 @@
+@page "/estudiante/faltas"
+@rendermode InteractiveServer
+@using SLAC.Core.Attendance.Entities
+@using SLAC.Core.Attendance.Repositories
+@using SLAC.Core.Docentes.Entities
+@using SLAC.Core.Docentes.Repositories
+@using SLAC.Core.Estudiantes.Entities
+@using SLAC.Core.Estudiantes.Repositories
+@using SLAC.Features.Attendance.Services
+
+@inject IUserSessionService SessionService
+@inject IMateriaRepository MateriaRepo
+@inject ISuscripcionRepository SuscripcionRepo
+@inject IListaAsistenciaRepository ListaRepo
+@inject IAsistenciaDetalleRepository DetalleRepo
+@inject IEstudianteRepository EstudianteRepo
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>SLAC - Mis Inasistencias (Estudiante)</PageTitle>
+
+<div class="pa-4 pa-md-6">
+    <div class="d-flex flex-column flex-sm-row justify-space-between align-start align-sm-center mb-6 gap-3">
+        <div>
+            <div class="d-flex align-center gap-2 mb-1">
+                <MudIcon Icon="@Icons.Material.Filled.Assessment" Color="Color.Primary" Size="Size.Large" />
+                <MudText Typo="Typo.h4" Style="font-weight: 700;">Mi Historial de Asistencia y Faltas</MudText>
+            </div>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Estudiante: <b>@(_estudianteActual?.NombreCompleto ?? "Estudiante")</b> &bull; Código: <b>@(_estudianteActual?.Codigo ?? "N/D")</b>
+            </MudText>
+        </div>
+
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.ArrowBack"
+                   Href="/estudiante/materias">
+            Volver a Mis Materias
+        </MudButton>
+    </div>
+
+    <!-- Filtro por Materia -->
+    <MudCard Elevation="1" Class="rounded-lg pa-4 mb-6">
+        <MudGrid Class="align-center">
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?"
+                           Label="Filtrar por Materia"
+                           Value="_materiaFiltroId"
+                           ValueChanged="OnMateriaFiltroCambiada"
+                           Dense="true"
+                           Variant="Variant.Outlined"
+                           Clearable="true">
+                    @foreach (var m in _materiasInscritas)
+                    {
+                        <MudSelectItem Value="@((Guid?)m.Id)">@m.Nombre (@m.Codigo)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" Class="d-flex justify-end gap-3">
+                <MudChip T="string" Color="Color.Success" Variant="Variant.Filled">
+                    <b>@_detallesFiltrados.Count(d => d.Detalle.Estado == "Presente")</b> Asistencias
+                </MudChip>
+                <MudChip T="string" Color="Color.Error" Variant="Variant.Filled">
+                    <b>@_detallesFiltrados.Count(d => d.Detalle.Estado == "Falta")</b> Faltas
+                </MudChip>
+            </MudItem>
+        </MudGrid>
+    </MudCard>
+
+    @if (_cargando)
+    {
+        <div class="d-flex justify-center pa-12">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+        </div>
+    }
+    else if (!_detallesFiltrados.Any())
+    {
+        <MudCard Elevation="1" Class="pa-8 text-center rounded-lg">
+            <MudIcon Icon="@Icons.Material.Filled.CheckCircleOutline" Size="Size.Large" Color="Color.Success" Class="mb-3" />
+            <MudText Typo="Typo.h6">Sin registros de inasistencias</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                No tienes faltas registradas en los filtros seleccionados.
+            </MudText>
+        </MudCard>
+    }
+    else
+    {
+        <MudCard Elevation="2" Class="rounded-lg">
+            <MudTable Items="_detallesFiltrados" Dense="true" Hover="true" Striped="true" RowsPerPage="15">
+                <HeaderContent>
+                    <MudTh>Materia</MudTh>
+                    <MudTh>Fecha Clase</MudTh>
+                    <MudTh>Hora Inicio</MudTh>
+                    <MudTh>Estado</MudTh>
+                    <MudTh>Detalle / Origen</MudTh>
+                    <MudTh>Registrado En</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Materia"><b>@context.NombreMateria</b> (@context.CodigoMateria)</MudTd>
+                    <MudTd DataLabel="Fecha">@context.Fecha.ToString("dd/MM/yyyy")</MudTd>
+                    <MudTd DataLabel="Hora">@context.HoraInicio.ToString(@"hh\:mm") hrs</MudTd>
+                    <MudTd DataLabel="Estado">
+                        @if (context.Detalle.Estado == "Presente")
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled" Icon="@Icons.Material.Filled.CheckCircle">
+                                Presente
+                            </MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Icon="@Icons.Material.Filled.Cancel">
+                                Falta
+                            </MudChip>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Origen">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                            @(context.Detalle.Origen ?? (context.Detalle.Estado == "Presente" ? "Escaneo QR" : "Ausente"))
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Registrado En">
+                        @context.Detalle.CreadoEn.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                    </MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager />
+                </PagerContent>
+            </MudTable>
+        </MudCard>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "materiaId")]
+    public Guid? MateriaIdQuery { get; set; }
+
+    private record ItemAsistenciaEstudiante(
+        AsistenciaDetalle Detalle,
+        string NombreMateria,
+        string CodigoMateria,
+        DateOnly Fecha,
+        TimeSpan HoraInicio);
+
+    private bool _cargando = true;
+    private Estudiante? _estudianteActual;
+    private Guid? _materiaFiltroId;
+    private List<Materia> _materiasInscritas = [];
+    private List<ItemAsistenciaEstudiante> _todosDetalles = [];
+
+    private IEnumerable<ItemAsistenciaEstudiante> _detallesFiltrados =>
+        _materiaFiltroId.HasValue
+            ? _todosDetalles.Where(d => d.Detalle.ListaId != Guid.Empty && _materiasInscritas.Any(m => m.Id == _materiaFiltroId.Value && m.Codigo == d.CodigoMateria))
+            : _todosDetalles;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!SessionService.EstaAutenticado || (SessionService.RolActual != RolUsuario.Estudiante && SessionService.RolActual != RolUsuario.Administrador))
+        {
+            Navigation.NavigateTo("/login?rol=estudiante");
+            return;
+        }
+
+        _cargando = true;
+        try
+        {
+            _materiaFiltroId = MateriaIdQuery;
+
+            Guid estId = SessionService.UsuarioActual?.EstudianteId ?? Guid.Empty;
+            Guid institucionId = SessionService.UsuarioActual?.InstitucionId ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+            if (estId != Guid.Empty)
+            {
+                _estudianteActual = await EstudianteRepo.ObtenerPorIdAsync(estId);
+            }
+
+            if (estId != Guid.Empty)
+            {
+                var todasMaterias = await MateriaRepo.ListarPorInstitucionAsync(institucionId);
+                var inscritas = new List<Materia>();
+                var items = new List<ItemAsistenciaEstudiante>();
+
+                foreach (var mat in todasMaterias)
+                {
+                    var sub = await SuscripcionRepo.ObtenerAsync(mat.Id, estId);
+                    if (sub != null)
+                    {
+                        inscritas.Add(mat);
+                        var listas = await ListaRepo.ListarPorMateriaAsync(mat.Id);
+                        foreach (var l in listas)
+                        {
+                            var det = await DetalleRepo.ObtenerPorListaYEstudianteAsync(l.Id, estId);
+                            if (det != null)
+                            {
+                                items.Add(new ItemAsistenciaEstudiante(det, mat.Nombre, mat.Codigo, l.Fecha, l.HoraInicio));
+                            }
+                        }
+                    }
+                }
+
+                _materiasInscritas = inscritas;
+                _todosDetalles = [.. items.OrderByDescending(i => i.Fecha).ThenByDescending(i => i.HoraInicio)];
+            }
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private void OnMateriaFiltroCambiada(Guid? nueva)
+    {
+        _materiaFiltroId = nueva;
+    }
+}

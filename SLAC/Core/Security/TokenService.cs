@@ -54,7 +54,8 @@ public class TokenService(IKeyManager keyManager) : ITokenService
         string tokenString,
         out SessionQrToken? sessionToken,
         out string? errorMessage,
-        int rotacionTolerancia = 2)
+        int rotacionTolerancia = 4,
+        bool validarRotacion = true)
     {
         sessionToken = null;
         errorMessage = null;
@@ -115,20 +116,23 @@ public class TokenService(IKeyManager keyManager) : ITokenService
                 return false;
             }
 
-            if (ahoraUnix > payload.VencimientoUnix + 30)
+            if (ahoraUnix > payload.VencimientoUnix + 60)
             {
                 errorMessage = "La ventana de asistencia para esta clase ha vencido (token anulado).";
                 return false;
             }
 
             // 2. Validar rotación dinámica (15 segundos) con tolerancia
-            var segundosTranscurridos = Math.Max(0, ahoraUnix - payload.InicioVigenciaUnix);
-            var indiceEsperado = (int)(segundosTranscurridos / 15);
-
-            if (payload.RotacionIndex < (indiceEsperado - rotacionTolerancia) || payload.RotacionIndex > (indiceEsperado + 1))
+            if (validarRotacion)
             {
-                errorMessage = "El código QR ha expirado por rotación. Por favor escanee el código actual.";
-                return false;
+                var segundosTranscurridos = Math.Max(0, ahoraUnix - payload.InicioVigenciaUnix);
+                var indiceEsperado = (int)(segundosTranscurridos / 15);
+
+                if (payload.RotacionIndex < (indiceEsperado - rotacionTolerancia) || payload.RotacionIndex > (indiceEsperado + 2))
+                {
+                    errorMessage = "El código QR ha expirado por rotación. Por favor escanee el código actual.";
+                    return false;
+                }
             }
 
             sessionToken = payload;

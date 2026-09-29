@@ -245,6 +245,12 @@ public class AttendanceSchedulerTests
             return Task.FromResult(detalle);
         }
 
+        public Task EliminarPorListaAsync(Guid listaId, CancellationToken ct = default)
+        {
+            _items.RemoveAll(x => x.ListaId == listaId);
+            return Task.CompletedTask;
+        }
+
         public Task<int> RegistrarFaltasIdempotenteAsync(Guid listaId, Guid institucionId, IEnumerable<Guid> estudiantesIds, CancellationToken ct = default)
         {
             var insertados = 0;
@@ -293,6 +299,9 @@ public class AttendanceSchedulerTests
 
         public Task<Suscripcion> SuscribirAsync(Suscripcion suscripcion, CancellationToken ct = default)
             => Task.FromResult(suscripcion);
+
+        public Task<bool> DesinscribirAsync(Guid materiaId, Guid estudianteId, CancellationToken ct = default)
+            => Task.FromResult(true);
     }
 
     private sealed class FakeTokenService : ITokenService
@@ -300,7 +309,7 @@ public class AttendanceSchedulerTests
         public string GenerateSessionQrToken(Guid sesionId, Guid institucionId, DateTimeOffset inicioVigencia, int ventanaMinutos, int rotacionIndex)
             => $"token_mock_{sesionId}_{rotacionIndex}";
 
-        public bool TryValidateSessionQrToken(string tokenString, out SessionQrToken? sessionToken, out string? errorMessage, int rotacionTolerancia = 1)
+        public bool TryValidateSessionQrToken(string tokenString, out SessionQrToken? sessionToken, out string? errorMessage, int rotacionTolerancia = 4, bool validarRotacion = true)
         {
             sessionToken = null;
             errorMessage = null;
@@ -371,6 +380,12 @@ public class AttendanceSchedulerTests
         public List<(Guid sesionId, int totalPresentes, int totalFaltas)> ClosedCalls { get; } = [];
 
         public Task NotifyAttendanceRecordedAsync(Guid sesionId, int totalPresentes, string? estudianteCodigo, CancellationToken cancellationToken = default)
+        {
+            RecordedCalls.Add((sesionId, totalPresentes, estudianteCodigo));
+            return Task.CompletedTask;
+        }
+
+        public Task NotifyAttendanceRecordedAsync(Guid sesionId, int totalPresentes, string estudianteNombre, string? estudianteCodigo, CancellationToken cancellationToken = default)
         {
             RecordedCalls.Add((sesionId, totalPresentes, estudianteCodigo));
             return Task.CompletedTask;

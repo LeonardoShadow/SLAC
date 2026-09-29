@@ -51,19 +51,25 @@ public class SupabaseRevinculacionRepository(Client supabaseClient, ILogger<Supa
 
     public async Task<IReadOnlyList<Revinculacion>> ListarPendientesPorMateriaAsync(Guid materiaId, CancellationToken ct = default)
     {
-        var ahora = DateTime.UtcNow;
+        var resultados = new Dictionary<Guid, Revinculacion>();
+
         try
         {
             var response = await _supabaseClient
                 .From<RevinculacionDbModel>()
-                .Where(x => x.MateriaId == materiaId)
+                .Filter("materia_id", Postgrest.Constants.Operator.Equals, materiaId.ToString())
                 .Get(ct);
 
             if (response?.Models?.Count > 0)
             {
-                return [.. response.Models
-                    .Where(m => m.UsadaEn == null && m.ExpiraEn > ahora)
-                    .Select(MapToEntity)];
+                foreach (var model in response.Models)
+                {
+                    var entity = MapToEntity(model);
+                    if (entity.EstaPendiente)
+                    {
+                        resultados[entity.Id] = entity;
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -71,17 +77,30 @@ public class SupabaseRevinculacionRepository(Client supabaseClient, ILogger<Supa
             _logger.LogWarning(ex, "Error consultando revinculaciones en Supabase. Usando almacén local.");
         }
 
-        return [.. _fallbackStore.Values
-            .Where(r => r.MateriaId == materiaId && r.EstaPendiente)];
+        // Siempre fusionar con las solicitudes locales del almacén en memoria
+        foreach (var local in _fallbackStore.Values)
+        {
+            if (local.MateriaId == materiaId && local.EstaPendiente)
+            {
+                resultados[local.Id] = local;
+            }
+        }
+
+        return [.. resultados.Values.OrderByDescending(r => r.CreadoEn)];
     }
 
     public async Task<Revinculacion?> ObtenerPorIdAsync(Guid id, CancellationToken ct = default)
     {
+        if (_fallbackStore.TryGetValue(id, out var local))
+        {
+            return local;
+        }
+
         try
         {
             var response = await _supabaseClient
                 .From<RevinculacionDbModel>()
-                .Where(x => x.Id == id)
+                .Filter("id", Postgrest.Constants.Operator.Equals, id.ToString())
                 .Single(ct);
 
             if (response != null)
@@ -94,23 +113,29 @@ public class SupabaseRevinculacionRepository(Client supabaseClient, ILogger<Supa
             _logger.LogWarning(ex, "Error consultando revinculación {Id} en Supabase.", id);
         }
 
-        return _fallbackStore.TryGetValue(id, out var rev) ? rev : null;
+        return null;
     }
 
     public async Task<Revinculacion?> ObtenerPendientePorEstudianteYMateriaAsync(Guid estudianteId, Guid materiaId, CancellationToken ct = default)
     {
-        var ahora = DateTime.UtcNow;
         try
         {
             var response = await _supabaseClient
                 .From<RevinculacionDbModel>()
-                .Where(x => x.EstudianteId == estudianteId && x.MateriaId == materiaId)
+                .Filter("estudiante_id", Postgrest.Constants.Operator.Equals, estudianteId.ToString())
+                .Filter("materia_id", Postgrest.Constants.Operator.Equals, materiaId.ToString())
                 .Get(ct);
 
-            var pending = response?.Models?.FirstOrDefault(m => m.UsadaEn == null && m.ExpiraEn > ahora);
-            if (pending != null)
+            if (response?.Models?.Count > 0)
             {
-                return MapToEntity(pending);
+                var pending = response.Models
+                    .Select(MapToEntity)
+                    .FirstOrDefault(r => r.EstaPendiente);
+
+                if (pending != null)
+                {
+                    return pending;
+                }
             }
         }
         catch (Exception ex)
@@ -126,18 +151,18 @@ public class SupabaseRevinculacionRepository(Client supabaseClient, ILogger<Supa
 
     public async Task MarcarComoUsadaAsync(Guid id, CancellationToken ct = default)
     {
-        var now = DateTime.UtcNow;
+        var now = DateTimeOffset.UtcNow;
         if (_fallbackStore.TryGetValue(id, out var r))
         {
-            r.UsadaEn = new DateTimeOffset(now, TimeSpan.Zero);
+            r.UsadaEn = now;
         }
 
         try
         {
             await _supabaseClient
                 .From<RevinculacionDbModel>()
-                .Where(x => x.Id == id)
-                .Set(x => x.UsadaEn!, now)
+                .Filter("id", Postgrest.Constants.Operator.Equals, id.ToString())
+                .Set(x => x.UsadaEn!, now.UtcDateTime)
                 .Update(cancellationToken: ct);
         }
         catch (Exception ex)
@@ -146,15 +171,44 @@ public class SupabaseRevinculacionRepository(Client supabaseClient, ILogger<Supa
         }
     }
 
-    private static Revinculacion MapToEntity(RevinculacionDbModel m) => new()
+    private static Revinculacion MapToEntity(RevinculacionDbModel m)
     {
-        Id = m.Id,
-        InstitucionId = m.InstitucionId,
-        EstudianteId = m.EstudianteId,
-        MateriaId = m.MateriaId,
-        DocenteId = m.DocenteId,
-        ExpiraEn = m.ExpiraEn,
-        UsadaEn = m.UsadaEn,
-        CreadoEn = m.CreadoEn
-    };
+        var expiraUtc = m.ExpiraEn.Kind switch
+        {
+            DateTimeKind.Utc => m.ExpiraEn,
+            DateTimeKind.Local => m.ExpiraEn.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(m.ExpiraEn, DateTimeKind.Utc)
+        };
+
+        var creadaUtc = m.CreadoEn.Kind switch
+        {
+            DateTimeKind.Utc => m.CreadoEn,
+            DateTimeKind.Local => m.CreadoEn.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(m.CreadoEn, DateTimeKind.Utc)
+        };
+
+        DateTimeOffset? usadaOffset = null;
+        if (m.UsadaEn.HasValue)
+        {
+            var uUtc = m.UsadaEn.Value.Kind switch
+            {
+                DateTimeKind.Utc => m.UsadaEn.Value,
+                DateTimeKind.Local => m.UsadaEn.Value.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(m.UsadaEn.Value, DateTimeKind.Utc)
+            };
+            usadaOffset = new DateTimeOffset(uUtc, TimeSpan.Zero);
+        }
+
+        return new Revinculacion
+        {
+            Id = m.Id,
+            InstitucionId = m.InstitucionId,
+            EstudianteId = m.EstudianteId,
+            MateriaId = m.MateriaId,
+            DocenteId = m.DocenteId,
+            ExpiraEn = new DateTimeOffset(expiraUtc, TimeSpan.Zero),
+            UsadaEn = usadaOffset,
+            CreadoEn = new DateTimeOffset(creadaUtc, TimeSpan.Zero)
+        };
+    }
 }

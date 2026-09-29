@@ -26,6 +26,19 @@
             <MudItem xs="12">
                 <MudTextField @bind-Value="Materia.Nombre" Label="Nombre de la Materia" Placeholder="Ej. Algoritmos y Estructuras de Datos" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
             </MudItem>
+
+            @if (EsAdmin && Docentes.Count > 0)
+            {
+                <MudItem xs="12">
+                    <MudSelect T="Guid" @bind-Value="Materia.DocenteId" Label="Docente Asignado (Administración)" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" AnchorOrigin="Origin.BottomCenter">
+                        @foreach (var d in Docentes)
+                        {
+                            <MudSelectItem Value="@d.Id">@d.NombreCompleto - @d.Correo (@d.Codigo)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+            }
+
             <MudItem xs="12" sm="6">
                 <MudSelect T="Guid" @bind-Value="Materia.PeriodoId" Label="Periodo Académico" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" AnchorOrigin="Origin.BottomCenter">
                     @foreach (var p in Periodos)
@@ -35,15 +48,23 @@
                 </MudSelect>
             </MudItem>
             <MudItem xs="12" sm="6">
-                <MudSelect T="Guid" @bind-Value="Materia.EspacioId" Label="Aula / Espacio" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" AnchorOrigin="Origin.BottomCenter">
+                <MudSelect T="Guid" @bind-Value="Materia.EspacioId" Label="Aula / Espacio Asignado" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" AnchorOrigin="Origin.BottomCenter">
                     @foreach (var e in Espacios)
                     {
                         <MudSelectItem Value="@e.Id">@e.Nombre (@e.Tipo - Cap: @e.Capacidad)</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
+
             <MudItem xs="12" sm="6">
-                <MudTimePicker Label="Hora de Inicio" @bind-Time="_horaInicio" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="Horario fijo predefinido (RN-01)" />
+                <MudTimePicker Label="Hora de Inicio"
+                               @bind-Time="_horaInicio"
+                               Required="true"
+                               Variant="Variant.Outlined"
+                               Margin="Margin.Dense"
+                               ReadOnly="@(!EsAdmin)"
+                               Disabled="@(!EsAdmin)"
+                               HelperText="@(EsAdmin ? "Horario institucional de inicio (RN-01)" : "🔒 Solo el Administrador puede cambiar la hora de clase.")" />
             </MudItem>
             <MudItem xs="12" sm="6">
                 <MudSelect T="string" @bind-Value="Materia.Estado" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense">
@@ -51,8 +72,15 @@
                     <MudSelectItem Value="@("archivada")">Archivada</MudSelectItem>
                 </MudSelect>
             </MudItem>
+
             <MudItem xs="12">
-                <MudText Typo="Typo.caption" Class="d-block mb-1"><b>Días de clase (Regla RN-01: Lunes a Viernes únicamente):</b></MudText>
+                <MudText Typo="Typo.caption" Class="d-block mb-1">
+                    <b>Días de clase (Regla RN-01: Lunes a Viernes):</b>
+                    @if (!EsAdmin)
+                    {
+                        <span class="text-danger ml-2">🔒 (Solo el Administrador puede modificar los días de clase)</span>
+                    }
+                </MudText>
                 <div class="d-flex gap-2 flex-wrap">
                     @foreach (var dia in _diasDisponibles)
                     {
@@ -60,7 +88,8 @@
                         <MudChip T="string"
                                  Color="@(seleccionado ? Color.Primary : Color.Default)"
                                  Variant="@(seleccionado ? Variant.Filled : Variant.Outlined)"
-                                 OnClick="@(() => ToggleDia(dia.Sigla))">
+                                 Disabled="@(!EsAdmin)"
+                                 OnClick="@(() => { if (EsAdmin) ToggleDia(dia.Sigla); })">
                             @dia.Nombre (@dia.Sigla)
                         </MudChip>
                     }
@@ -86,6 +115,12 @@
 
     [Parameter]
     public List<Espacio> Espacios { get; set; } = [];
+
+    [Parameter]
+    public List<Docente> Docentes { get; set; } = [];
+
+    [Parameter]
+    public bool EsAdmin { get; set; } = false;
 
     private TimeSpan? _horaInicio;
     private HashSet<string> _diasSeleccionados = [];
@@ -131,12 +166,15 @@
     {
         _errorMessage = null;
 
-        if (_horaInicio.HasValue)
+        if (EsAdmin && _horaInicio.HasValue)
         {
             Materia.HoraInicio = _horaInicio.Value;
         }
 
-        Materia.EstablecerDias(_diasSeleccionados);
+        if (EsAdmin)
+        {
+            Materia.EstablecerDias(_diasSeleccionados);
+        }
 
         var (valida, error) = Materia.ValidarReglasNegocio();
         if (!valida)
@@ -150,3 +188,4 @@
 
     private void Cancel() => MudDialog.Cancel();
 }
+

@@ -854,6 +854,12 @@ public class EdgeCasesAndRevinculationTests
             return Task.FromResult(detalle);
         }
 
+        public Task EliminarPorListaAsync(Guid listaId, CancellationToken ct = default)
+        {
+            _detalles.RemoveAll(d => d.ListaId == listaId);
+            return Task.CompletedTask;
+        }
+
         public Task<int> RegistrarFaltasIdempotenteAsync(Guid listaId, Guid institucionId, IEnumerable<Guid> estudiantesIds, CancellationToken ct = default)
         {
             int added = 0;
@@ -899,6 +905,12 @@ public class EdgeCasesAndRevinculationTests
 
         public Task<IReadOnlyList<Estudiante>> ListarPorInstitucionAsync(Guid institucionId, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<Estudiante>>([.. _estudiantes.Where(e => e.InstitucionId == institucionId)]);
+
+        public Task<bool> EliminarAsync(Guid id, CancellationToken ct = default)
+        {
+            var count = _estudiantes.RemoveAll(e => e.Id == id);
+            return Task.FromResult(count > 0);
+        }
     }
 
     private class MockMateriaRepo : IMateriaRepository
@@ -985,6 +997,16 @@ public class EdgeCasesAndRevinculationTests
             _ = ct;
             return Task.FromResult(suscripcion);
         }
+
+        public Task<bool> DesinscribirAsync(Guid materiaId, Guid estudianteId, CancellationToken ct = default)
+        {
+            _ = ct;
+            if (_estudiantesPorMateria.TryGetValue(materiaId, out var list))
+            {
+                list.Remove(estudianteId);
+            }
+            return Task.FromResult(true);
+        }
     }
 
     private class MockSessionEventBus : ISessionEventBus
@@ -1020,6 +1042,16 @@ public class EdgeCasesAndRevinculationTests
             _ = cancellationToken;
             return Task.CompletedTask;
         }
+
+        public Task NotifyAttendanceRecordedAsync(Guid sesionId, int totalPresentes, string estudianteNombre, string? estudianteCodigo, CancellationToken cancellationToken = default)
+        {
+            _ = sesionId;
+            _ = totalPresentes;
+            _ = estudianteNombre;
+            _ = estudianteCodigo;
+            _ = cancellationToken;
+            return Task.CompletedTask;
+        }
         public Task NotifyQrRotatedAsync(Guid sesionId, string nuevoToken, int rotacionIndex, CancellationToken cancellationToken = default)
         {
             _ = sesionId;
@@ -1049,7 +1081,7 @@ public class EdgeCasesAndRevinculationTests
         public ITrigger Trigger => throw new NotImplementedException();
         public ICalendar? Calendar => throw new NotImplementedException();
         public bool Recovering => throw new NotImplementedException();
-        public TriggerKey TriggerKey => s_defaultTriggerKey;
+        public static TriggerKey TriggerKey { get; } = s_defaultTriggerKey;
         public TriggerKey RecoveringTriggerKey => s_defaultTriggerKey;
         public int RefireCount => throw new NotImplementedException();
         public IJobDetail JobDetail => throw new NotImplementedException();

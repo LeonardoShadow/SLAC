@@ -14,9 +14,14 @@
 @using SLAC.Core.Session.Models
 @using SLAC.Core.Attendance.Services
 @using SLAC.Features.Attendance.Services
+@using SLAC.Core.Estudiantes.Entities
+@using SLAC.Core.Estudiantes.Repositories
 @inject IMateriaRepository MateriaRepo
 @inject IEspacioRepository EspacioRepo
 @inject IListaAsistenciaRepository ListaRepo
+@inject IAsistenciaDetalleRepository DetalleRepo
+@inject IEstudianteRepository EstudianteRepo
+@inject ISuscripcionRepository SuscripcionRepo
 @inject ITokenService TokenService
 @inject IQrCodeGeneratorService QrService
 @inject ISessionCacheRepository SessionCache
@@ -52,7 +57,13 @@
             </div>
 
             <div class="header-actions">
-                <MudTooltip Text="Iniciar / Reabrir Sesión QR (20 min)">
+                <MudTooltip Text="Ajustes de Sesión (GPS / Wi-Fi, Alcance y Duración)">
+                    <MudIconButton Icon="@Icons.Material.Filled.Tune"
+                                   Color="Color.Primary"
+                                   OnClick="@(() => _mostrarAjustesModal = true)"
+                                   Class="action-btn" />
+                </MudTooltip>
+                <MudTooltip Text="Iniciar / Reabrir Sesión QR">
                     <MudIconButton Icon="@Icons.Material.Filled.Refresh"
                                    Color="Color.Success"
                                    OnClick="ReabrirSesionAsync"
@@ -202,21 +213,57 @@
                         </div>
 
                         <!-- Selector de Red: Wi-Fi Móvil vs Localhost -->
-                        <div class="d-flex align-center gap-2 mt-2 pt-2" style="border-top: 1px solid rgba(255,255,255,0.06);">
+                        <div class="d-flex align-center gap-2 mt-2 pt-2 flex-wrap" style="border-top: 1px solid rgba(255,255,255,0.06);">
                             <span style="font-size: 0.75rem; color: #94a3b8;">Destino QR:</span>
                             <MudChip T="string"
                                      Size="Size.Small"
                                      Variant="@(_servidorBasePersonalizado == _ipLocalSugerida ? Variant.Filled : Variant.Outlined)"
                                      Color="Color.Success"
                                      OnClick="@(() => CambiarHostBaseAsync(_ipLocalSugerida))">
-                                📱 Wi-Fi Móvil (@_ipLocalSugerida)
+                                📱 Wi-Fi HTTP (5257)
                             </MudChip>
                             <MudChip T="string"
                                      Size="Size.Small"
-                                     Variant="@(_servidorBasePersonalizado != _ipLocalSugerida ? Variant.Filled : Variant.Outlined)"
+                                     Variant="@(_servidorBasePersonalizado == "https://192.168.0.18:7213" ? Variant.Filled : Variant.Outlined)"
+                                     Color="Color.Warning"
+                                     OnClick="@(() => CambiarHostBaseAsync("https://192.168.0.18:7213"))">
+                                🔒 Wi-Fi HTTPS (7213)
+                            </MudChip>
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="@(_servidorBasePersonalizado == "http://localhost:5257" ? Variant.Filled : Variant.Outlined)"
                                      Color="Color.Default"
                                      OnClick="@(() => CambiarHostBaseAsync("http://localhost:5257"))">
-                                💻 Localhost (Solo PC)
+                                💻 Localhost (PC)
+                            </MudChip>
+                        </div>
+
+                        <!-- Selector Rápido: Modo Wi-Fi vs GPS y Alcance -->
+                        <div class="d-flex align-center gap-2 mt-2 pt-2 flex-wrap" style="border-top: 1px solid rgba(255,255,255,0.06);">
+                            <span style="font-size: 0.75rem; color: #94a3b8;">Modo:</span>
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="@(_modoValidacion == "wifi" ? Variant.Filled : Variant.Outlined)"
+                                     Color="Color.Success"
+                                     Icon="@Icons.Material.Filled.Wifi"
+                                     OnClick="@(() => AlternarModoValidacionAsync("wifi"))">
+                                📶 Solo Wi-Fi / QR
+                            </MudChip>
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="@(_modoValidacion == "gps" ? Variant.Filled : Variant.Outlined)"
+                                     Color="Color.Info"
+                                     Icon="@Icons.Material.Filled.GpsFixed"
+                                     OnClick="@(() => AlternarModoValidacionAsync("gps"))">
+                                📍 GPS Obligatorio (@(_radioToleranciaMetros)m)
+                            </MudChip>
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="Variant.Outlined"
+                                     Color="Color.Primary"
+                                     Icon="@Icons.Material.Filled.Tune"
+                                     OnClick="@(() => _mostrarAjustesModal = true)">
+                                ⏱️ @(_minutosCaducidad) min | ⚙️ Ajustar
                             </MudChip>
                         </div>
                     </div>
@@ -261,7 +308,15 @@
                             <span class="feed-dot"></span>
                             <span class="metric-lbl">ASISTENCIA EN VIVO</span>
                         </div>
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">SignalR Conectado</MudText>
+                        <div class="d-flex align-center gap-1">
+                            <MudTooltip Text="Reiniciar asistencias de prueba a 0 para volver a escanear">
+                                <MudIconButton Icon="@Icons.Material.Filled.RestartAlt"
+                                               Size="Size.Small"
+                                               Color="Color.Default"
+                                               OnClick="ReiniciarAsistenciaParaPruebasAsync" />
+                            </MudTooltip>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">SignalR Conectado</MudText>
+                        </div>
                     </div>
 
                     <div class="feed-list">
@@ -327,6 +382,81 @@
                 </div>
             </aside>
         </main>
+    }
+
+    <!-- Modal Flotante de Ajustes de Sesión (Tiempo, Modo y Alcance) -->
+    @if (_mostrarAjustesModal)
+    {
+        <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.78); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 1.25rem;">
+            <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.15); border-radius: 1.5rem; padding: 2rem; width: 100%; max-width: 520px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8);">
+                <div class="d-flex justify-space-between align-center mb-4">
+                    <MudText Typo="Typo.h6" Style="font-weight: 700; color: #fff;">
+                        ⚙️ Ajustes de Sesión y Asistencia
+                    </MudText>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Inherit" OnClick="@(() => _mostrarAjustesModal = false)" />
+                </div>
+
+                <!-- 1. Modo de Asistencia -->
+                <div class="mb-4">
+                    <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
+                        Modo de Validación Requerido:
+                    </label>
+                    <div class="d-flex gap-2">
+                        <MudButton Variant="@(_modoValidacion == "wifi" ? Variant.Filled : Variant.Outlined)"
+                                   Color="Color.Success"
+                                   StartIcon="@Icons.Material.Filled.Wifi"
+                                   OnClick="@(() => _modoValidacion = "wifi")"
+                                   Class="flex-grow-1 py-2">
+                            📶 Solo Wi-Fi / QR
+                        </MudButton>
+                        <MudButton Variant="@(_modoValidacion == "gps" ? Variant.Filled : Variant.Outlined)"
+                                   Color="Color.Info"
+                                   StartIcon="@Icons.Material.Filled.GpsFixed"
+                                   OnClick="@(() => _modoValidacion = "gps")"
+                                   Class="flex-grow-1 py-2">
+                            📍 GPS Obligatorio
+                        </MudButton>
+                    </div>
+                    <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 0.35rem;">
+                        @(_modoValidacion == "wifi" 
+                            ? "✅ Recomendado para pruebas en localhost o red interna en la Universidad (no bloquea navegador móvil)." 
+                            : "🛰️ Exige al navegador móvil activar GPS y estar físicamente dentro del radio del aula.")
+                    </span>
+                </div>
+
+                <!-- 2. Tiempo de Caducidad de la Sesión -->
+                <div class="mb-4">
+                    <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
+                        Tiempo de Caducidad / Ventana de Sesión (Minutos):
+                    </label>
+                    <MudNumericField T="int" @bind-Value="_minutosCaducidad" Min="1" Max="240" Step="5"
+                                     Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     HelperText="Tiempo total que la sesión permanecerá abierta para escaneo (actualiza el temporizador)." />
+                </div>
+
+                <!-- 3. Alcance de Ubicación (Radio de Tolerancia en Metros) -->
+                @if (_modoValidacion == "gps")
+                {
+                    <div class="mb-4">
+                        <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
+                            Alcance de Ubicación GPS (Tolerancia en Metros):
+                        </label>
+                        <MudNumericField T="int" @bind-Value="_radioToleranciaMetros" Min="20" Max="5000" Step="50"
+                                         Variant="Variant.Outlined" Margin="Margin.Dense"
+                                         HelperText="Distancia máxima permitida entre el estudiante y el aula (ej. 300m campus universitario)." />
+                    </div>
+                }
+
+                <div class="d-flex justify-end gap-2 mt-6">
+                    <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="@(() => _mostrarAjustesModal = false)">
+                        Cancelar
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GuardarAjustesSesionAsync" StartIcon="@Icons.Material.Filled.Save">
+                        Aplicar Ajustes
+                    </MudButton>
+                </div>
+            </div>
+        </div>
     }
 </div>
 
@@ -754,6 +884,43 @@
     private string _servidorBasePersonalizado = _ipLocalSugerida;
     private const string _ipLocalSugerida = "http://192.168.0.18:5257";
 
+    // Configuración Dinámica de Sesión (Tiempo, Modo y Alcance)
+    private string _modoValidacion = "wifi"; // Default Wi-Fi para que en localhost y pruebas no sea bloqueado por navegadores móviles sin HTTPS
+    private int _minutosCaducidad = 20;
+    private int _radioToleranciaMetros = 300;
+    private bool _mostrarAjustesModal = false;
+
+    private async Task AlternarModoValidacionAsync(string nuevoModo)
+    {
+        _modoValidacion = nuevoModo;
+        await RotarCodigoQrAsync();
+        Snackbar.Add(nuevoModo == "wifi"
+            ? "Modo cambiado a 'Solo Wi-Fi / QR': los alumnos pueden registrarse directamente sin requerir GPS."
+            : $"Modo cambiado a 'GPS Obligatorio': se exige presencia física satelital dentro de {_radioToleranciaMetros}m.",
+            Severity.Info);
+    }
+
+    private async Task GuardarAjustesSesionAsync()
+    {
+        _mostrarAjustesModal = false;
+        _segundosTotalesSesion = _minutosCaducidad * 60;
+        var transcurrido = (DateTimeOffset.UtcNow - _horaInicioSesion).TotalSeconds;
+        _segundosRestantesSesion = Math.Max(0, _segundosTotalesSesion - (int)transcurrido);
+
+        if (_espacio != null)
+        {
+            _espacio.RadioMetros = _radioToleranciaMetros;
+            try
+            {
+                await EspacioRepo.UpdateAsync(_espacio);
+            }
+            catch { /* Silencioso */ }
+        }
+
+        await RotarCodigoQrAsync();
+        Snackbar.Add($"Ajustes guardados: Modo {_modoValidacion.ToUpperInvariant()}, Duración: {_minutosCaducidad} min, Alcance: {_radioToleranciaMetros}m.", Severity.Success);
+    }
+
     // Casos de Borde: Revinculación y Suspensión (Fase 10)
     private int _solicitudesRevinculacionPendientes = 0;
     private bool _sesionSuspendida = false;
@@ -865,28 +1032,53 @@
                     if (cacheState != null && cacheState.EstaAbierta)
                     {
                         _horaInicioSesion = cacheState.InicioVigencia;
-                        var transcurrido = (DateTimeOffset.UtcNow - _horaInicioSesion).TotalSeconds;
-                        if (transcurrido >= 20 * 60)
-                        {
-                            _sesionCerrada = true;
-                            _segundosRestantesSesion = 0;
-                        }
-                        else
-                        {
-                            _segundosRestantesSesion = Math.Max(0, (20 * 60) - (int)transcurrido);
-                            _sesionCerrada = false;
-                        }
                     }
                     else
                     {
-                        // Si está abierta pero expiró o recién se abre la proyección, dar 20 min desde ahora
-                        _horaInicioSesion = DateTimeOffset.UtcNow;
-                        _segundosRestantesSesion = 20 * 60;
+                        // Respetar la hora de apertura original de la sesión
+                        _horaInicioSesion = _sesion.CreadoEn != DateTimeOffset.MinValue ? _sesion.CreadoEn : DateTimeOffset.UtcNow;
+                    }
+
+                    var transcurrido = (DateTimeOffset.UtcNow - _horaInicioSesion).TotalSeconds;
+                    if (transcurrido >= 20 * 60)
+                    {
+                        _sesionCerrada = true;
+                        _segundosRestantesSesion = 0;
+                    }
+                    else
+                    {
+                        _segundosRestantesSesion = Math.Max(0, (20 * 60) - (int)transcurrido);
                         _sesionCerrada = false;
                     }
                 }
 
                 _totalPresentes = _sesion.TotalPresentes;
+
+                // Cargar estudiantes que ya registraron asistencia en esta sesión
+                try
+                {
+                    var detalles = await DetalleRepo.ListarPorListaAsync(_sesion.Id);
+                    var presentes = detalles
+                        .Where(d => d.Estado == "Presente")
+                        .OrderByDescending(d => d.HoraLlegada ?? DateTimeOffset.MinValue)
+                        .Take(10)
+                        .ToList();
+
+                    _ultimosRegistrados.Clear();
+                    foreach (var p in presentes)
+                    {
+                        var est = await EstudianteRepo.ObtenerPorIdAsync(p.EstudianteId);
+                        if (est != null)
+                        {
+                            var horaStr = FormatearHoraLocal(p.HoraLlegada);
+                            _ultimosRegistrados.Add((est.NombreCompleto, est.Codigo, horaStr));
+                        }
+                    }
+                }
+                catch
+                {
+                    // Manejo silencioso en fallback
+                }
             }
 
             // Consultar solicitudes de revinculación pendientes
@@ -905,6 +1097,40 @@
         finally
         {
             _loading = false;
+        }
+    }
+
+    private static string FormatearHoraLocal(DateTimeOffset? fechaUtc)
+    {
+        if (!fechaUtc.HasValue) return DateTime.Now.ToString("HH:mm:ss");
+        var utc = fechaUtc.Value.UtcDateTime;
+        return TimeZoneInfo.ConvertTimeFromUtc(utc, TimeZoneInfo.Local).ToString("HH:mm:ss");
+    }
+
+    private async Task ReiniciarAsistenciaParaPruebasAsync()
+    {
+        if (_sesion == null) return;
+        try
+        {
+            _loading = true;
+            await DetalleRepo.EliminarPorListaAsync(_sesion.Id);
+            _sesion.TotalPresentes = 0;
+            _sesion.TotalFaltas = 0;
+            await ListaRepo.CrearOActualizarAsync(_sesion);
+
+            _totalPresentes = 0;
+            _ultimosRegistrados.Clear();
+
+            Snackbar.Add("Asistencia reiniciada a 0. Lista lista para nueva prueba de escaneo.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al reiniciar: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
         }
     }
 
@@ -959,6 +1185,7 @@
                 InvokeAsync(() =>
                 {
                     _totalPresentes = totalPresentes;
+                    _ultimosRegistrados.RemoveAll(x => x.Codigo == estudianteCodigo);
                     _ultimosRegistrados.Insert(0, (estudianteNombre, estudianteCodigo, DateTime.Now.ToString("HH:mm:ss")));
                     if (_ultimosRegistrados.Count > 10)
                     {
@@ -1066,7 +1293,7 @@
                 _sesion.Id,
                 _sesion.InstitucionId,
                 _horaInicioSesion,
-                ventanaMinutos: 20,
+                ventanaMinutos: _minutosCaducidad,
                 rotacionIndex: _rotacion);
 
             var baseUrl = !string.IsNullOrWhiteSpace(_servidorBasePersonalizado)
@@ -1075,7 +1302,8 @@
                     ? _ipLocalSugerida
                     : Navigation.BaseUri.TrimEnd('/'));
 
-            _urlEscaneoActual = $"{baseUrl}/a/{_sesion.Id}?t={tokenString}";
+            var modoParam = _modoValidacion == "wifi" ? "&modo=wifi" : "";
+            _urlEscaneoActual = $"{baseUrl}/a/{_sesion.Id}?t={tokenString}{modoParam}";
             _qrSvgContent = QrService.GenerateSvg(_urlEscaneoActual, pixelsPerModule: 10, darkColorHex: "#0F172A", lightColorHex: "#FFFFFF");
 
             // Actualizar caché de Redis para consistencia
@@ -1086,13 +1314,13 @@
                 MateriaId = _sesion.MateriaId,
                 DocenteId = _sesion.DocenteId != Guid.Empty ? _sesion.DocenteId : (_materia?.DocenteId ?? Guid.Empty),
                 InicioVigencia = _horaInicioSesion,
-                Vencimiento = _horaInicioSesion.AddMinutes(20),
+                Vencimiento = _horaInicioSesion.AddMinutes(_minutosCaducidad),
                 RotacionIndex = _rotacion,
                 TokenActual = tokenString,
                 ContadorAsistentes = _totalPresentes,
                 EstaAbierta = true
             };
-            await SessionCache.SetActiveSessionAsync(estado, TimeSpan.FromMinutes(20));
+            await SessionCache.SetActiveSessionAsync(estado, TimeSpan.FromMinutes(_minutosCaducidad));
         }
         catch (Exception ex)
         {
@@ -1130,7 +1358,29 @@
         _sesionCerrada = true;
         await ListaRepo.ActualizarEstadoAsync(_sesion.Id, "Cerrada", DateTime.Now.TimeOfDay);
         await SessionCache.InvalidateSessionAsync(_sesion.Id);
-        Snackbar.Add("La ventana de asistencia ha cerrado.", Severity.Info);
+
+        try
+        {
+            var instId = _materia?.InstitucionId ?? _sesion.InstitucionId;
+            var estudiantesSuscritos = await SuscripcionRepo.ListarEstudiantesIdsPorMateriaAsync(MateriaId);
+            var registrosAsistencia = await DetalleRepo.ListarPorListaAsync(_sesion.Id);
+            var presentesIds = new HashSet<Guid>(registrosAsistencia.Where(r => r.Estado == "Presente").Select(r => r.EstudianteId));
+            var ausentesIds = estudiantesSuscritos.Where(id => !presentesIds.Contains(id)).ToList();
+
+            var faltasRegistradas = await DetalleRepo.RegistrarFaltasIdempotenteAsync(
+                _sesion.Id,
+                instId,
+                ausentesIds);
+
+            var totalPresentes = presentesIds.Count;
+            var totalFaltas = registrosAsistencia.Count(r => r.Estado == "Falta") + faltasRegistradas;
+            await ListaRepo.ActualizarTotalesAsync(_sesion.Id, estudiantesSuscritos.Count, totalPresentes, totalFaltas);
+            Snackbar.Add($"Sesión cerrada: {totalPresentes} presentes, {totalFaltas} faltas computadas.", Severity.Info);
+        }
+        catch
+        {
+            Snackbar.Add($"La ventana de asistencia ha cerrado.", Severity.Info);
+        }
     }
 
     private async Task CerrarAsistenciaManualmente()

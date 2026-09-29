@@ -24,6 +24,9 @@ public class DocenteDbModel : BaseModel
     [Column("correo")]
     public string Correo { get; set; } = string.Empty;
 
+    [Column("codigo")]
+    public string Codigo { get; set; } = string.Empty;
+
     [Column("creado_en")]
     public DateTime CreadoEn { get; set; } = DateTime.UtcNow;
 }

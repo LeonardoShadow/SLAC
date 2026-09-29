@@ -334,6 +334,12 @@ public class TeacherProjectionAndReportsTests
             return Task.FromResult(detalle);
         }
 
+        public Task EliminarPorListaAsync(Guid listaId, CancellationToken ct = default)
+        {
+            _detalles.RemoveAll(d => d.ListaId == listaId);
+            return Task.CompletedTask;
+        }
+
         public Task<int> RegistrarFaltasIdempotenteAsync(Guid listaId, Guid institucionId, IEnumerable<Guid> estudiantesIds, CancellationToken ct = default)
         {
             int added = 0;
@@ -379,6 +385,12 @@ public class TeacherProjectionAndReportsTests
 
         public Task<IReadOnlyList<Estudiante>> ListarPorInstitucionAsync(Guid institucionId, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<Estudiante>>([.. _estudiantes.Where(e => e.InstitucionId == institucionId)]);
+
+        public Task<bool> EliminarAsync(Guid id, CancellationToken ct = default)
+        {
+            var count = _estudiantes.RemoveAll(e => e.Id == id);
+            return Task.FromResult(count > 0);
+        }
     }
 
     private class MockMateriaRepo : IMateriaRepository

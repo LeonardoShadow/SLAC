@@ -6,9 +6,16 @@
 
 <MudDialog>
     <TitleContent>
-        <div class="d-flex align-center gap-2">
-            <MudIcon Icon="@Icons.Material.Filled.PhonelinkLock" Color="Color.Warning" />
-            <MudText Typo="Typo.h6">Solicitudes de Revinculación de Dispositivos (RN-05)</MudText>
+        <div class="d-flex align-center justify-space-between w-100 pr-2">
+            <div class="d-flex align-center gap-2">
+                <MudIcon Icon="@Icons.Material.Filled.PhonelinkLock" Color="Color.Warning" />
+                <MudText Typo="Typo.h6">Solicitudes de Revinculación de Dispositivos (RN-05)</MudText>
+            </div>
+            <MudIconButton Icon="@Icons.Material.Filled.Refresh" 
+                           Color="Color.Primary" 
+                           Size="Size.Small" 
+                           OnClick="CargarSolicitudesAsync" 
+                           aria-label="Actualizar lista de solicitudes" />
         </div>
     </TitleContent>
     <DialogContent>
