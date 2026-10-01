@@ -9,7 +9,7 @@
         <div class="d-flex align-center justify-space-between w-100 pr-2">
             <div class="d-flex align-center gap-2">
                 <MudIcon Icon="@Icons.Material.Filled.PhonelinkLock" Color="Color.Warning" />
-                <MudText Typo="Typo.h6">Solicitudes de Revinculación de Dispositivos (RN-05)</MudText>
+                <MudText Typo="Typo.h6">Solicitudes de Revinculación de Dispositivos</MudText>
             </div>
             <MudIconButton Icon="@Icons.Material.Filled.Refresh" 
                            Color="Color.Primary" 
@@ -20,7 +20,7 @@
     </TitleContent>
     <DialogContent>
         <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
-            Conforme a la regla <b>RN-05</b> (exclusividad de 1 dispositivo activo por estudiante), autorizar una solicitud <b>revocará de forma inmediata la credencial anterior</b> y habilitará el nuevo teléfono del estudiante.
+            Conforme a la política institucional (exclusividad de 1 dispositivo activo por estudiante), autorizar una solicitud <b>revocará de forma inmediata la credencial anterior</b> y habilitará el nuevo teléfono del estudiante.
         </MudText>
 
         @if (_loading)
@@ -55,7 +55,7 @@
                                 </div>
                                 <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-1">
                                     <MudIcon Icon="@Icons.Material.Filled.Smartphone" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
-                                    @(sol.DispositivoAgente ?? "Dispositivo Móvil") &bull; Solicitado hace @((int)(DateTimeOffset.UtcNow - sol.CreadoEn).TotalMinutes) min
+                                    @(sol.DispositivoAgente ?? "Dispositivo Móvil") &bull; @FormatearTiempoTranscurrido(sol.CreadoEn)
                                 </MudText>
                             </div>
 
@@ -134,4 +134,15 @@
     }
 
     private void Cerrar() => MudDialog?.Close();
+
+    private static string FormatearTiempoTranscurrido(DateTimeOffset creadoEn)
+    {
+        var diff = DateTimeOffset.UtcNow - creadoEn;
+        var min = (int)Math.Max(0, diff.TotalMinutes);
+        if (min <= 0) return "Solicitado hace unos segundos";
+        if (min == 1) return "Solicitado hace 1 min";
+        if (min < 60) return $"Solicitado hace {min} min";
+        var horas = min / 60;
+        return $"Solicitado hace {horas} h";
+    }
 }

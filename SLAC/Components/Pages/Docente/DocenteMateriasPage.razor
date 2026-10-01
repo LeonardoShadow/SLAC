@@ -27,7 +27,7 @@
                 <MudText Typo="Typo.h4" Style="font-weight: 700;">Mis Materias Asignadas</MudText>
             </div>
             <MudText Typo="Typo.body2" Color="Color.Secondary">
-                Gestión de asignaturas, configuración de horarios fijos (RN-01) y proyección de listas de asistencia.
+                Gestión de asignaturas, configuración de horarios fijos y proyección de listas de asistencia.
             </MudText>
         </div>
 
@@ -74,11 +74,11 @@
             <MudCard Elevation="2" Class="rounded-lg pa-3" Style="border-left: 5px solid var(--mud-palette-info);">
                 <div class="d-flex justify-space-between align-center">
                     <div>
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">PERIODO ACADÉMICO ACTUAL</MudText>
-                        <MudText Typo="Typo.h6" Style="font-weight: 600;">@(_periodoVigente?.Nombre ?? "Cargando...")</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">MATERIAS ARCHIVADAS</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;">@_materias.Count(m => m.Estado == "archivada")</MudText>
                     </div>
                     <MudAvatar Color="Color.Info" Variant="Variant.Filled" Size="Size.Medium">
-                        <MudIcon Icon="@Icons.Material.Filled.CalendarMonth" Size="Size.Small" />
+                        <MudIcon Icon="@Icons.Material.Filled.Archive" Size="Size.Small" />
                     </MudAvatar>
                 </div>
             </MudCard>
@@ -106,113 +106,167 @@
     }
     else
     {
-        <!-- Courses Cards Grid -->
-        <MudGrid>
-            @foreach (var materia in _materias)
-            {
-                var tieneClaseHoy = _materiasHoy.Any(m => m.Id == materia.Id);
-                <MudItem xs="12" md="6" lg="4">
-                    <MudCard Elevation="3" Class="rounded-xl h-100 d-flex flex-column" Style="overflow: hidden; border: 1px solid var(--mud-palette-lines-default);">
-                        <!-- Accent Top Bar -->
-                        <div style="height: 6px; background: @(tieneClaseHoy ? "var(--mud-palette-success)" : "var(--mud-palette-primary)");"></div>
+        <!-- Pestañas de Filtro: Activas vs Archivadas -->
+        <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" @bind-ActivePanelIndex="_filtroEstadoIndex" Class="mb-4">
+            <MudTabPanel Text="@($"Materias Activas ({_materias.Count(m => m.Estado == "activa")})")" Icon="@Icons.Material.Filled.CheckCircle" />
+            <MudTabPanel Text="@($"Materias Archivadas ({_materias.Count(m => m.Estado == "archivada")})")" Icon="@Icons.Material.Filled.Archive" />
+            <MudTabPanel Text="@($"Todas ({_materias.Count})")" Icon="@Icons.Material.Filled.List" />
+        </MudTabs>
 
-                        <MudCardContent Class="flex-grow-1 pa-5">
-                            <div class="d-flex justify-space-between align-center mb-2">
-                                <div class="d-flex gap-1 align-center">
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Style="font-weight: 700;">
-                                        @materia.Codigo
-                                    </MudChip>
-                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
-                                        Grupo @materia.Grupo
-                                    </MudChip>
-                                </div>
-                                @if (tieneClaseHoy)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled" Icon="@Icons.Material.Filled.CheckCircle">
-                                        Hoy
-                                    </MudChip>
-                                }
-                            </div>
+        @if (!MateriasFiltradas.Any())
+        {
+            <MudCard Elevation="0" Class="pa-8 text-center rounded-lg" Style="border: 1px dashed var(--mud-palette-lines-default); background: transparent;">
+                <MudIcon Icon="@(_filtroEstadoIndex == 1 ? Icons.Material.Filled.Archive : Icons.Material.Filled.FolderOpen)" Size="Size.Large" Color="Color.Secondary" Class="mb-2" />
+                <MudText Typo="Typo.h6">@(_filtroEstadoIndex == 1 ? "No hay materias archivadas" : "No hay materias activas en esta sección")</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    @(_filtroEstadoIndex == 1 ? "Las materias que archives se guardarán aquí para no estorbar en tu lista principal." : "Puedes registrar una nueva materia o restaurar alguna archivada.")
+                </MudText>
+            </MudCard>
+        }
+        else
+        {
+            <!-- Courses Cards Grid -->
+            <MudGrid>
+                @foreach (var materia in MateriasFiltradas)
+                {
+                    var esArchivada = materia.Estado == "archivada";
+                    var tieneClaseHoy = !esArchivada && _materiasHoy.Any(m => m.Id == materia.Id);
+                    <MudItem xs="12" md="6" lg="4">
+                        <MudCard Elevation="@(esArchivada ? 1 : 3)" Class="rounded-xl h-100 d-flex flex-column" Style="@($"overflow: hidden; border: 1px solid var(--mud-palette-lines-default); {(esArchivada ? "opacity: 0.85; background: rgba(0,0,0,0.02);" : "")}")">
+                            <!-- Accent Top Bar -->
+                            <div style="height: 6px; background: @(esArchivada ? "var(--mud-palette-text-disabled)" : tieneClaseHoy ? "var(--mud-palette-success)" : "var(--mud-palette-primary)");"></div>
 
-                            <MudText Typo="Typo.h6" Style="font-weight: 600; line-height: 1.3;" Class="mb-3">
-                                @materia.Nombre
-                            </MudText>
-
-                            <div class="d-flex align-center gap-2 mb-2">
-                                <MudIcon Icon="@Icons.Material.Filled.MeetingRoom" Size="Size.Small" Color="Color.Secondary" />
-                                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                                    <b>Aula:</b> @(ObtenerNombreEspacio(materia.EspacioId))
-                                </MudText>
-                            </div>
-
-                            <div class="d-flex align-center gap-2 mb-3">
-                                <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Color="Color.Secondary" />
-                                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                                    <b>Hora:</b> @materia.HoraInicio.ToString(@"hh\:mm") hrs (90 min)
-                                </MudText>
-                            </div>
-
-                            <!-- Días de clase -->
-                            <div class="mt-2 mb-1">
-                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mb-1">
-                                    DÍAS DE CLASE:
-                                </MudText>
-                                <div class="d-flex gap-1">
-                                    @foreach (var sigla in new[] { "L", "M", "X", "J", "V" })
+                            <MudCardContent Class="flex-grow-1 pa-5">
+                                <div class="d-flex justify-space-between align-center mb-2">
+                                    <div class="d-flex gap-1 align-center">
+                                        <MudChip T="string" Size="Size.Small" Color="@(esArchivada ? Color.Default : Color.Primary)" Variant="Variant.Filled" Style="font-weight: 700;">
+                                            @materia.Codigo
+                                        </MudChip>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                                            Grupo @materia.Grupo
+                                        </MudChip>
+                                    </div>
+                                    @if (esArchivada)
                                     {
-                                        var activo = materia.ObtenerListaDias().Contains(sigla);
-                                        <MudChip T="string"
-                                                 Size="Size.Small"
-                                                 Color="@(activo ? Color.Primary : Color.Default)"
-                                                 Variant="@(activo ? Variant.Filled : Variant.Text)"
-                                                 Style="@(activo ? "font-weight: 700;" : "opacity: 0.4;")">
-                                            @sigla
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Archive">
+                                            Archivada
+                                        </MudChip>
+                                    }
+                                    else if (tieneClaseHoy)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled" Icon="@Icons.Material.Filled.CheckCircle">
+                                            Hoy
                                         </MudChip>
                                     }
                                 </div>
-                            </div>
-                        </MudCardContent>
 
-                        <MudCardActions Class="pa-4 pt-0 d-flex justify-space-between align-center flex-wrap gap-2">
-                            <div class="d-flex gap-2">
-                                <MudButton Variant="Variant.Filled"
-                                           Color="Color.Primary"
-                                           Size="Size.Small"
-                                           StartIcon="@Icons.Material.Filled.QrCode2"
-                                           OnClick="@(() => IniciarProyeccion(materia.Id))">
-                                    Proyectar QR
-                                </MudButton>
-                                <MudButton Variant="Variant.Outlined"
-                                           Color="Color.Info"
-                                           Size="Size.Small"
-                                           StartIcon="@Icons.Material.Filled.Group"
-                                           OnClick="@(() => AbrirGestionEstudiantes(materia))">
-                                    Estudiantes
-                                </MudButton>
-                            </div>
+                                <MudText Typo="Typo.h6" Style="font-weight: 600; line-height: 1.3;" Class="mb-3">
+                                    @materia.Nombre
+                                </MudText>
 
-                            <div class="d-flex gap-1">
-                                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                <div class="d-flex align-center gap-2 mb-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.MeetingRoom" Size="Size.Small" Color="Color.Secondary" />
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                        <b>Aula:</b> @(ObtenerNombreEspacio(materia.EspacioId))
+                                    </MudText>
+                                </div>
+
+                                <div class="d-flex align-center gap-2 mb-3">
+                                    <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Color="Color.Secondary" />
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                        <b>Hora:</b> @materia.HoraInicio.ToString(@"hh\:mm") hrs (90 min)
+                                    </MudText>
+                                </div>
+
+                                <!-- Días de clase -->
+                                <div class="mt-2 mb-1">
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mb-1">
+                                        DÍAS DE CLASE:
+                                    </MudText>
+                                    <div class="d-flex gap-1">
+                                        @foreach (var sigla in new[] { "L", "M", "X", "J", "V" })
+                                        {
+                                            var activo = materia.ObtenerListaDias().Contains(sigla);
+                                            <MudChip T="string"
+                                                     Size="Size.Small"
+                                                     Color="@(activo ? (esArchivada ? Color.Default : Color.Primary) : Color.Default)"
+                                                     Variant="@(activo ? Variant.Filled : Variant.Text)"
+                                                     Style="@(activo ? "font-weight: 700;" : "opacity: 0.4;")">
+                                                @sigla
+                                            </MudChip>
+                                        }
+                                    </div>
+                                </div>
+                            </MudCardContent>
+
+                            <MudCardActions Class="pa-4 pt-0 d-flex justify-space-between align-center flex-wrap gap-2">
+                                <div class="d-flex gap-2">
+                                    @if (!esArchivada)
+                                    {
+                                        <MudButton Variant="Variant.Filled"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Small"
+                                                   StartIcon="@Icons.Material.Filled.QrCode2"
+                                                   OnClick="@(() => IniciarProyeccion(materia.Id))">
+                                            Proyectar QR
+                                        </MudButton>
+                                    }
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Info"
                                                Size="Size.Small"
-                                               Color="Color.Default"
-                                               OnClick="@(() => AbrirDialogoEditarMateria(materia))" />
-                                <MudIconButton Icon="@Icons.Material.Filled.Archive"
-                                               Size="Size.Small"
-                                               Color="Color.Warning"
-                                               OnClick="@(() => ConfirmarArchivar(materia))" />
-                            </div>
-                        </MudCardActions>
-                    </MudCard>
-                </MudItem>
-            }
-        </MudGrid>
+                                               StartIcon="@Icons.Material.Filled.Group"
+                                               OnClick="@(() => AbrirGestionEstudiantes(materia))">
+                                        Estudiantes
+                                    </MudButton>
+                                </div>
+
+                                <div class="d-flex gap-1">
+                                    <MudTooltip Text="Editar Materia">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                                       Size="Size.Small"
+                                                       Color="Color.Default"
+                                                       OnClick="@(() => AbrirDialogoEditarMateria(materia))" />
+                                    </MudTooltip>
+                                    @if (esArchivada)
+                                    {
+                                        <MudTooltip Text="Restaurar / Desarchivar">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Unarchive"
+                                                           Size="Size.Small"
+                                                           Color="Color.Success"
+                                                           OnClick="@(() => RestaurarMateriaAsync(materia))" />
+                                        </MudTooltip>
+                                    }
+                                    else
+                                    {
+                                        <MudTooltip Text="Archivar Materia">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Archive"
+                                                           Size="Size.Small"
+                                                           Color="Color.Warning"
+                                                           OnClick="@(() => ConfirmarArchivar(materia))" />
+                                        </MudTooltip>
+                                    }
+                                </div>
+                            </MudCardActions>
+                        </MudCard>
+                    </MudItem>
+                }
+            </MudGrid>
+        }
     }
 </div>
 
 @code {
     private bool _loading = true;
+    private int _filtroEstadoIndex = 0; // 0: Activas, 1: Archivadas, 2: Todas
     private List<Materia> _materias = [];
     private List<Materia> _materiasHoy = [];
+
+    private IEnumerable<Materia> MateriasFiltradas => _filtroEstadoIndex switch
+    {
+        0 => _materias.Where(m => m.Estado == "activa"),
+        1 => _materias.Where(m => m.Estado == "archivada"),
+        _ => _materias
+    };
     private List<PeriodoAcademico> _periodos = [];
     private List<Espacio> _espacios = [];
     private PeriodoAcademico? _periodoVigente;
@@ -220,8 +274,8 @@
     private string _diaHoySigla = "L";
     private string _diaHoyNombre = "Lunes";
 
-    // Demo Institución ID (en producción proviene del Tenant/ClaimsPrincipal)
-    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    // Institución activa obtenida de la sesión
+    private Guid _institucionId => SessionService.UsuarioActual?.InstitucionId ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     protected override async Task OnInitializedAsync()
     {
@@ -237,7 +291,7 @@
 
     private void CalcularDiaHoy()
     {
-        var dayOfWeek = DateTime.Now.DayOfWeek;
+        var dayOfWeek = TimeHelper.Now.DayOfWeek;
         (_diaHoySigla, _diaHoyNombre) = dayOfWeek switch
         {
             DayOfWeek.Monday => ("L", "Lunes"),
@@ -278,7 +332,7 @@
                 _periodos = [nuevoPeriodo];
             }
 
-            var hoy = DateOnly.FromDateTime(DateTime.Today);
+            var hoy = TimeHelper.Today;
             _periodoVigente = _periodos.FirstOrDefault(p => p.FechaInicio <= hoy && hoy <= p.FechaFin) ?? _periodos.FirstOrDefault();
 
             if (_espacios.Count == 0)
@@ -291,10 +345,10 @@
                 _espacios = [aula1, aula2];
             }
 
-            // 2. Cargar docente actual o crear demo oficial
+            // 2. Cargar docente actual
             var docentes = await DocenteRepo.ListarPorInstitucionAsync(_institucionId);
             _docenteActual = docentes.FirstOrDefault();
-            if (_docenteActual == null)
+            if (_docenteActual == null && _institucionId == Guid.Parse("11111111-1111-1111-1111-111111111111"))
             {
                 _docenteActual = new Docente
                 {
@@ -315,61 +369,72 @@
             }
 
             // 3. Cargar materias del docente
-            var materias = await MateriaRepo.ListarPorDocenteAsync(_docenteActual.Id);
-            _materias = materias.OrderBy(m => m.HoraInicio).ToList();
-
-            // 4. Filtrar materias de hoy
-            _materiasHoy = _materias
-                .Where(m => m.Estado == "activa" && m.ObtenerListaDias().Contains(_diaHoySigla))
-                .ToList();
-
-            // 5. Pre-cargar estudiante oficial de prueba (Leonardo David Vargas Monasterio) si no existe
-            var estLeo = await EstudianteRepo.ObtenerPorCodigoAsync(_institucionId, "8127564");
-            if (estLeo == null)
+            if (_docenteActual != null)
             {
-                estLeo = new Estudiante
-                {
-                    InstitucionId = _institucionId,
-                    Codigo = "8127564",
-                    Nombres = "Leonardo David",
-                    Apellidos = "Vargas Monasterio",
-                    Correo = "sc.leonardo.vargas.m@upds.net.bo",
-                    DocumentoIdentidad = "8127564",
-                    ConsentimientoEn = DateTimeOffset.UtcNow
-                };
-                estLeo = await EstudianteRepo.CrearOActualizarAsync(estLeo);
+                var materias = await MateriaRepo.ListarPorDocenteAsync(_docenteActual.Id);
+                _materias = materias.OrderBy(m => m.HoraInicio).ToList();
+
+                // 4. Filtrar materias de hoy
+                _materiasHoy = _materias
+                    .Where(m => m.Estado == "activa" && m.ObtenerListaDias().Contains(_diaHoySigla))
+                    .ToList();
+            }
+            else
+            {
+                _materias = [];
+                _materiasHoy = [];
             }
 
-            // Inscribir en las materias activas para que esté listo en el padrón
-            foreach (var mat in _materias)
+            // 5. Pre-cargar estudiante de prueba solo para UPDS
+            if (_institucionId == Guid.Parse("11111111-1111-1111-1111-111111111111"))
             {
-                var sub = await SuscripcionRepo.ObtenerAsync(mat.Id, estLeo.Id);
-                if (sub == null)
+                var estLeo = await EstudianteRepo.ObtenerPorCodigoAsync(_institucionId, "8127564");
+                if (estLeo == null)
                 {
-                    await SuscripcionRepo.SuscribirAsync(new Suscripcion
+                    estLeo = new Estudiante
                     {
                         InstitucionId = _institucionId,
-                        MateriaId = mat.Id,
-                        EstudianteId = estLeo.Id,
-                        Fecha = DateTimeOffset.UtcNow,
-                        Estado = "activa"
-                    });
+                        Codigo = "8127564",
+                        Nombres = "Leonardo David",
+                        Apellidos = "Vargas Monasterio",
+                        Correo = "sc.leonardo.vargas.m@upds.net.bo",
+                        DocumentoIdentidad = "8127564",
+                        ConsentimientoEn = DateTimeOffset.UtcNow
+                    };
+                    estLeo = await EstudianteRepo.CrearOActualizarAsync(estLeo);
                 }
-            }
 
-            // 6. Purgar registros obsoletos o no deseados (ej. 'Ana María García López')
-            var todosEstudiantes = await EstudianteRepo.ListarPorInstitucionAsync(_institucionId);
-            foreach (var estObsoleto in todosEstudiantes.Where(e =>
-                e.Codigo == "100234" ||
-                e.Codigo == "7654321" ||
-                (e.Correo != null && e.Correo.Contains("ana.garcia", StringComparison.OrdinalIgnoreCase)) ||
-                (e.Nombres != null && e.Nombres.Contains("Ana María", StringComparison.OrdinalIgnoreCase))))
-            {
+                // Inscribir en las materias activas para que esté listo en el padrón
                 foreach (var mat in _materias)
                 {
-                    await SuscripcionRepo.DesinscribirAsync(mat.Id, estObsoleto.Id);
+                    var sub = await SuscripcionRepo.ObtenerAsync(mat.Id, estLeo.Id);
+                    if (sub == null)
+                    {
+                        await SuscripcionRepo.SuscribirAsync(new Suscripcion
+                        {
+                            InstitucionId = _institucionId,
+                            MateriaId = mat.Id,
+                            EstudianteId = estLeo.Id,
+                            Fecha = DateTimeOffset.UtcNow,
+                            Estado = "activa"
+                        });
+                    }
                 }
-                await EstudianteRepo.EliminarAsync(estObsoleto.Id);
+
+                // 6. Purgar registros obsoletos o no deseados (ej. 'Ana María García López')
+                var todosEstudiantes = await EstudianteRepo.ListarPorInstitucionAsync(_institucionId);
+                foreach (var estObsoleto in todosEstudiantes.Where(e =>
+                    e.Codigo == "100234" ||
+                    e.Codigo == "7654321" ||
+                    (e.Correo != null && e.Correo.Contains("ana.garcia", StringComparison.OrdinalIgnoreCase)) ||
+                    (e.Nombres != null && e.Nombres.Contains("Ana María", StringComparison.OrdinalIgnoreCase))))
+                {
+                    foreach (var mat in _materias)
+                    {
+                        await SuscripcionRepo.DesinscribirAsync(mat.Id, estObsoleto.Id);
+                    }
+                    await EstudianteRepo.EliminarAsync(estObsoleto.Id);
+                }
             }
         }
         catch (Exception ex)
@@ -478,6 +543,14 @@
             Snackbar.Add("Materia archivada correctamente.", Severity.Info);
             await CargarDatosAsync();
         }
+    }
+
+    private async Task RestaurarMateriaAsync(Materia materia)
+    {
+        materia.Estado = "activa";
+        await MateriaRepo.GuardarAsync(materia);
+        Snackbar.Add($"Materia '{materia.Nombre}' reactivada exitosamente.", Severity.Success);
+        await CargarDatosAsync();
     }
 
     private void IniciarProyeccion(Guid materiaId)

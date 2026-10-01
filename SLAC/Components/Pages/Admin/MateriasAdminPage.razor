@@ -30,7 +30,7 @@
                 <MudText Typo="Typo.h5" Style="font-weight: 800;">Gestión Académica de Materias</MudText>
             </div>
             <MudText Typo="Typo.body2" Color="Color.Secondary">
-                Administración institucional de asignaturas: asignación de docentes, aulas, horarios oficiales (RN-01) y padrón de estudiantes.
+                Administración institucional de asignaturas: asignación de docentes, aulas, horarios oficiales y padrón de estudiantes.
             </MudText>
         </div>
 
@@ -162,7 +162,7 @@
 </MudContainer>
 
 @code {
-    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private Guid _institucionId => SessionService.UsuarioActual?.InstitucionId ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
     private bool _cargando = true;
     private List<Materia> _materias = [];
     private List<Docente> _docentes = [];
@@ -172,7 +172,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (!SessionService.EstaAutenticado || SessionService.RolActual != RolUsuario.Administrador)
+        if (!SessionService.EstaAutenticado || (SessionService.RolActual != RolUsuario.Administrador && SessionService.RolActual != RolUsuario.SuperAdmin))
         {
             Navigation.NavigateTo("/login?rol=admin");
             return;

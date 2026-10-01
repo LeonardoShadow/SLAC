@@ -121,14 +121,14 @@
 </MudContainer>
 
 @code {
-    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private Guid _institucionId => SessionService.UsuarioActual?.InstitucionId ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
     private bool _cargando = true;
     private List<Docente> _docentes = [];
     private Dictionary<Guid, List<Materia>> _materiasPorDocente = [];
 
     protected override async Task OnInitializedAsync()
     {
-        if (!SessionService.EstaAutenticado || SessionService.RolActual != RolUsuario.Administrador)
+        if (!SessionService.EstaAutenticado || (SessionService.RolActual != RolUsuario.Administrador && SessionService.RolActual != RolUsuario.SuperAdmin))
         {
             Navigation.NavigateTo("/login?rol=admin");
             return;

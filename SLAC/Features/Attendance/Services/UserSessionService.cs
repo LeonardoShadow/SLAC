@@ -8,7 +8,8 @@ public enum RolUsuario
     Ninguno,
     Administrador,
     Docente,
-    Estudiante
+    Estudiante,
+    SuperAdmin
 }
 
 public class UsuarioSesion
@@ -33,6 +34,7 @@ public interface IUserSessionService
     void IniciarSesionAdmin(Guid institucionId, string nombre = "Administrador Institucional", string correo = "admin@upds.net.bo");
     void IniciarSesionDocente(Docente docente);
     void IniciarSesionEstudiante(Estudiante estudiante);
+    void IniciarSesionSuperAdmin(string nombre = "Leonardo Vargas (Super Admin)", string correo = "LeonardoTarea777@gmail.com");
     void CerrarSesion();
 }
 
@@ -45,6 +47,20 @@ public class UserSessionService : IUserSessionService
     public RolUsuario RolActual => UsuarioActual?.Rol ?? RolUsuario.Ninguno;
 
     public event Action? OnChange;
+
+    public void IniciarSesionSuperAdmin(string nombre = "Leonardo Vargas (Super Admin)", string correo = "LeonardoTarea777@gmail.com")
+    {
+        UsuarioActual = new UsuarioSesion
+        {
+            Id = Guid.NewGuid(),
+            NombreCompleto = nombre,
+            Correo = correo,
+            Codigo = "SUPER-ADMIN",
+            Rol = RolUsuario.SuperAdmin,
+            InstitucionId = Guid.Empty
+        };
+        NotifyStateChanged();
+    }
 
     public void IniciarSesionAdmin(Guid institucionId, string nombre = "Administrador Institucional", string correo = "admin@upds.net.bo")
     {

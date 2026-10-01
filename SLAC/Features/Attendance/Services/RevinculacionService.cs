@@ -62,11 +62,17 @@ public class RevinculacionService(
         var existente = await _revinculacionRepo.ObtenerPendientePorEstudianteYMateriaAsync(estudiante.Id, lista.MateriaId, ct);
         if (existente != null)
         {
+            existente.DispositivoAgente = userAgent;
+            existente.EstudianteNombre = estudiante.NombreCompleto;
+            existente.EstudianteCodigo = estudiante.Codigo;
+            existente.ExpiraEn = DateTimeOffset.UtcNow.AddHours(2);
+            existente.CreadoEn = DateTimeOffset.UtcNow;
+
             return new SolicitudRevinculacionResult(
                 true,
                 false,
                 existente.Id,
-                "Ya tienes una solicitud de revinculación en espera. Solicita al docente su aprobación en aula.",
+                "Solicitud de revinculación en espera. Tu docente puede autorizar tu nuevo dispositivo en pantalla.",
                 estudiante.NombreCompleto,
                 estudiante.Codigo);
         }
@@ -140,6 +146,20 @@ public class RevinculacionService(
         // 1. Marcar solicitud como autorizada/usada
         await _revinculacionRepo.MarcarComoUsadaAsync(solicitudId, ct);
 
+        // Limpiar cualquier otra solicitud pendiente residual que pudiera tener el mismo estudiante
+        try
+        {
+            var pendientesEstudiante = await _revinculacionRepo.ListarPendientesPorMateriaAsync(solicitud.MateriaId, ct);
+            foreach (var residual in pendientesEstudiante.Where(r => r.EstudianteId == solicitud.EstudianteId && r.Id != solicitudId))
+            {
+                await _revinculacionRepo.MarcarComoUsadaAsync(residual.Id, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error limpiando solicitudes residuales del estudiante {EstudianteId}", solicitud.EstudianteId);
+        }
+
         // 2. Revocar el dispositivo previo del estudiante si existía (RN-05)
         var vincActiva = await _dispositivoRepo.ObtenerVinculacionActivaAsync(solicitud.EstudianteId, solicitud.InstitucionId, ct);
         if (vincActiva != null)
@@ -187,17 +207,27 @@ public class RevinculacionService(
     {
         var lista = await _revinculacionRepo.ListarPendientesPorMateriaAsync(materiaId, ct);
 
-        // Enriquecer con nombres de estudiantes
+        // Enriquecer con nombres de estudiantes si no vinieron cargados
         foreach (var rev in lista)
         {
-            var est = await _estudianteRepo.ObtenerPorIdAsync(rev.EstudianteId, ct);
-            if (est != null)
+            if (string.IsNullOrWhiteSpace(rev.EstudianteNombre))
             {
-                rev.EstudianteNombre = est.NombreCompleto;
-                rev.EstudianteCodigo = est.Codigo;
+                var est = await _estudianteRepo.ObtenerPorIdAsync(rev.EstudianteId, ct);
+                if (est != null)
+                {
+                    rev.EstudianteNombre = est.NombreCompleto;
+                    rev.EstudianteCodigo = est.Codigo;
+                }
             }
         }
 
-        return lista;
+        // Deduplicar estrictamente por estudiante: 1 única solicitud (la más reciente) por estudiante
+        var unicos = lista
+            .GroupBy(r => r.EstudianteId)
+            .Select(g => g.OrderByDescending(r => r.CreadoEn).First())
+            .OrderByDescending(r => r.CreadoEn)
+            .ToList();
+
+        return unicos;
     }
 }

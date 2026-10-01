@@ -15,6 +15,27 @@ public class CryptoTests
     }
 
     [Fact]
+    public void DeviceCredential_ShouldSurviveKeyManagerRestart()
+    {
+        // Instancia 1: Servidor antes del reinicio
+        var km1 = new KeyManager();
+        var ts1 = new TokenService(km1);
+        var dispId = Guid.NewGuid();
+        var instId = Guid.NewGuid();
+        var (tokenString, _) = ts1.GenerateDeviceCredential(dispId, instId);
+
+        // Instancia 2: Servidor después de borrar wwwroot y reiniciar proceso
+        var km2 = new KeyManager();
+        var ts2 = new TokenService(km2);
+        var isValid = ts2.TryValidateDeviceCredential(tokenString, out var payload, out var error);
+
+        Assert.True(isValid);
+        Assert.Null(error);
+        Assert.NotNull(payload);
+        Assert.Equal(dispId, payload.DispositivoId);
+    }
+
+    [Fact]
     public void SessionQrToken_ValidToken_ShouldValidateSuccessfully()
     {
         // Arrange

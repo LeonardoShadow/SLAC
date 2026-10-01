@@ -10,6 +10,8 @@ public static class InstitucionalServiceRegistration
         services.AddScoped<IEspacioRepository, SupabaseEspacioRepository>();
         services.AddScoped<IPeriodoAcademicoRepository, SupabasePeriodoRepository>();
         services.AddScoped<IDiaNoLectivoRepository, SupabaseDiaNoLectivoRepository>();
+        services.AddScoped<IInstitucionRepository, SupabaseInstitucionRepository>();
+        services.AddScoped<IAdministradorInstitucionalRepository, SupabaseAdministradorInstitucionalRepository>();
 
         return services;
     }

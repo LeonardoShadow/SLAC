@@ -7,6 +7,7 @@
 @inject IReporteAsistenciaService ReporteService
 @inject IMateriaRepository MateriaRepo
 @inject IDocenteRepository DocenteRepo
+@inject IUserSessionService SessionService
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
@@ -124,7 +125,7 @@
                 <div class="d-flex justify-space-between align-center">
                     <div>
                         <MudText Typo="Typo.caption" Color="Color.Secondary">FALTAS POR AUSENCIA</MudText>
-                        <MudText Typo="Typo.h4" Style="font-weight: 700;">@_faltas.Count(f => f.Origen == null || f.Origen == "Ausente")</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 700;">@_faltas.Count(f => f.Origen != "Suscripción tardía")</MudText>
                     </div>
                     <MudAvatar Color="Color.Warning" Variant="Variant.Filled" Size="Size.Medium">
                         <MudIcon Icon="@Icons.Material.Filled.AlarmOff" Size="Size.Small" />
@@ -201,11 +202,11 @@
                              Size="Size.Small"
                              Color="@(context.Origen == "Suscripción tardía" ? Color.Info : Color.Default)"
                              Variant="Variant.Outlined">
-                        @(context.Origen ?? "Ausente")
+                        @(context.Origen == "Cierre" ? "Ausente (Cierre)" : (context.Origen ?? "Ausente"))
                     </MudChip>
                 </MudTd>
                 <MudTd DataLabel="Fecha Cómputo">
-                    @context.CreadoEn.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                    @TimeHelper.FormatearFechaHoraLocal(context.CreadoEn)
                 </MudTd>
                 <MudTd DataLabel="Acciones" Style="text-align: right;">
                     <MudButton Variant="Variant.Outlined"
@@ -244,8 +245,8 @@
     private DateTime? _fechaHasta;
     private string _searchString = string.Empty;
 
-    // Demo Institución
-    private readonly Guid _institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    // Institución activa obtenida de la sesión
+    private Guid _institucionId => SessionService.UsuarioActual?.InstitucionId ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     protected override async Task OnInitializedAsync()
     {

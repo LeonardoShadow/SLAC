@@ -102,47 +102,76 @@ public class SupabaseAsistenciaDetalleRepository(Client supabaseClient, ILogger<
         var count = 0;
         var now = DateTimeOffset.UtcNow;
 
+        // 1. Cargar estudiantes que ya tienen registro previo en esta lista (Presente o Falta)
+        var registrados = new HashSet<Guid>(_fallbackStore.Values.Where(d => d.ListaId == listaId).Select(d => d.EstudianteId));
+        try
+        {
+            var resDb = await _supabaseClient
+                .From<AsistenciaDetalleDbModel>()
+                .Filter("lista_id", Postgrest.Constants.Operator.Equals, listaId.ToString())
+                .Get(ct);
+
+            if (resDb?.Models?.Count > 0)
+            {
+                foreach (var m in resDb.Models)
+                {
+                    registrados.Add(m.EstudianteId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Consulta previa de asistencias para lista {ListaId} omitida o fallida. Se validará individualmente.", listaId);
+        }
+
+        // 2. Insertar falta únicamente para los estudiantes que no tengan ningún registro previo
         foreach (var estudianteId in estudiantesIds)
         {
-            // Verificar idempotencia: no sobrescribir si ya tiene registro (Presente o Falta previa)
-            var existe = _fallbackStore.Values.Any(d => d.ListaId == listaId && d.EstudianteId == estudianteId);
-            if (!existe)
+            if (registrados.Contains(estudianteId))
             {
-                var falta = new AsistenciaDetalle
+                continue;
+            }
+
+            var falta = new AsistenciaDetalle
+            {
+                Id = Guid.NewGuid(),
+                InstitucionId = institucionId,
+                ListaId = listaId,
+                EstudianteId = estudianteId,
+                Estado = "Falta",
+                Origen = "Cierre",
+                CreadoEn = now
+            };
+
+            _fallbackStore[falta.Id] = falta;
+            registrados.Add(estudianteId);
+            count++;
+
+            try
+            {
+                var model = new AsistenciaDetalleDbModel
                 {
-                    Id = Guid.NewGuid(),
-                    InstitucionId = institucionId,
-                    ListaId = listaId,
-                    EstudianteId = estudianteId,
-                    Estado = "Falta",
-                    Origen = "Cierre",
-                    CreadoEn = now
+                    Id = falta.Id,
+                    InstitucionId = falta.InstitucionId,
+                    ListaId = falta.ListaId,
+                    EstudianteId = falta.EstudianteId,
+                    Estado = falta.Estado,
+                    Origen = falta.Origen,
+                    CreadoEn = falta.CreadoEn.UtcDateTime
                 };
 
-                _fallbackStore[falta.Id] = falta;
-                count++;
-
-                try
-                {
-                    var model = new AsistenciaDetalleDbModel
-                    {
-                        Id = falta.Id,
-                        InstitucionId = falta.InstitucionId,
-                        ListaId = falta.ListaId,
-                        EstudianteId = falta.EstudianteId,
-                        Estado = falta.Estado,
-                        Origen = falta.Origen,
-                        CreadoEn = falta.CreadoEn.UtcDateTime
-                    };
-
-                    await _supabaseClient
-                        .From<AsistenciaDetalleDbModel>()
-                        .Insert(model, null, ct);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error insertando falta automática en Supabase para estudiante {EstudianteId}.", estudianteId);
-                }
+                await _supabaseClient
+                    .From<AsistenciaDetalleDbModel>()
+                    .Insert(model, null, ct);
+            }
+            catch (Postgrest.Exceptions.PostgrestException pex) when (pex.Message?.Contains("uq_lista_estudiante") is true || pex.Message?.Contains("23505") is true)
+            {
+                // Es un caso normal de idempotencia: el estudiante ya tenía un registro en BD.
+                _logger.LogDebug(pex, "Estudiante {EstudianteId} ya tenía registro en la lista {ListaId}. Se mantiene el estado previo.", estudianteId, listaId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error insertando falta automática en Supabase para estudiante {EstudianteId}.", estudianteId);
             }
         }
 
