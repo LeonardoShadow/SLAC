@@ -166,6 +166,18 @@ public static class AttendanceStudentView
         var materia = EncodeHtml(materiaNombre);
         var codigoMat = EncodeHtml(materiaCodigo);
         var esWifi = string.Equals(modo, "wifi", StringComparison.OrdinalIgnoreCase);
+        var bannerGpsHtml = esWifi
+            ? """
+              <div id="gps-status" style="display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 0.75rem; padding: 0.65rem 0.85rem; font-size: 0.8125rem; color: #34d399; margin-bottom: 1.25rem;">
+                  <span>📶 <b>Modo Red Wi-Fi Aula:</b> Conexión autorizada directamente por código de sesión.</span>
+              </div>
+              """
+            : """
+              <div id="gps-status" style="display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 0.75rem; padding: 0.65rem 0.85rem; font-size: 0.8125rem; color: #93c5fd; margin-bottom: 1.25rem;">
+                  <span>📡 Calibrando ubicación GPS para confirmar asistencia en aula...</span>
+              </div>
+              """;
+        var textoBoton = esWifi ? "📱 Vincular Teléfono y Marcar Asistencia" : "📍 Vincular Teléfono y Marcar Asistencia";
         var errorHtml = string.IsNullOrWhiteSpace(errorMensaje)
             ? ""
             : $$"""
@@ -306,18 +318,7 @@ public static class AttendanceStudentView
 
                 {{errorHtml}}
 
-                @if (esWifi)
-                {
-                    <div id="gps-status" style="display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 0.75rem; padding: 0.65rem 0.85rem; font-size: 0.8125rem; color: #34d399; margin-bottom: 1.25rem;">
-                        <span>📶 <b>Modo Red Wi-Fi Aula:</b> Conexión autorizada directamente por código de sesión.</span>
-                    </div>
-                }
-                else
-                {
-                    <div id="gps-status" style="display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 0.75rem; padding: 0.65rem 0.85rem; font-size: 0.8125rem; color: #93c5fd; margin-bottom: 1.25rem;">
-                        <span>📡 Calibrando ubicación GPS para confirmar asistencia en aula...</span>
-                    </div>
-                }
+                {{bannerGpsHtml}}
 
                 <form method="POST" action="/a/{{sesionId}}" id="regForm">
                     <input type="hidden" name="t" value="{{tokenSeguro}}" />
@@ -328,9 +329,9 @@ public static class AttendanceStudentView
 
                     <div class="form-group">
                         <label for="identificador">Código de Estudiante o Correo Institucional (CI) *</label>
-                        <input type="text" id="identificador" name="identificador" required placeholder="Ej. 8127564 o correo institucional" autofocus />
+                        <input type="text" id="identificador" name="identificador" required autofocus />
                         <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 0.25rem;">
-                            Tu código de estudiante y carnet (CI) son el mismo valor (ej. 8127564).
+                            Ingresa tu código único, carnet de identidad o correo institucional.
                         </span>
                     </div>
 
@@ -342,33 +343,54 @@ public static class AttendanceStudentView
                     </div>
 
                     <button type="submit" class="submit-btn" id="submitBtn">
-                        @(esWifi ? "📱 Vincular Teléfono y Marcar Asistencia" : "📍 Vincular Teléfono y Marcar Asistencia")
+                        {{textoBoton}}
                     </button>
                 </form>
             </div>
 
             <script>
+                const isPrivateIp = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(location.hostname);
+                if (!isPrivateIp && location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+                    location.replace('https:' + window.location.href.substring(window.location.protocol.length));
+                }
+
                 const esWifi = {{esWifi.ToString().ToLowerInvariant()}};
                 if (!esWifi) {
                     const gpsBox = document.getElementById('gps-status');
                     if (navigator.geolocation) {
+                        const setPosOk = (pos) => {
+                            document.getElementById('lat').value = pos.coords.latitude;
+                            document.getElementById('lon').value = pos.coords.longitude;
+                            document.getElementById('acc').value = pos.coords.accuracy;
+                            gpsBox.style.background = 'rgba(16, 185, 129, 0.15)';
+                            gpsBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                            gpsBox.style.color = '#34d399';
+                            gpsBox.innerHTML = '✅ <b>Ubicación fijada:</b> Precisión de ' + Math.round(pos.coords.accuracy) + 'm';
+                        };
+
+                        const setPosErr = (err) => {
+                            gpsBox.style.background = 'rgba(239, 68, 68, 0.15)';
+                            gpsBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                            gpsBox.style.color = '#fca5a5';
+                            if (err.code === 1) {
+                                gpsBox.innerHTML = '⚠️ <b>Permiso Denegado:</b> En tu navegador toca el candado 🔒 y permite el acceso a <b>Ubicación</b>.';
+                            } else if (err.code === 2) {
+                                gpsBox.innerHTML = '⚠️ <b>GPS Desactivado:</b> Activa la Ubicación en los ajustes rápidos de tu celular.';
+                            } else {
+                                gpsBox.innerHTML = '📡 <b>Buscando satélites bajo techo...</b> Puedes presionar Vincular o acercarte a una puerta.';
+                            }
+                        };
+
                         navigator.geolocation.getCurrentPosition(
-                            (pos) => {
-                                document.getElementById('lat').value = pos.coords.latitude;
-                                document.getElementById('lon').value = pos.coords.longitude;
-                                document.getElementById('acc').value = pos.coords.accuracy;
-                                gpsBox.style.background = 'rgba(16, 185, 129, 0.15)';
-                                gpsBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
-                                gpsBox.style.color = '#34d399';
-                                gpsBox.innerHTML = '✅ <b>Ubicación GPS fijada:</b> Precisión de ' + Math.round(pos.coords.accuracy) + 'm';
+                            setPosOk,
+                            (err1) => {
+                                navigator.geolocation.getCurrentPosition(
+                                    setPosOk,
+                                    setPosErr,
+                                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+                                );
                             },
-                            (err) => {
-                                gpsBox.style.background = 'rgba(239, 68, 68, 0.15)';
-                                gpsBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-                                gpsBox.style.color = '#fca5a5';
-                                gpsBox.innerHTML = '⚠️ <b>Permiso de GPS Requerido:</b> Activa la ubicación en tu navegador para validar asistencia en el aula.';
-                            },
-                            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+                            { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
                         );
                     } else {
                         gpsBox.style.background = 'rgba(239, 68, 68, 0.15)';
@@ -539,10 +561,17 @@ public static class AttendanceStudentView
             </div>
 
             <script>
+                const isPrivateIpAuto = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(location.hostname);
+                if (!isPrivateIpAuto && location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+                    location.replace('https:' + window.location.href.substring(window.location.protocol.length));
+                }
+
                 function solicitarUbicacion() {
                     const badge = document.getElementById('statusBadge');
                     const retryBtn = document.getElementById('retryBtn');
-                    badge.innerHTML = '📡 Obteniendo coordenadas satelitales...';
+                    badge.innerHTML = '📡 Obteniendo ubicación en aula...';
+                    badge.style.color = '#93c5fd';
+                    badge.style.background = 'rgba(59, 130, 246, 0.1)';
                     badge.style.borderColor = 'rgba(99, 102, 241, 0.3)';
                     retryBtn.style.display = 'none';
 
@@ -552,27 +581,50 @@ public static class AttendanceStudentView
                         return;
                     }
 
+                    const onPosOk = (pos) => {
+                        badge.innerHTML = '✅ Ubicación verificada (' + Math.round(pos.coords.accuracy) + 'm). Registrando asistencia...';
+                        badge.style.color = '#34d399';
+                        badge.style.background = 'rgba(16, 185, 129, 0.15)';
+                        document.getElementById('lat').value = pos.coords.latitude;
+                        document.getElementById('lon').value = pos.coords.longitude;
+                        document.getElementById('acc').value = pos.coords.accuracy;
+                        document.getElementById('gpsForm').submit();
+                    };
+
+                    const onPosErr = (err) => {
+                        retryBtn.style.display = 'block';
+                        badge.style.background = 'rgba(239, 68, 68, 0.15)';
+                        badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                        badge.style.color = '#fca5a5';
+
+                        if (err.code === 1) { // PERMISSION_DENIED
+                            badge.innerHTML = '⚠️ <b>Permiso Denegado:</b> En tu navegador móvil toca el candado 🔒 de la barra de direcciones y activa <b>Ubicación</b>.';
+                        } else if (err.code === 2) { // POSITION_UNAVAILABLE
+                            badge.innerHTML = '⚠️ <b>GPS Desactivado:</b> Enciende la Ubicación en la barra de ajustes de tu celular.';
+                        } else if (err.code === 3) { // TIMEOUT
+                            badge.innerHTML = '📡 <b>Buscando señal bajo techo...</b> Reintentando con red celular/Wi-Fi...';
+                            navigator.geolocation.getCurrentPosition(onPosOk, (errFinal) => {
+                                badge.innerHTML = '⚠️ <b>Señal GPS débil bajo techo:</b> Pulsa "Reintentar" o acércate a una puerta/ventana.';
+                            }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 600000 });
+                        } else {
+                            badge.innerHTML = '⚠️ <b>Error de ubicación:</b> ' + (err.message || 'No se pudo obtener coordenadas.');
+                        }
+                    };
+
+                    // Primero precisión de red que responde en < 1s bajo techo
                     navigator.geolocation.getCurrentPosition(
-                        (pos) => {
-                            badge.innerHTML = '✅ Ubicación verificada (' + Math.round(pos.coords.accuracy) + 'm). Registrando asistencia...';
-                            badge.style.color = '#34d399';
-                            document.getElementById('lat').value = pos.coords.latitude;
-                            document.getElementById('lon').value = pos.coords.longitude;
-                            document.getElementById('acc').value = pos.coords.accuracy;
-                            document.getElementById('gpsForm').submit();
+                        onPosOk,
+                        (errNormal) => {
+                            navigator.geolocation.getCurrentPosition(
+                                onPosOk,
+                                onPosErr,
+                                { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+                            );
                         },
-                        (err) => {
-                            badge.innerHTML = '⚠️ <b>Permiso Requerido:</b> Debes conceder permiso de ubicación al navegador para confirmar tu presencia en el aula.';
-                            badge.style.color = '#fca5a5';
-                            badge.style.background = 'rgba(239, 68, 68, 0.15)';
-                            badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-                            retryBtn.style.display = 'block';
-                        },
-                        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+                        { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
                     );
                 }
 
-                // Iniciar solicitud inmediata al cargar
                 window.addEventListener('DOMContentLoaded', solicitarUbicacion);
             </script>
         </body>
@@ -787,7 +839,7 @@ public static class AttendanceStudentView
                         <line x1="12" y1="18" x2="12.01" y2="18"></line>
                     </svg>
                 </div>
-                <div class="badge" id="statusBadge">Revinculación en Proceso (RN-05)</div>
+                <div class="badge" id="statusBadge">Revinculación en Proceso</div>
                 <h1 id="statusTitle">Solicitud de Autorización</h1>
                 <p class="desc" id="statusDesc">{{msg}}</p>
 

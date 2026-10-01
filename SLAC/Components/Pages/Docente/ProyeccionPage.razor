@@ -69,10 +69,10 @@
                                    OnClick="ReabrirSesionAsync"
                                    Class="action-btn" />
                 </MudTooltip>
-                <MudTooltip Text="Alternar Pantalla Completa (F11)">
+                <MudTooltip Text="Expandir QR a Pantalla Completa">
                     <MudIconButton Icon="@Icons.Material.Filled.Fullscreen"
-                                   Color="Color.Inherit"
-                                   OnClick="AlternarPantallaCompleta"
+                                   Color="Color.Primary"
+                                   OnClick="AbrirQRPantallaCompleta"
                                    Class="action-btn" />
                 </MudTooltip>
                 <MudTooltip Text="Ver Reporte de Faltas">
@@ -183,6 +183,18 @@
                         <MudIcon Icon="@Icons.Material.Filled.CameraAlt" Size="Size.Small" Class="mr-2 text-primary" />
                         <span>Apunta la cámara de tu teléfono móvil hacia la pantalla para registrar tu asistencia.</span>
                     </div>
+
+                    <!-- Botón Expandir QR a Pantalla Completa para Proyección en Aula -->
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Fullscreen"
+                               OnClick="AbrirQRPantallaCompleta"
+                               FullWidth="true"
+                               Size="Size.Small"
+                               Class="my-2 py-1"
+                               Style="font-weight: 700; background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%); border-radius: 8px;">
+                        Expandir QR (Pantalla Completa)
+                    </MudButton>
 
                     <!-- Herramientas de Conectividad y Prueba para el Docente -->
                     <div class="mt-3 pa-3" style="background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08);">
@@ -346,7 +358,7 @@
                 </div>
 
                 <!-- Acciones del Docente: Revinculación, Suspensión y Cierre -->
-                <div class="actions-card d-flex flex-column gap-2">
+                <div class="actions-card d-flex flex-column gap-1">
                     <MudBadge Content="@_solicitudesRevinculacionPendientes"
                               Color="Color.Warning"
                               Overlap="true"
@@ -355,9 +367,10 @@
                         <MudButton Variant="Variant.Outlined"
                                    Color="Color.Warning"
                                    FullWidth="true"
+                                   Size="Size.Small"
                                    StartIcon="@Icons.Material.Filled.PhonelinkLock"
                                    OnClick="AbrirDialogoRevinculaciones"
-                                   Class="py-2">
+                                   Class="py-1">
                             Revinculación de Dispositivos (@_solicitudesRevinculacionPendientes)
                         </MudButton>
                     </MudBadge>
@@ -365,18 +378,21 @@
                     <MudButton Variant="Variant.Outlined"
                                Color="Color.Secondary"
                                FullWidth="true"
+                               Size="Size.Small"
                                StartIcon="@Icons.Material.Filled.ReportProblem"
                                OnClick="AbrirDialogoSuspensionEmergencia"
-                               Class="py-2">
+                               Class="py-1">
                         Suspender Clase (Emergencia)
                     </MudButton>
 
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Error"
                                FullWidth="true"
+                               Size="Size.Small"
                                StartIcon="@Icons.Material.Filled.LockClock"
                                OnClick="CerrarAsistenciaManualmente"
-                               Class="py-2">
+                               Class="py-1"
+                               Style="font-weight: 700;">
                         Cerrar Asistencia Ahora
                     </MudButton>
                 </div>
@@ -387,8 +403,8 @@
     <!-- Modal Flotante de Ajustes de Sesión (Tiempo, Modo y Alcance) -->
     @if (_mostrarAjustesModal)
     {
-        <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.78); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 1.25rem;">
-            <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.15); border-radius: 1.5rem; padding: 2rem; width: 100%; max-width: 520px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8);">
+        <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 1.25rem;">
+            <div class="ajustes-modal-card" style="background: #0f172a; border: 1px solid rgba(255,255,255,0.18); border-radius: 1.5rem; padding: 2rem; width: 100%; max-width: 520px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.9);">
                 <div class="d-flex justify-space-between align-center mb-4">
                     <MudText Typo="Typo.h6" Style="font-weight: 700; color: #fff;">
                         ⚙️ Ajustes de Sesión y Asistencia
@@ -419,7 +435,7 @@
                     </div>
                     <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 0.35rem;">
                         @(_modoValidacion == "wifi" 
-                            ? "✅ Recomendado para pruebas en localhost o red interna en la Universidad (no bloquea navegador móvil)." 
+                            ? "✅ Recomendado para pruebas en red interna o sin certificado SSL (no bloquea navegador móvil)." 
                             : "🛰️ Exige al navegador móvil activar GPS y estar físicamente dentro del radio del aula.")
                     </span>
                 </div>
@@ -469,16 +485,80 @@
             </div>
         </div>
     }
+
+    <!-- Modal Pantalla Completa QR para Proyección en Aula -->
+    @if (_qrPantallaCompleta)
+    {
+        <div class="qr-fullscreen-modal">
+            <div class="qr-fullscreen-topbar">
+                <div class="d-flex align-center gap-3">
+                    <span class="qr-fs-title">@_materia?.Nombre (@_materia?.Codigo)</span>
+                    <span class="qr-fs-badge">Grupo @_materia?.Grupo</span>
+                    <div class="status-pulse ml-2">
+                        <span class="pulse-dot"></span>
+                        <span class="status-text">ESCANEO ACTIVO</span>
+                    </div>
+                </div>
+
+                <div class="d-flex align-center gap-4">
+                    <div class="d-flex align-center gap-2" style="color: #38bdf8; font-weight: 700; font-size: 1.15rem;">
+                        <MudIcon Icon="@Icons.Material.Filled.PeopleAlt" Size="Size.Medium" />
+                        <span>@_totalPresentes alumnos presentes</span>
+                    </div>
+
+                    <div class="rotation-timer" style="font-size: 1.15rem; color: #cbd5e1;">
+                        <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" Class="mr-1 spin-icon" />
+                        <span>Rotación en <b>@_segundosRestantesRotacion s</b></span>
+                    </div>
+
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Error"
+                               StartIcon="@Icons.Material.Filled.FullscreenExit"
+                               Size="Size.Medium"
+                               OnClick="CerrarQRPantallaCompleta"
+                               Style="font-weight: 700; border-radius: 12px;">
+                        Salir de Pantalla Completa
+                    </MudButton>
+                </div>
+            </div>
+
+            <div class="qr-fullscreen-center">
+                <div class="qr-fullscreen-whitebox">
+                    @if (!string.IsNullOrEmpty(_qrSvgContent))
+                    {
+                        <div class="qr-fullscreen-svg-wrap">
+                            @((MarkupString)_qrSvgContent)
+                        </div>
+                    }
+                    else
+                    {
+                        <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+                    }
+                </div>
+
+                <div class="rotation-progress-bar mt-4" style="width: min(75vh, 600px); height: 8px;">
+                    <div class="progress-fill" style="width: @(_porcentajeRotacion)%;"></div>
+                </div>
+
+                <p style="color: #cbd5e1; font-size: 1.1rem; margin-top: 1rem; text-align: center; font-weight: 500;">
+                    Apunta con la cámara de tu teléfono móvil registrado hacia la pantalla para registrar tu asistencia.
+                </p>
+            </div>
+        </div>
+    }
 </div>
 
 <style>
     .proyeccion-container {
-        min-height: 100vh;
+        height: 100vh;
+        max-height: 100vh;
+        overflow: hidden;
         background: radial-gradient(circle at 50% 10%, #1e1b4b 0%, #090d16 80%);
         color: #f8fafc;
         display: flex;
         flex-direction: column;
-        padding: 1.5rem 2rem;
+        padding: 0.75rem 1.5rem;
+        box-sizing: border-box;
         font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
     }
 
@@ -487,8 +567,9 @@
         justify-content: space-between;
         align-items: center;
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        padding-bottom: 1.25rem;
-        margin-bottom: 1.5rem;
+        padding-bottom: 0.5rem;
+        margin-bottom: 0.6rem;
+        flex-shrink: 0;
     }
 
     .brand-badge {
@@ -496,44 +577,44 @@
         align-items: center;
         background: rgba(99, 102, 241, 0.15);
         color: #818cf8;
-        padding: 0.3rem 0.85rem;
+        padding: 0.2rem 0.65rem;
         border-radius: 9999px;
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         font-weight: 700;
         letter-spacing: 0.05em;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.25rem;
         border: 1px solid rgba(99, 102, 241, 0.3);
     }
 
     .materia-title {
-        font-size: 2rem;
+        font-size: 1.45rem;
         font-weight: 800;
         letter-spacing: -0.02em;
-        margin-bottom: 0.35rem;
+        margin-bottom: 0.15rem;
         line-height: 1.2;
     }
 
     .materia-meta {
         display: flex;
-        gap: 0.75rem;
+        gap: 0.5rem;
         flex-wrap: wrap;
     }
 
     .meta-tag {
         display: inline-flex;
         align-items: center;
-        font-size: 0.875rem;
+        font-size: 0.8rem;
         color: #94a3b8;
         background: rgba(255, 255, 255, 0.04);
-        padding: 0.25rem 0.65rem;
-        border-radius: 0.5rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 0.4rem;
         border: 1px solid rgba(255, 255, 255, 0.06);
     }
 
     .header-right {
         display: flex;
         align-items: center;
-        gap: 1.5rem;
+        gap: 1.25rem;
     }
 
     .live-clock {
@@ -542,7 +623,7 @@
 
     .clock-time {
         display: block;
-        font-size: 1.75rem;
+        font-size: 1.4rem;
         font-weight: 800;
         font-variant-numeric: tabular-nums;
         color: #f1f5f9;
@@ -550,33 +631,41 @@
     }
 
     .clock-date {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         color: #64748b;
         text-transform: capitalize;
     }
 
     .header-actions {
         display: flex;
-        gap: 0.5rem;
+        gap: 0.4rem;
     }
 
     .action-btn {
         background: rgba(255, 255, 255, 0.06);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 0.75rem;
+        border-radius: 0.65rem;
     }
 
     .proyeccion-body {
         display: grid;
-        grid-template-columns: 1fr 380px;
-        gap: 2rem;
+        grid-template-columns: 1fr 390px;
+        gap: 1rem;
         flex: 1;
+        min-height: 0;
         align-items: stretch;
+        overflow: hidden;
     }
 
     @@media (max-width: 960px) {
+        .proyeccion-container {
+            height: auto;
+            max-height: none;
+            overflow-y: auto;
+        }
         .proyeccion-body {
             grid-template-columns: 1fr;
+            overflow: visible;
         }
     }
 
@@ -584,20 +673,26 @@
         display: flex;
         justify-content: center;
         align-items: center;
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
     }
 
     .qr-card {
         background: rgba(15, 23, 42, 0.8);
         backdrop-filter: blur(20px);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 2rem;
-        padding: 2rem;
+        border-radius: 1.25rem;
+        padding: 0.85rem 1.25rem;
         width: 100%;
-        max-width: 540px;
-        box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7), 0 0 50px -10px rgba(99, 102, 241, 0.25);
+        max-width: 520px;
+        max-height: 100%;
+        box-shadow: 0 20px 50px -15px rgba(0, 0, 0, 0.7), 0 0 40px -10px rgba(99, 102, 241, 0.25);
         display: flex;
         flex-direction: column;
         align-items: center;
+        justify-content: space-between;
+        box-sizing: border-box;
     }
 
     .qr-status-bar {
@@ -605,8 +700,8 @@
         justify-content: space-between;
         align-items: center;
         width: 100%;
-        margin-bottom: 1.25rem;
-        font-size: 0.8125rem;
+        margin-bottom: 0.35rem;
+        font-size: 0.8rem;
     }
 
     .status-pulse {
@@ -619,8 +714,8 @@
     }
 
     .pulse-dot {
-        width: 10px;
-        height: 10px;
+        width: 9px;
+        height: 9px;
         background-color: #10b981;
         border-radius: 50%;
         box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
@@ -645,28 +740,28 @@
 
     .qr-canvas-wrapper {
         background: #ffffff;
-        padding: 1.5rem;
-        border-radius: 1.5rem;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        padding: 0.5rem;
+        border-radius: 1rem;
+        box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.3);
         display: flex;
         justify-content: center;
         align-items: center;
-        margin-bottom: 1.25rem;
+        margin-bottom: 0.35rem;
     }
 
     .qr-svg-container svg {
         display: block;
-        width: 320px;
-        height: 320px;
+        width: min(26vh, 240px);
+        height: min(26vh, 240px);
     }
 
     .rotation-progress-bar {
         width: 100%;
-        height: 6px;
+        height: 4px;
         background: rgba(255, 255, 255, 0.08);
         border-radius: 9999px;
         overflow: hidden;
-        margin-bottom: 1.25rem;
+        margin-bottom: 0.35rem;
     }
 
     .progress-fill {
@@ -678,35 +773,42 @@
     .qr-footer-instruction {
         display: flex;
         align-items: center;
-        font-size: 0.8125rem;
+        font-size: 0.75rem;
         color: #94a3b8;
         text-align: center;
-        line-height: 1.4;
+        line-height: 1.3;
     }
 
     .metrics-section {
         display: flex;
         flex-direction: column;
-        gap: 1.25rem;
+        gap: 0.5rem;
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
     }
 
     .metric-card {
         background: rgba(15, 23, 42, 0.7);
         backdrop-filter: blur(16px);
         border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 1.25rem;
-        padding: 1.25rem;
+        border-radius: 0.9rem;
+        padding: 0.65rem 1rem;
+    }
+
+    .counter-card, .timer-card {
+        flex-shrink: 0;
     }
 
     .counter-header, .feed-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 0.75rem;
+        margin-bottom: 0.4rem;
     }
 
     .metric-lbl {
-        font-size: 0.75rem;
+        font-size: 0.725rem;
         font-weight: 700;
         color: #94a3b8;
         letter-spacing: 0.06em;
@@ -715,11 +817,11 @@
     .counter-value {
         display: flex;
         align-items: baseline;
-        gap: 0.75rem;
+        gap: 0.6rem;
     }
 
     .big-number {
-        font-size: 3rem;
+        font-size: 2.2rem;
         font-weight: 800;
         color: #38bdf8;
         line-height: 1;
@@ -727,21 +829,21 @@
     }
 
     .counter-badge {
-        font-size: 0.8125rem;
+        font-size: 0.75rem;
         color: #94a3b8;
     }
 
     .timer-digits {
-        font-size: 2rem;
+        font-size: 1.4rem;
         font-weight: 800;
         color: #fbbf24;
         font-variant-numeric: tabular-nums;
         display: block;
-        margin-bottom: 0.25rem;
+        margin-bottom: 0.1rem;
     }
 
     .timer-desc {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         color: #94a3b8;
     }
 
@@ -749,7 +851,8 @@
         flex: 1;
         display: flex;
         flex-direction: column;
-        min-height: 220px;
+        min-height: 0;
+        overflow: hidden;
     }
 
     .feed-dot {
@@ -760,33 +863,36 @@
     }
 
     .feed-list {
+        flex: 1;
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
+        gap: 0.35rem;
         overflow-y: auto;
-        max-height: 200px;
+        min-height: 0;
+        max-height: 100%;
+        padding-right: 4px;
     }
 
     .feed-empty {
         text-align: center;
         color: #64748b;
-        font-size: 0.8125rem;
-        padding: 2rem 0;
+        font-size: 0.8rem;
+        padding: 1.5rem 0;
     }
 
     .feed-item {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: 0.65rem;
         background: rgba(255, 255, 255, 0.03);
         border: 1px solid rgba(255, 255, 255, 0.05);
-        padding: 0.5rem 0.75rem;
-        border-radius: 0.75rem;
+        padding: 0.4rem 0.65rem;
+        border-radius: 0.65rem;
     }
 
     .feed-item-icon {
-        width: 24px;
-        height: 24px;
+        width: 22px;
+        height: 22px;
         background: rgba(16, 185, 129, 0.2);
         color: #34d399;
         border-radius: 50%;
@@ -801,14 +907,19 @@
     }
 
     .feed-item-name {
-        font-size: 0.8125rem;
+        font-size: 0.8rem;
         font-weight: 600;
         color: #f1f5f9;
+        line-height: 1.2;
     }
 
     .feed-item-code {
-        font-size: 0.6875rem;
+        font-size: 0.65rem;
         color: #64748b;
+    }
+
+    .actions-card {
+        flex-shrink: 0;
     }
 
     .slide-in {
@@ -827,18 +938,18 @@
         align-items: center;
         justify-content: center;
         text-align: center;
-        padding: 3rem;
+        padding: 2rem;
     }
 
     .closed-icon-wrapper {
-        width: 80px;
-        height: 80px;
+        width: 70px;
+        height: 70px;
         background: rgba(16, 185, 129, 0.15);
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1rem;
     }
 
     .closed-desc {
@@ -848,27 +959,121 @@
     }
 
     .closed-stats {
-        margin-top: 1.5rem;
+        margin-top: 1rem;
     }
 
     .stat-pill {
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        padding: 0.75rem 1.5rem;
-        border-radius: 1rem;
+        padding: 0.5rem 1.25rem;
+        border-radius: 0.75rem;
         display: inline-flex;
         flex-direction: column;
     }
 
     .stat-num {
-        font-size: 2rem;
+        font-size: 1.8rem;
         font-weight: 800;
         color: #34d399;
     }
 
     .stat-lbl {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         color: #94a3b8;
+    }
+
+    /* Modal de Ajustes: Estilo oscuro con textos e inputs legibles en blanco/slate */
+    .ajustes-modal-card {
+        background: #0f172a !important;
+        color: #f8fafc !important;
+    }
+    .ajustes-modal-card label,
+    .ajustes-modal-card .mud-input-label {
+        color: #f1f5f9 !important;
+        font-weight: 600 !important;
+    }
+    .ajustes-modal-card input,
+    .ajustes-modal-card .mud-input-slot {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        font-weight: 600 !important;
+    }
+    .ajustes-modal-card .mud-input-outlined-border {
+        border-color: rgba(255, 255, 255, 0.3) !important;
+    }
+    .ajustes-modal-card .mud-input:hover .mud-input-outlined-border {
+        border-color: #38bdf8 !important;
+    }
+    .ajustes-modal-card .mud-input.mud-input-focused .mud-input-outlined-border {
+        border-color: #38bdf8 !important;
+    }
+    .ajustes-modal-card .mud-input-helper-text {
+        color: #94a3b8 !important;
+        font-size: 0.75rem !important;
+    }
+    .ajustes-modal-card .mud-icon-button {
+        color: #cbd5e1 !important;
+    }
+
+    /* Modal Pantalla Completa QR para Proyección en Aula */
+    .qr-fullscreen-modal {
+        position: fixed;
+        inset: 0;
+        background: #090d16;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        padding: 1.25rem 2.5rem;
+        box-sizing: border-box;
+    }
+
+    .qr-fullscreen-topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        padding-bottom: 0.75rem;
+        flex-shrink: 0;
+    }
+
+    .qr-fs-title {
+        font-size: 1.4rem;
+        font-weight: 800;
+        color: #ffffff;
+    }
+
+    .qr-fs-badge {
+        background: rgba(99, 102, 241, 0.2);
+        color: #818cf8;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 0.85rem;
+        font-weight: 700;
+    }
+
+    .qr-fullscreen-center {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        min-height: 0;
+    }
+
+    .qr-fullscreen-whitebox {
+        background: #ffffff;
+        padding: 1.75rem;
+        border-radius: 2rem;
+        box-shadow: 0 25px 70px -10px rgba(0, 0, 0, 0.9), 0 0 80px -10px rgba(99, 102, 241, 0.4);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .qr-fullscreen-svg-wrap svg {
+        display: block;
+        width: min(60vh, 520px);
+        height: min(60vh, 520px);
     }
 </style>
 
@@ -900,6 +1105,7 @@
     private int _minutosCaducidad = 20;
     private int _radioToleranciaMetros = 300;
     private bool _mostrarAjustesModal = false;
+    private bool _qrPantallaCompleta = false;
 
     private async Task AlternarModoValidacionAsync(string nuevoModo)
     {
@@ -1313,6 +1519,11 @@
                     ? _ipLocalSugerida
                     : Navigation.BaseUri.TrimEnd('/'));
 
+            if (!baseUrl.Contains("localhost") && !baseUrl.Contains("127.0.0.1") && baseUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                baseUrl = "https://" + baseUrl.Substring(7);
+            }
+
             var modoParam = _modoValidacion == "wifi" ? "&modo=wifi" : "";
             _urlEscaneoActual = $"{baseUrl}/a/{_sesion.Id}?t={tokenString}{modoParam}";
             _qrSvgContent = QrService.GenerateSvg(_urlEscaneoActual, pixelsPerModule: 10, darkColorHex: "#0F172A", lightColorHex: "#FFFFFF");
@@ -1436,6 +1647,24 @@
             _sesionCerrada = true;
             StateHasChanged();
         }
+    }
+
+    private async Task AbrirQRPantallaCompleta()
+    {
+        _qrPantallaCompleta = true;
+        try
+        {
+            await JS.InvokeVoidAsync("slacToggleFullscreen");
+        }
+        catch
+        {
+            // Ignorar errores si el navegador bloquea la llamada async
+        }
+    }
+
+    private void CerrarQRPantallaCompleta()
+    {
+        _qrPantallaCompleta = false;
     }
 
     private async Task AlternarPantallaCompleta()

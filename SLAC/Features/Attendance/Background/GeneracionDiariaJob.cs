@@ -3,6 +3,7 @@ using Quartz;
 using SLAC.Core.Attendance.Entities;
 using SLAC.Core.Attendance.Repositories;
 using SLAC.Core.Docentes.Repositories;
+using SLAC.Core.Institucional.Entities;
 using SLAC.Core.Institucional.Repositories;
 
 namespace SLAC.Features.Attendance.Background;
@@ -14,6 +15,7 @@ namespace SLAC.Features.Attendance.Background;
 /// </summary>
 [DisallowConcurrentExecution]
 public class GeneracionDiariaJob(
+    IInstitucionRepository institucionRepo,
     IMateriaRepository materiaRepo,
     IDiaNoLectivoRepository diaNoLectivoRepo,
     IPeriodoAcademicoRepository periodoRepo,
@@ -21,6 +23,7 @@ public class GeneracionDiariaJob(
     ISchedulerFactory schedulerFactory,
     ILogger<GeneracionDiariaJob> logger) : IJob
 {
+    private readonly IInstitucionRepository _institucionRepo = institucionRepo;
     private readonly IMateriaRepository _materiaRepo = materiaRepo;
     private readonly IDiaNoLectivoRepository _diaNoLectivoRepo = diaNoLectivoRepo;
     private readonly IPeriodoAcademicoRepository _periodoRepo = periodoRepo;
@@ -53,59 +56,70 @@ public class GeneracionDiariaJob(
             return;
         }
 
-        // Demo Institución (Multi-tenant)
-        var institucionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var instituciones = await _institucionRepo.ListarTodasAsync(context.CancellationToken);
+        var institucionesActivas = instituciones.Where(i => i.Estado == "activo").ToList();
 
-        // 1. Verificar si hoy es día no lectivo / feriado
-        var esFeriado = await _diaNoLectivoRepo.IsDiaNoLectivoAsync(institucionId, hoyFecha, context.CancellationToken);
-        if (esFeriado)
+        if (institucionesActivas.Count == 0)
         {
-            _logger.LogInformation("Hoy {Fecha} es día no lectivo para la institución {InstitucionId}. Omitiendo generación.", hoyFecha, institucionId);
-            return;
+            var defaultId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+            institucionesActivas.Add(new Institucion { Id = defaultId, Nombre = "UPDS", Estado = "activo" });
         }
-
-        // 2. Verificar periodo académico vigente
-        var periodos = await _periodoRepo.GetByInstitucionAsync(institucionId, context.CancellationToken);
-        var periodoVigente = periodos.FirstOrDefault(p => p.FechaInicio <= hoyFecha && hoyFecha <= p.FechaFin);
-        if (periodoVigente == null)
-        {
-            _logger.LogInformation("No existe periodo académico vigente para la fecha {Fecha}. Omitiendo generación.", hoyFecha);
-            return;
-        }
-
-        // 3. Consultar materias activas para el día de hoy
-        var materiasHoy = await _materiaRepo.ListarActivasPorDiaAsync(institucionId, diaSigla, context.CancellationToken);
-        _logger.LogInformation("Se encontraron {Total} materias programadas para hoy ({DiaSigla}).", materiasHoy.Count, diaSigla);
 
         var scheduler = await _schedulerFactory.GetScheduler(context.CancellationToken);
 
-        foreach (var materia in materiasHoy)
+        foreach (var inst in institucionesActivas)
         {
-            // 4. Crear o recuperar la lista de asistencia en estado 'Programada' (Idempotencia)
-            var listaExistente = await _listaRepo.ObtenerPorMateriaYFechaAsync(materia.Id, hoyFecha, context.CancellationToken);
-            if (listaExistente == null)
-            {
-                var nuevaLista = new ListaAsistencia
-                {
-                    InstitucionId = institucionId,
-                    MateriaId = materia.Id,
-                    DocenteId = materia.DocenteId,
-                    EspacioId = materia.EspacioId,
-                    Fecha = hoyFecha,
-                    HoraInicio = materia.HoraInicio,
-                    Estado = "Programada"
-                };
+            var institucionId = inst.Id;
 
-                listaExistente = await _listaRepo.CrearOActualizarAsync(nuevaLista, context.CancellationToken);
-                _logger.LogInformation("Lista de asistencia {ListaId} creada para materia {Materia} ({HoraInicio})",
-                    listaExistente.Id, materia.Codigo, materia.HoraInicio);
+            // 1. Verificar si hoy es día no lectivo / feriado
+            var esFeriado = await _diaNoLectivoRepo.IsDiaNoLectivoAsync(institucionId, hoyFecha, context.CancellationToken);
+            if (esFeriado)
+            {
+                _logger.LogInformation("Hoy {Fecha} es día no lectivo para {InstNombre}. Omitiendo generación.", hoyFecha, inst.Nombre);
+                continue;
             }
 
-            // 5. Programar Apertura a la hora exacta de la clase
-            var inicioClase = hoyFecha.ToDateTime(TimeOnly.FromTimeSpan(materia.HoraInicio), DateTimeKind.Local);
-            var cierreClase = inicioClase.AddMinutes(20);
+            // 2. Verificar periodo académico vigente
+            var periodos = await _periodoRepo.GetByInstitucionAsync(institucionId, context.CancellationToken);
+            var periodoVigente = periodos.FirstOrDefault(p => p.FechaInicio <= hoyFecha && hoyFecha <= p.FechaFin);
+            if (periodoVigente == null)
+            {
+                _logger.LogInformation("No existe periodo académico vigente para {InstNombre} en {Fecha}. Omitiendo generación.", inst.Nombre, hoyFecha);
+                continue;
+            }
 
-            await ProgramarAperturaYCierreAsync(scheduler, listaExistente.Id, materia.Id, institucionId, inicioClase, cierreClase, context.CancellationToken);
+            // 3. Consultar materias activas para el día de hoy
+            var materiasHoy = await _materiaRepo.ListarActivasPorDiaAsync(institucionId, diaSigla, context.CancellationToken);
+            _logger.LogInformation("Se encontraron {Total} materias programadas para hoy ({DiaSigla}) en {InstNombre}.", materiasHoy.Count, diaSigla, inst.Nombre);
+
+            foreach (var materia in materiasHoy)
+            {
+                // 4. Crear o recuperar la lista de asistencia en estado 'Programada' (Idempotencia)
+                var listaExistente = await _listaRepo.ObtenerPorMateriaYFechaAsync(materia.Id, hoyFecha, context.CancellationToken);
+                if (listaExistente == null)
+                {
+                    var nuevaLista = new ListaAsistencia
+                    {
+                        InstitucionId = institucionId,
+                        MateriaId = materia.Id,
+                        DocenteId = materia.DocenteId,
+                        EspacioId = materia.EspacioId,
+                        Fecha = hoyFecha,
+                        HoraInicio = materia.HoraInicio,
+                        Estado = "Programada"
+                    };
+
+                    listaExistente = await _listaRepo.CrearOActualizarAsync(nuevaLista, context.CancellationToken);
+                    _logger.LogInformation("Lista de asistencia {ListaId} creada para materia {Materia} ({HoraInicio})",
+                        listaExistente.Id, materia.Codigo, materia.HoraInicio);
+                }
+
+                // 5. Programar Apertura a la hora exacta de la clase
+                var inicioClase = hoyFecha.ToDateTime(TimeOnly.FromTimeSpan(materia.HoraInicio), DateTimeKind.Local);
+                var cierreClase = inicioClase.AddMinutes(20);
+
+                await ProgramarAperturaYCierreAsync(scheduler, listaExistente.Id, materia.Id, institucionId, inicioClase, cierreClase, context.CancellationToken);
+            }
         }
 
         _logger.LogInformation("Generación Diaria completada con éxito para la fecha {Fecha}.", hoyFecha);

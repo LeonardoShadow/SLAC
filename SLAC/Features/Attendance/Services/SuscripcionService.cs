@@ -84,24 +84,49 @@ public class SuscripcionService(
         var isCacheActive = await _sessionCache.IsSessionActiveAsync(lista.Id, ct);
         if (!isCacheActive)
         {
-            return AttendanceScanResult.Error("La ventana de 20 minutos para registrar asistencia ha concluido.");
+            // Resilient fallback: Si la sesión en base de datos está 'Abierta', verificar si sigue en su ventana de clase
+            var apertura = lista.CreadoEn != DateTimeOffset.MinValue ? lista.CreadoEn : DateTimeOffset.UtcNow;
+            var transcurridoMin = (DateTimeOffset.UtcNow - apertura).TotalMinutes;
+            if (lista.Estado == "Abierta" && transcurridoMin <= 90)
+            {
+                // Refrescar caché en Redis / local para mantener la sesión viva
+                await _sessionCache.SetActiveSessionAsync(new SessionEphemeralState
+                {
+                    SesionId = lista.Id,
+                    InstitucionId = lista.InstitucionId,
+                    MateriaId = lista.MateriaId,
+                    DocenteId = lista.DocenteId,
+                    InicioVigencia = apertura,
+                    Vencimiento = DateTimeOffset.UtcNow.AddMinutes(20),
+                    EstaAbierta = true
+                }, TimeSpan.FromMinutes(20), ct);
+            }
+            else
+            {
+                return AttendanceScanResult.Error("La ventana de 20 minutos para registrar asistencia ha concluido.");
+            }
         }
 
         // 3.5. Validación Geográfica GPS Obligatoria (Presencia Física en Aula)
-        if (request.Latitud.HasValue && request.Longitud.HasValue)
+        // Se ejecuta únicamente si el docente no configuró modo Wi-Fi y se detectaron coordenadas
+        var esModoWifi = string.Equals(request.Modo, "wifi", StringComparison.OrdinalIgnoreCase);
+        if (!esModoWifi && request.Latitud.HasValue && request.Longitud.HasValue)
         {
             var espacio = lista.EspacioId != Guid.Empty && _espacioRepo != null
                 ? await _espacioRepo.GetByIdAsync(lista.EspacioId, ct)
                 : null;
 
-            var targetLat = espacio?.Latitud ?? -17.7762;
-            var targetLon = espacio?.Longitud ?? -63.1951;
+            var targetLat = espacio?.Latitud ?? -17.7655;
+            var targetLon = espacio?.Longitud ?? -63.1788;
             var radioTolerancia = espacio?.RadioMetros > 0 ? espacio.RadioMetros : 300;
 
             var distancia = CalcularDistanciaMetros(request.Latitud.Value, request.Longitud.Value, targetLat, targetLon);
-            if (distancia > radioTolerancia)
+            var margenPrecision = request.PrecisionGpsMetros.HasValue ? Math.Min(request.PrecisionGpsMetros.Value, 500) : 150;
+            var toleranciaTotal = radioTolerancia + margenPrecision;
+
+            if (distancia > toleranciaTotal)
             {
-                return AttendanceScanResult.Error($"Ubicación fuera del aula ({distancia:F0}m de distancia detectada, radio permitido: {radioTolerancia}m). Debes estar físicamente en la clase.");
+                return AttendanceScanResult.Error($"Ubicación fuera del aula ({distancia:F0}m de distancia detectada, radio permitido: {toleranciaTotal:F0}m con margen de señal). Debes estar físicamente en la clase.");
             }
         }
 
@@ -144,6 +169,9 @@ public class SuscripcionService(
                 return AttendanceScanResult.Error("Debes autorizar la vinculación del dispositivo para registrar asistencia.");
             }
 
+            var identNorm = identificador.ToLowerInvariant().Trim();
+            var identUser = identNorm.Split('@')[0].Trim();
+
             // 1. Buscar si ya existe por correo o por código
             if (identificador.Contains('@'))
             {
@@ -154,9 +182,10 @@ public class SuscripcionService(
             {
                 var todos = await _estudianteRepo.ListarPorInstitucionAsync(lista.InstitucionId, ct);
                 estudiante = todos.FirstOrDefault(e =>
-                    e.Codigo.Equals(identificador, StringComparison.OrdinalIgnoreCase) ||
-                    e.Correo.Equals(identificador, StringComparison.OrdinalIgnoreCase) ||
-                    (!string.IsNullOrEmpty(e.DocumentoIdentidad) && e.DocumentoIdentidad.Equals(identificador, StringComparison.OrdinalIgnoreCase)));
+                    (!string.IsNullOrWhiteSpace(e.Codigo) && e.Codigo.Trim().Equals(identificador, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrWhiteSpace(e.Correo) && e.Correo.Trim().Equals(identificador, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrWhiteSpace(e.Correo) && e.Correo.Trim().ToLowerInvariant().Split('@')[0].Equals(identUser, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(e.DocumentoIdentidad) && e.DocumentoIdentidad.Trim().Equals(identificador, StringComparison.OrdinalIgnoreCase)));
             }
 
             // 2. Soporte para auto-creación de estudiantes en pruebas de integración si se enviaron nombres y apellidos completos
@@ -387,9 +416,9 @@ public class SuscripcionService(
         const double r = 6371000.0; // Radio medio de la Tierra en metros
         var dLat = (lat2 - lat1) * Math.PI / 180.0;
         var dLon = (lon2 - lon1) * Math.PI / 180.0;
-        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
-                Math.Cos(lat1 * Math.PI / 180.0) * Math.Cos(lat2 * Math.PI / 180.0) *
-                Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        var a = (Math.Sin(dLat / 2) * Math.Sin(dLat / 2)) +
+                (Math.Cos(lat1 * Math.PI / 180.0) * Math.Cos(lat2 * Math.PI / 180.0) *
+                 Math.Sin(dLon / 2) * Math.Sin(dLon / 2));
         var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
         return r * c;
     }

@@ -64,7 +64,7 @@
                                Margin="Margin.Dense"
                                ReadOnly="@(!EsAdmin)"
                                Disabled="@(!EsAdmin)"
-                               HelperText="@(EsAdmin ? "Horario institucional de inicio (RN-01)" : "🔒 Solo el Administrador puede cambiar la hora de clase.")" />
+                               HelperText="@(EsAdmin ? "Horario institucional de inicio" : "🔒 Solo el Administrador puede cambiar la hora de clase.")" />
             </MudItem>
             <MudItem xs="12" sm="6">
                 <MudSelect T="string" @bind-Value="Materia.Estado" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense">
@@ -75,7 +75,7 @@
 
             <MudItem xs="12">
                 <MudText Typo="Typo.caption" Class="d-block mb-1">
-                    <b>Días de clase (Regla RN-01: Lunes a Viernes):</b>
+                    <b>Días de clase (Lunes a Viernes):</b>
                     @if (!EsAdmin)
                     {
                         <span class="text-danger ml-2">🔒 (Solo el Administrador puede modificar los días de clase)</span>

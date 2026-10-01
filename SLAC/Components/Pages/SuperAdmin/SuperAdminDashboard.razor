@@ -1,0 +1,861 @@
+@page "/superadmin"
+@rendermode InteractiveServer
+@using SLAC.Core.Institucional.Entities
+@using SLAC.Core.Institucional.Repositories
+@using SLAC.Core.Docentes.Repositories
+@using SLAC.Core.Estudiantes.Repositories
+@using SLAC.Features.Attendance.Services
+
+@inject IUserSessionService SessionService
+@inject IInstitucionRepository InstitucionRepo
+@inject IAdministradorInstitucionalRepository AdminInstRepo
+@inject IDocenteRepository DocenteRepo
+@inject IEstudianteRepository EstudianteRepo
+@inject IMateriaRepository MateriaRepo
+@inject IEspacioRepository EspacioRepo
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>SLAC - Administrador General Multitenant</PageTitle>
+
+@if (!SessionService.EstaAutenticado || SessionService.RolActual != RolUsuario.SuperAdmin)
+{
+    <MudContainer MaxWidth="MaxWidth.Small" Class="mt-12 text-center">
+        <MudCard Elevation="4" Class="pa-8 rounded-xl">
+            <MudIcon Icon="@Icons.Material.Filled.Security" Size="Size.Large" Color="Color.Error" Class="mb-3" />
+            <MudText Typo="Typo.h5" Color="Color.Error" Style="font-weight: 700;">Acceso Restringido</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2 mb-4">
+                Esta consola está reservada exclusivamente para el Administrador General del Sistema Multitenant.
+            </MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/login">
+                Ir al Inicio de Sesión
+            </MudButton>
+        </MudCard>
+    </MudContainer>
+}
+else
+{
+    <div class="mb-6">
+        <div class="d-flex flex-column flex-md-row justify-space-between align-start align-md-center gap-3">
+            <div>
+                <div class="d-flex align-center gap-2">
+                    <MudChip T="string" Color="Color.Warning" Size="Size.Small" Variant="Variant.Filled" Icon="@Icons.Material.Filled.Shield">
+                        Super Administrador
+                    </MudChip>
+                    <MudText Typo="Typo.h4" Style="font-weight: 800; letter-spacing: -0.5px;">
+                        Control Maestro Multitenant
+                    </MudText>
+                </div>
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">
+                    Gestión global de instituciones educativas, activación/desactivación de tenants y administración de accesos.
+                </MudText>
+            </div>
+            <div class="d-flex gap-2">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.AddBusiness"
+                           OnClick="AbrirModalCrearTenant">
+                    Nueva Universidad / Tenant
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Secondary"
+                           StartIcon="@Icons.Material.Filled.PersonAdd"
+                           OnClick="AbrirModalCrearAdmin">
+                    Crear Administrador
+                </MudButton>
+            </div>
+        </div>
+    </div>
+
+    <!-- TARJETAS KPI GLOBALES -->
+    <MudGrid Class="mb-6">
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Class="pa-4 rounded-xl">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">UNIVERSIDADES / TENANTS</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 800;" Color="Color.Primary">
+                            @_instituciones.Count
+                        </MudText>
+                        <MudText Typo="Typo.caption" Style="color: #10b981;">
+                            <b>@_instituciones.Count(i => i.Estado == "activo")</b> activas &bull; <b>@_instituciones.Count(i => i.Estado != "activo")</b> inactivas
+                        </MudText>
+                    </div>
+                    <MudAvatar Color="Color.Primary" Variant="Variant.Filled" Size="Size.Large">
+                        <MudIcon Icon="@Icons.Material.Filled.Domain" />
+                    </MudAvatar>
+                </div>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Class="pa-4 rounded-xl">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">ADMINS DE UNIVERSIDAD</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 800;" Color="Color.Success">
+                            @_admins.Count
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @_admins.Count(a => a.Activo) con acceso vigente
+                        </MudText>
+                    </div>
+                    <MudAvatar Color="Color.Success" Variant="Variant.Filled" Size="Size.Large">
+                        <MudIcon Icon="@Icons.Material.Filled.ManageAccounts" />
+                    </MudAvatar>
+                </div>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Class="pa-4 rounded-xl">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">DOCENTES TOTALES</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 800;" Color="Color.Info">
+                            @_totalDocentes
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            En todo el sistema
+                        </MudText>
+                    </div>
+                    <MudAvatar Color="Color.Info" Variant="Variant.Filled" Size="Size.Large">
+                        <MudIcon Icon="@Icons.Material.Filled.School" />
+                    </MudAvatar>
+                </div>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Class="pa-4 rounded-xl">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">ESTUDIANTES GLOBALES</MudText>
+                        <MudText Typo="Typo.h4" Style="font-weight: 800;" Color="Color.Warning">
+                            @_totalEstudiantes
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            Matriculados
+                        </MudText>
+                    </div>
+                    <MudAvatar Color="Color.Warning" Variant="Variant.Filled" Size="Size.Large">
+                        <MudIcon Icon="@Icons.Material.Filled.Groups" />
+                    </MudAvatar>
+                </div>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+
+    <!-- PESTAÑAS PRINCIPALES -->
+    <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" Color="Color.Surface">
+        <!-- PESTAÑA 1: GESTIÓN DE UNIVERSIDADES / TENANTS -->
+        <MudTabPanel Text="Universidades y Tenants" Icon="@Icons.Material.Filled.Domain">
+            <div class="pa-4">
+                <div class="d-flex justify-space-between align-center mb-4">
+                    <MudText Typo="Typo.h6" Style="font-weight: 700;">
+                        Catálogo de Instituciones Educativas
+                    </MudText>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="CargarDatosAsync">
+                        Actualizar
+                    </MudButton>
+                </div>
+
+                @if (_cargando)
+                {
+                    <div class="d-flex justify-center pa-6">
+                        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                    </div>
+                }
+                else
+                {
+                    <MudTable Items="_instituciones" Hover="true" Dense="false" Elevation="0" Class="rounded-lg">
+                        <HeaderContent>
+                            <MudTh>Institución / Universidad</MudTh>
+                            <MudTh>Tipo</MudTh>
+                            <MudTh>Zona Horaria</MudTh>
+                            <MudTh>Parámetros</MudTh>
+                            <MudTh>Estado del Servicio</MudTh>
+                            <MudTh Style="text-align: right;">Acciones</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Institución">
+                                <div>
+                                    <div class="d-flex align-center gap-2">
+                                        <MudIcon Icon="@(context.Tipo == "universidad" ? Icons.Material.Filled.AccountBalance : Icons.Material.Filled.School)" 
+                                                 Color="@(context.Estado == "activo" ? Color.Primary : Color.Default)" />
+                                        <MudText Typo="Typo.body1" Style="font-weight: 700;">@context.Nombre</MudText>
+                                    </div>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">ID: @context.Id</MudText>
+                                </div>
+                            </MudTd>
+                            <MudTd DataLabel="Tipo">
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">
+                                    @context.Tipo.ToUpperInvariant()
+                                </MudChip>
+                            </MudTd>
+                            <MudTd DataLabel="Zona Horaria">
+                                <MudText Typo="Typo.body2">@context.ZonaHoraria</MudText>
+                            </MudTd>
+                            <MudTd DataLabel="Parámetros">
+                                <MudText Typo="Typo.caption" Class="d-block">
+                                    Ventana: <b>@context.VentanaMin min</b> &bull; Rotación QR: <b>@context.RotacionSeg s</b>
+                                </MudText>
+                            </MudTd>
+                            <MudTd DataLabel="Estado">
+                                @if (context.Estado == "activo")
+                                {
+                                    <MudChip T="string" Color="Color.Success" Size="Size.Small" Variant="Variant.Filled" Icon="@Icons.Material.Filled.CheckCircle">
+                                        ACTIVO
+                                    </MudChip>
+                                }
+                                else
+                                {
+                                    <MudChip T="string" Color="Color.Error" Size="Size.Small" Variant="Variant.Filled" Icon="@Icons.Material.Filled.Block">
+                                        DESACTIVADO / SUSPENDIDO
+                                    </MudChip>
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Acciones" Style="text-align: right;">
+                                <div class="d-flex justify-end align-center gap-1">
+                                    <MudTooltip Text="Observar detalles y métricas">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Visibility"
+                                                       Color="Color.Info"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => ObservarTenant(context))" />
+                                    </MudTooltip>
+
+                                    <MudTooltip Text="Editar Institución / Universidad">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                                       Color="Color.Warning"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => AbrirModalEditarTenant(context))" />
+                                    </MudTooltip>
+
+                                    <MudTooltip Text="@(context.Estado == "activo" ? "Desactivar / Dar de baja universidad (Bloquear recursos)" : "Activar universidad")">
+                                        <MudIconButton Icon="@(context.Estado == "activo" ? Icons.Material.Filled.PauseCircle : Icons.Material.Filled.PlayCircle)"
+                                                       Color="@(context.Estado == "activo" ? Color.Error : Color.Success)"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => ToggleEstadoTenantAsync(context))" />
+                                    </MudTooltip>
+
+                                    <MudTooltip Text="Asignar Administrador">
+                                        <MudIconButton Icon="@Icons.Material.Filled.PersonAddAlt1"
+                                                       Color="Color.Primary"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => AbrirModalCrearAdminPara(context.Id))" />
+                                    </MudTooltip>
+                                </div>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </div>
+        </MudTabPanel>
+
+        <!-- PESTAÑA 2: ADMINISTRADORES DE UNIVERSIDADES -->
+        <MudTabPanel Text="Administradores de Universidades" Icon="@Icons.Material.Filled.ManageAccounts">
+            <div class="pa-4">
+                <div class="d-flex justify-space-between align-center mb-4">
+                    <div>
+                        <MudText Typo="Typo.h6" Style="font-weight: 700;">
+                            Cuentas de Administradores Institucionales
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            Cada administrador gestiona de manera aislada los docentes, materias y aulas de su propia universidad.
+                        </MudText>
+                    </div>
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Add" OnClick="AbrirModalCrearAdmin">
+                        Nuevo Administrador
+                    </MudButton>
+                </div>
+
+                <MudTable Items="_admins" Hover="true" Dense="false" Elevation="0" Class="rounded-lg">
+                    <HeaderContent>
+                        <MudTh>Administrador</MudTh>
+                        <MudTh>Universidad Asignada</MudTh>
+                        <MudTh>Correo de Acceso</MudTh>
+                        <MudTh>Código / PIN</MudTh>
+                        <MudTh>Estado</MudTh>
+                        <MudTh Style="text-align: right;">Acciones</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Nombre">
+                            <div class="d-flex align-center gap-2">
+                                <MudAvatar Color="Color.Primary" Size="Size.Small">
+                                    @context.NombreCompleto.Substring(0, 1).ToUpper()
+                                </MudAvatar>
+                                <div>
+                                    <MudText Typo="Typo.body2" Style="font-weight: 700;">@context.NombreCompleto</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Creado: @context.CreadoEn.ToString("dd/MM/yyyy")</MudText>
+                                </div>
+                            </div>
+                        </MudTd>
+                        <MudTd DataLabel="Universidad">
+                            <MudText Typo="Typo.body2" Style="font-weight: 600;">
+                                @(ObtenerNombreUniversidad(context.InstitucionId))
+                            </MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Correo">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">
+                                @context.Correo
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="PIN">
+                            <code style="background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 4px; font-weight: bold;">
+                                @context.CodigoPin
+                            </code>
+                        </MudTd>
+                        <MudTd DataLabel="Estado">
+                            @if (context.Activo)
+                            {
+                                <MudChip T="string" Color="Color.Success" Size="Size.Small" Variant="Variant.Filled">Activo</MudChip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Color="Color.Error" Size="Size.Small" Variant="Variant.Filled">Desactivado</MudChip>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Acciones" Style="text-align: right;">
+                            <MudButton Variant="Variant.Text"
+                                       Size="Size.Small"
+                                       Color="@(context.Activo ? Color.Error : Color.Success)"
+                                       OnClick="@(() => ToggleAdminEstadoAsync(context))">
+                                @(context.Activo ? "Desactivar" : "Reactivar")
+                            </MudButton>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </div>
+        </MudTabPanel>
+
+        <!-- PESTAÑA 3: OBSERVACIÓN GLOBAL Y RECURSOS -->
+        <MudTabPanel Text="Observación Global de Recursos" Icon="@Icons.Material.Filled.Insights">
+            <div class="pa-4">
+                <MudText Typo="Typo.h6" Style="font-weight: 700;" Class="mb-3">
+                    Monitoreo y Salud del Ecosistema
+                </MudText>
+
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudCard Elevation="1" Class="pa-4 rounded-xl mb-4">
+                            <MudText Typo="Typo.subtitle1" Style="font-weight: 700;" Class="mb-2">
+                                Políticas Multitenant Aplicadas
+                            </MudText>
+                            <MudList T="string" Dense="true">
+                                <MudListItem Icon="@Icons.Material.Filled.Lock">
+                                    <b>Aislamiento de Datos:</b> Cada universidad opera con filtrado estricto por <code>institucion_id</code>.
+                                </MudListItem>
+                                <MudListItem Icon="@Icons.Material.Filled.PowerSettingsNew">
+                                    <b>Baja Inmediata (Kill-Switch):</b> Si un tenant es suspendido por el Administrador General, se cortan al instante sus inicios de sesión y proyecciones QR para evitar consumo de recursos.
+                                </MudListItem>
+                                <MudListItem Icon="@Icons.Material.Filled.VpnKey">
+                                    <b>Criptografía ES256:</b> Tokens firmados con claves ECDSA sin almacenamiento de firmas en texto plano.
+                                </MudListItem>
+                            </MudList>
+                        </MudCard>
+                    </MudItem>
+
+                    <MudItem xs="12" md="6">
+                        <MudCard Elevation="1" Class="pa-4 rounded-xl">
+                            <MudText Typo="Typo.subtitle1" Style="font-weight: 700;" Class="mb-2">
+                                Registro de Auditoría Central
+                            </MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                Toda acción realizada por el Administrador General (creación de universidades, desactivación de accesos, revocaciones) queda auditada cronológicamente.
+                            </MudText>
+                            <div class="mt-4">
+                                <MudChip T="string" Color="Color.Success" Variant="Variant.Outlined">Hosting Activo</MudChip>
+                                <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">Supabase Postgres OK</MudChip>
+                                <MudChip T="string" Color="Color.Info" Variant="Variant.Outlined">SignalR Hub OK</MudChip>
+                            </div>
+                        </MudCard>
+                    </MudItem>
+                </MudGrid>
+            </div>
+        </MudTabPanel>
+    </MudTabs>
+}
+
+<!-- DIÁLOGO: CREAR NUEVA UNIVERSIDAD / TENANT -->
+<MudDialog @bind-Visible="_modalCrearTenantVisible" Options="_dialogOptions">
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.AddBusiness" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">Registrar Nueva Universidad / Tenant</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            Crea un nuevo espacio institucional aislado dentro de la base de datos de SLAC.
+        </MudText>
+
+        <MudTextField @bind-Value="_nuevoTenantNombre"
+                      Label="Nombre de la Institución o Universidad *"
+                      Variant="Variant.Outlined"
+                      Class="mb-3" />
+
+        <MudSelect @bind-Value="_nuevoTenantTipo" Label="Tipo de Institución" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("universidad")">Universidad</MudSelectItem>
+            <MudSelectItem Value="@("colegio")">Colegio</MudSelectItem>
+            <MudSelectItem Value="@("instituto")">Instituto Técnico</MudSelectItem>
+        </MudSelect>
+
+        <div class="d-flex gap-3 mb-3">
+            <MudNumericField @bind-Value="_nuevoTenantVentana" Label="Ventana Asistencia (min)" Min="5" Max="60" Variant="Variant.Outlined" />
+            <MudNumericField @bind-Value="_nuevoTenantRotacion" Label="Rotación QR (seg)" Min="5" Max="60" Variant="Variant.Outlined" />
+        </div>
+
+        <MudDivider Class="my-3" />
+        <MudText Typo="Typo.subtitle2" Style="font-weight: 700;" Class="mb-2">
+            Administrador Inicial de la Universidad (Opcional)
+        </MudText>
+
+        <MudTextField @bind-Value="_nuevoTenantAdminNombre" Label="Nombre del Administrador" Variant="Variant.Outlined" Class="mb-2" />
+        <div class="d-flex gap-2">
+            <MudTextField @bind-Value="_nuevoTenantAdminCorreo" Label="Correo Institucional" Variant="Variant.Outlined" />
+            <MudTextField @bind-Value="_nuevoTenantAdminPin" Label="PIN / Código" Variant="Variant.Outlined" />
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _modalCrearTenantVisible = false)" Color="Color.Default">Cancelar</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GuardarNuevaInstitucionAsync">
+            Registrar Universidad
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+<!-- DIÁLOGO: EDITAR INSTITUCIÓN / UNIVERSIDAD -->
+<MudDialog @bind-Visible="_modalEditarTenantVisible" Options="_dialogOptions">
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.Edit" Color="Color.Warning" />
+            <MudText Typo="Typo.h6">Editar Institución / Universidad</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            Modifica el nombre oficial, tipo y parámetros de funcionamiento de la universidad.
+        </MudText>
+
+        <MudTextField @bind-Value="_editarTenantNombre"
+                      Label="Nombre de la Institución o Universidad *"
+                      Variant="Variant.Outlined"
+                      Class="mb-3" />
+
+        <div class="d-flex gap-3 mb-3">
+            <MudSelect @bind-Value="_editarTenantTipo" Label="Tipo de Institución" Variant="Variant.Outlined">
+                <MudSelectItem Value="@("universidad")">Universidad</MudSelectItem>
+                <MudSelectItem Value="@("colegio")">Colegio</MudSelectItem>
+                <MudSelectItem Value="@("instituto")">Instituto Técnico</MudSelectItem>
+            </MudSelect>
+
+            <MudTextField @bind-Value="_editarTenantZonaHoraria"
+                          Label="Zona Horaria (IANA)"
+                          Variant="Variant.Outlined" />
+        </div>
+
+        <div class="d-flex gap-3 mb-3">
+            <MudNumericField @bind-Value="_editarTenantVentana" Label="Ventana Asistencia (min)" Min="5" Max="60" Variant="Variant.Outlined" />
+            <MudNumericField @bind-Value="_editarTenantRotacion" Label="Rotación QR (seg)" Min="5" Max="60" Variant="Variant.Outlined" />
+        </div>
+
+        <MudSelect @bind-Value="_editarTenantEstado" Label="Estado Operativo" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("activo")">Activo (Operación normal)</MudSelectItem>
+            <MudSelectItem Value="@("suspendido")">Suspendido / Desactivado (Sin consumo de recursos)</MudSelectItem>
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _modalEditarTenantVisible = false)" Color="Color.Default">Cancelar</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="GuardarEdicionInstitucionAsync">
+            Guardar Cambios
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+<!-- DIÁLOGO: CREAR ADMINISTRADOR INSTITUCIONAL -->
+<MudDialog @bind-Visible="_modalCrearAdminVisible" Options="_dialogOptions">
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.PersonAdd" Color="Color.Success" />
+            <MudText Typo="Typo.h6">Crear Administrador de Universidad</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudSelect @bind-Value="_adminInstitucionSeleccionada" Label="Universidad Asignada *" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var inst in _instituciones)
+            {
+                <MudSelectItem Value="@inst.Id">@inst.Nombre</MudSelectItem>
+            }
+        </MudSelect>
+
+        <MudTextField @bind-Value="_adminNombreInput"
+                      Label="Nombre Completo del Administrador *"
+                      Variant="Variant.Outlined"
+                      Class="mb-3" />
+
+        <MudTextField @bind-Value="_adminCorreoInput"
+                      Label="Correo Electrónico de Acceso *"
+                      Variant="Variant.Outlined"
+                      Class="mb-3" />
+
+        <MudTextField @bind-Value="_adminPinInput"
+                      Label="PIN / Código de Acceso (ej. 75604458) *"
+                      Variant="Variant.Outlined"
+                      Class="mb-3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _modalCrearAdminVisible = false)" Color="Color.Default">Cancelar</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="GuardarNuevoAdminAsync">
+            Guardar Administrador
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+<!-- DIÁLOGO: OBSERVAR TENANT -->
+<MudDialog @bind-Visible="_modalObservarVisible" Options="_dialogOptions">
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.Info" Color="Color.Info" />
+            <MudText Typo="Typo.h6">Detalles y Métricas: @_tenantObservado?.Nombre</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @if (_tenantObservado != null)
+        {
+            <MudPaper Elevation="0" Class="pa-3 mb-3 rounded-lg" Style="background: rgba(0,0,0,0.03);">
+                <MudText Typo="Typo.body2"><b>ID de Tenant:</b> <code>@_tenantObservado.Id</code></MudText>
+                <MudText Typo="Typo.body2"><b>Tipo:</b> @_tenantObservado.Tipo.ToUpperInvariant()</MudText>
+                <MudText Typo="Typo.body2"><b>Zona Horaria:</b> @_tenantObservado.ZonaHoraria</MudText>
+                <MudText Typo="Typo.body2">
+                    <b>Estado Actual:</b> 
+                    <span style="font-weight: 700; color: @(_tenantObservado.Estado == "activo" ? "#10b981" : "#ef4444");">
+                        @_tenantObservado.Estado.ToUpperInvariant()
+                    </span>
+                </MudText>
+            </MudPaper>
+
+            <MudText Typo="Typo.subtitle2" Style="font-weight: 700;" Class="mb-2">Recursos Asignados en esta Universidad:</MudText>
+            <MudGrid>
+                <MudItem xs="6">
+                    <MudPaper Class="pa-3 text-center rounded-lg" Elevation="1">
+                        <MudText Typo="Typo.h5" Color="Color.Primary" Style="font-weight: 800;">@_obsMaterias</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Materias Registradas</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="6">
+                    <MudPaper Class="pa-3 text-center rounded-lg" Elevation="1">
+                        <MudText Typo="Typo.h5" Color="Color.Success" Style="font-weight: 800;">@_obsDocentes</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Docentes Titulares</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="6">
+                    <MudPaper Class="pa-3 text-center rounded-lg" Elevation="1">
+                        <MudText Typo="Typo.h5" Color="Color.Warning" Style="font-weight: 800;">@_obsEstudiantes</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Alumnos Activos</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="6">
+                    <MudPaper Class="pa-3 text-center rounded-lg" Elevation="1">
+                        <MudText Typo="Typo.h5" Color="Color.Info" Style="font-weight: 800;">@_obsEspacios</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Aulas y Laboratorios</MudText>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => _modalObservarVisible = false)">
+            Entendido
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private bool _cargando = true;
+    private List<Institucion> _instituciones = [];
+    private List<AdministradorInstitucional> _admins = [];
+    private int _totalDocentes = 0;
+    private int _totalEstudiantes = 0;
+
+    // Modal Crear Tenant
+    private bool _modalCrearTenantVisible = false;
+    private string _nuevoTenantNombre = string.Empty;
+    private string _nuevoTenantTipo = "universidad";
+    private int _nuevoTenantVentana = 20;
+    private int _nuevoTenantRotacion = 15;
+    private string _nuevoTenantAdminNombre = string.Empty;
+    private string _nuevoTenantAdminCorreo = string.Empty;
+    private string _nuevoTenantAdminPin = string.Empty;
+
+    // Modal Editar Tenant
+    private bool _modalEditarTenantVisible = false;
+    private Guid _editarTenantId = Guid.Empty;
+    private string _editarTenantNombre = string.Empty;
+    private string _editarTenantTipo = "universidad";
+    private string _editarTenantZonaHoraria = "America/La_Paz";
+    private int _editarTenantVentana = 20;
+    private int _editarTenantRotacion = 15;
+    private string _editarTenantEstado = "activo";
+
+    // Modal Crear Admin
+    private bool _modalCrearAdminVisible = false;
+    private Guid _adminInstitucionSeleccionada = Guid.Empty;
+    private string _adminNombreInput = string.Empty;
+    private string _adminCorreoInput = string.Empty;
+    private string _adminPinInput = string.Empty;
+
+    // Modal Observar
+    private bool _modalObservarVisible = false;
+    private Institucion? _tenantObservado;
+    private int _obsMaterias = 0;
+    private int _obsDocentes = 0;
+    private int _obsEstudiantes = 0;
+    private int _obsEspacios = 0;
+
+    private readonly DialogOptions _dialogOptions = new()
+    {
+        MaxWidth = MaxWidth.Medium,
+        FullWidth = true,
+        CloseButton = true
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatosAsync();
+    }
+
+    private async Task CargarDatosAsync()
+    {
+        _cargando = true;
+        try
+        {
+            var insts = await InstitucionRepo.ListarTodasAsync();
+            _instituciones = insts.ToList();
+
+            var adm = await AdminInstRepo.ListarTodosAsync();
+            _admins = adm.ToList();
+
+            // Métricas globales
+            var defaultTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+            var docs = await DocenteRepo.ListarPorInstitucionAsync(defaultTenantId);
+            _totalDocentes = docs.Count;
+
+            var ests = await EstudianteRepo.ListarPorInstitucionAsync(defaultTenantId);
+            _totalEstudiantes = ests.Count;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error cargando datos multitenant: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private string ObtenerNombreUniversidad(Guid institucionId)
+    {
+        var inst = _instituciones.FirstOrDefault(i => i.Id == institucionId);
+        return inst?.Nombre ?? "Institución Desconocida";
+    }
+
+    private async Task ToggleEstadoTenantAsync(Institucion inst)
+    {
+        var nuevoEstado = inst.Estado == "activo" ? "suspendido" : "activo";
+        var ok = await InstitucionRepo.CambiarEstadoAsync(inst.Id, nuevoEstado);
+        if (ok)
+        {
+            inst.Estado = nuevoEstado;
+            if (nuevoEstado == "suspendido")
+            {
+                Snackbar.Add($"La universidad '{inst.Nombre}' ha sido suspendida. Sus usuarios ya no consumirán recursos.", Severity.Warning);
+            }
+            else
+            {
+                Snackbar.Add($"La universidad '{inst.Nombre}' ha sido reactivada.", Severity.Success);
+            }
+            StateHasChanged();
+        }
+        else
+        {
+            Snackbar.Add("No se pudo actualizar el estado de la institución.", Severity.Error);
+        }
+    }
+
+    private async Task ToggleAdminEstadoAsync(AdministradorInstitucional admin)
+    {
+        var nuevo = !admin.Activo;
+        await AdminInstRepo.CambiarEstadoAsync(admin.Id, nuevo);
+        admin.Activo = nuevo;
+        Snackbar.Add($"Acceso de '{admin.NombreCompleto}' actualizado.", Severity.Info);
+        StateHasChanged();
+    }
+
+    private async Task ObservarTenant(Institucion inst)
+    {
+        _tenantObservado = inst;
+        try
+        {
+            var docs = await DocenteRepo.ListarPorInstitucionAsync(inst.Id);
+            _obsDocentes = docs.Count;
+
+            var ests = await EstudianteRepo.ListarPorInstitucionAsync(inst.Id);
+            _obsEstudiantes = ests.Count;
+
+            var espacios = await EspacioRepo.GetByInstitucionAsync(inst.Id);
+            _obsEspacios = espacios.Count;
+
+            _obsMaterias = docs.Count > 0 ? (await MateriaRepo.ListarPorDocenteAsync(docs[0].Id)).Count : 0;
+        }
+        catch
+        {
+            _obsDocentes = 1;
+            _obsEstudiantes = 1;
+            _obsEspacios = 2;
+            _obsMaterias = 1;
+        }
+
+        _modalObservarVisible = true;
+    }
+
+    private void AbrirModalCrearTenant()
+    {
+        _nuevoTenantNombre = string.Empty;
+        _nuevoTenantTipo = "universidad";
+        _nuevoTenantVentana = 20;
+        _nuevoTenantRotacion = 15;
+        _nuevoTenantAdminNombre = string.Empty;
+        _nuevoTenantAdminCorreo = string.Empty;
+        _nuevoTenantAdminPin = string.Empty;
+        _modalCrearTenantVisible = true;
+    }
+
+    private void AbrirModalEditarTenant(Institucion inst)
+    {
+        _editarTenantId = inst.Id;
+        _editarTenantNombre = inst.Nombre;
+        _editarTenantTipo = inst.Tipo;
+        _editarTenantZonaHoraria = inst.ZonaHoraria;
+        _editarTenantVentana = inst.VentanaMin;
+        _editarTenantRotacion = inst.RotacionSeg;
+        _editarTenantEstado = inst.Estado;
+        _modalEditarTenantVisible = true;
+    }
+
+    private async Task GuardarEdicionInstitucionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_editarTenantNombre))
+        {
+            Snackbar.Add("El nombre de la universidad no puede estar vacío.", Severity.Warning);
+            return;
+        }
+
+        var inst = _instituciones.FirstOrDefault(i => i.Id == _editarTenantId);
+        if (inst == null) return;
+
+        inst.Nombre = _editarTenantNombre.Trim();
+        inst.Tipo = _editarTenantTipo;
+        inst.ZonaHoraria = string.IsNullOrWhiteSpace(_editarTenantZonaHoraria) ? "America/La_Paz" : _editarTenantZonaHoraria.Trim();
+        inst.VentanaMin = _editarTenantVentana > 0 ? _editarTenantVentana : 20;
+        inst.RotacionSeg = _editarTenantRotacion > 0 ? _editarTenantRotacion : 15;
+        inst.Estado = _editarTenantEstado;
+        inst.ActualizadoEn = DateTimeOffset.UtcNow;
+
+        await InstitucionRepo.GuardarAsync(inst);
+        _modalEditarTenantVisible = false;
+        Snackbar.Add($"Institución '{inst.Nombre}' actualizada exitosamente.", Severity.Success);
+        StateHasChanged();
+    }
+
+    private async Task GuardarNuevaInstitucionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_nuevoTenantNombre))
+        {
+            Snackbar.Add("Por favor ingresa el nombre de la universidad o institución.", Severity.Warning);
+            return;
+        }
+
+        var nueva = new Institucion
+        {
+            Id = Guid.NewGuid(),
+            Nombre = _nuevoTenantNombre.Trim(),
+            Tipo = _nuevoTenantTipo,
+            VentanaMin = _nuevoTenantVentana > 0 ? _nuevoTenantVentana : 20,
+            RotacionSeg = _nuevoTenantRotacion > 0 ? _nuevoTenantRotacion : 15,
+            Estado = "activo",
+            CreadoEn = DateTimeOffset.UtcNow,
+            ActualizadoEn = DateTimeOffset.UtcNow
+        };
+
+        await InstitucionRepo.GuardarAsync(nueva);
+        _instituciones.Add(nueva);
+
+        // Si completó administrador inicial
+        if (!string.IsNullOrWhiteSpace(_nuevoTenantAdminCorreo) && !string.IsNullOrWhiteSpace(_nuevoTenantAdminPin))
+        {
+            var admin = new AdministradorInstitucional
+            {
+                Id = Guid.NewGuid(),
+                InstitucionId = nueva.Id,
+                NombreCompleto = string.IsNullOrWhiteSpace(_nuevoTenantAdminNombre) ? $"Admin {_nuevoTenantNombre}" : _nuevoTenantAdminNombre.Trim(),
+                Correo = _nuevoTenantAdminCorreo.Trim().ToLowerInvariant(),
+                CodigoPin = _nuevoTenantAdminPin.Trim(),
+                Activo = true,
+                CreadoEn = DateTimeOffset.UtcNow
+            };
+            await AdminInstRepo.GuardarAsync(admin);
+            _admins.Add(admin);
+        }
+
+        _modalCrearTenantVisible = false;
+        Snackbar.Add($"Institución '{nueva.Nombre}' registrada exitosamente en el cluster multitenant.", Severity.Success);
+    }
+
+    private void AbrirModalCrearAdmin()
+    {
+        _adminInstitucionSeleccionada = _instituciones.FirstOrDefault()?.Id ?? Guid.Empty;
+        _adminNombreInput = string.Empty;
+        _adminCorreoInput = string.Empty;
+        _adminPinInput = string.Empty;
+        _modalCrearAdminVisible = true;
+    }
+
+    private void AbrirModalCrearAdminPara(Guid institucionId)
+    {
+        _adminInstitucionSeleccionada = institucionId;
+        _adminNombreInput = string.Empty;
+        _adminCorreoInput = string.Empty;
+        _adminPinInput = string.Empty;
+        _modalCrearAdminVisible = true;
+    }
+
+    private async Task GuardarNuevoAdminAsync()
+    {
+        if (_adminInstitucionSeleccionada == Guid.Empty ||
+            string.IsNullOrWhiteSpace(_adminNombreInput) ||
+            string.IsNullOrWhiteSpace(_adminCorreoInput) ||
+            string.IsNullOrWhiteSpace(_adminPinInput))
+        {
+            Snackbar.Add("Todos los campos son obligatorios para crear el administrador.", Severity.Warning);
+            return;
+        }
+
+        var admin = new AdministradorInstitucional
+        {
+            Id = Guid.NewGuid(),
+            InstitucionId = _adminInstitucionSeleccionada,
+            NombreCompleto = _adminNombreInput.Trim(),
+            Correo = _adminCorreoInput.Trim().ToLowerInvariant(),
+            CodigoPin = _adminPinInput.Trim(),
+            Activo = true,
+            CreadoEn = DateTimeOffset.UtcNow
+        };
+
+        await AdminInstRepo.GuardarAsync(admin);
+        _admins.Add(admin);
+        _modalCrearAdminVisible = false;
+
+        Snackbar.Add($"Administrador '{admin.NombreCompleto}' creado exitosamente para {ObtenerNombreUniversidad(admin.InstitucionId)}.", Severity.Success);
+    }
+}

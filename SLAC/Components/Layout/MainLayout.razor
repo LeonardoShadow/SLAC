@@ -105,6 +105,16 @@ OnClick="@(() => _isDarkMode = !_isDarkMode)" />
             </MudNavGroup>
         }
 
+        <!-- Menú Exclusivo para Administrador General (Super Admin Multitenant) -->
+        @if (SessionService.EstaAutenticado && SessionService.RolActual == RolUsuario.SuperAdmin)
+        {
+            <MudNavGroup Title="Administrador General" Icon="@Icons.Material.Filled.Security" Expanded="true">
+                <MudNavLink Href="/superadmin" Icon="@Icons.Material.Filled.Domain">Universidades / Tenants</MudNavLink>
+                <MudNavLink Href="/superadmin/administradores" Icon="@Icons.Material.Filled.ManageAccounts">Admins de Universidades</MudNavLink>
+                <MudNavLink Href="/superadmin/metricas" Icon="@Icons.Material.Filled.Insights">Monitoreo y Métricas</MudNavLink>
+            </MudNavGroup>
+        }
+
         @if (SessionService.EstaAutenticado)
         {
             <MudDivider Class="my-2" />
@@ -175,6 +185,7 @@ OnClick="@(() => _isDarkMode = !_isDarkMode)" />
 
     private static Color ObtenerColorRol(RolUsuario rol) => rol switch
     {
+        RolUsuario.SuperAdmin => Color.Warning,
         RolUsuario.Administrador => Color.Success,
         RolUsuario.Docente => Color.Primary,
         RolUsuario.Estudiante => Color.Info,
@@ -183,6 +194,7 @@ OnClick="@(() => _isDarkMode = !_isDarkMode)" />
 
     private static string ObtenerIconoRol(RolUsuario rol) => rol switch
     {
+        RolUsuario.SuperAdmin => Icons.Material.Filled.Security,
         RolUsuario.Administrador => Icons.Material.Filled.AdminPanelSettings,
         RolUsuario.Docente => Icons.Material.Filled.Person,
         RolUsuario.Estudiante => Icons.Material.Filled.School,

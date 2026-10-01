@@ -86,7 +86,14 @@ public class SupabaseRevinculacionRepository(Client supabaseClient, ILogger<Supa
             }
         }
 
-        return [.. resultados.Values.OrderByDescending(r => r.CreadoEn)];
+        // Deduplicar estrictamente por estudiante: sólo la más reciente por estudiante
+        var unicos = resultados.Values
+            .GroupBy(r => r.EstudianteId)
+            .Select(g => g.OrderByDescending(r => r.CreadoEn).First())
+            .OrderByDescending(r => r.CreadoEn)
+            .ToList();
+
+        return unicos;
     }
 
     public async Task<Revinculacion?> ObtenerPorIdAsync(Guid id, CancellationToken ct = default)
