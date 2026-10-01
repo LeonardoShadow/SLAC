@@ -291,7 +291,7 @@
 
     private void CalcularDiaHoy()
     {
-        var dayOfWeek = DateTime.Now.DayOfWeek;
+        var dayOfWeek = TimeHelper.Now.DayOfWeek;
         (_diaHoySigla, _diaHoyNombre) = dayOfWeek switch
         {
             DayOfWeek.Monday => ("L", "Lunes"),
@@ -332,7 +332,7 @@
                 _periodos = [nuevoPeriodo];
             }
 
-            var hoy = DateOnly.FromDateTime(DateTime.Today);
+            var hoy = TimeHelper.Today;
             _periodoVigente = _periodos.FirstOrDefault(p => p.FechaInicio <= hoy && hoy <= p.FechaFin) ?? _periodos.FirstOrDefault();
 
             if (_espacios.Count == 0)

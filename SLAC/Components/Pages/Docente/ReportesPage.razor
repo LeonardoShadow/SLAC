@@ -206,7 +206,7 @@
                     </MudChip>
                 </MudTd>
                 <MudTd DataLabel="Fecha Cómputo">
-                    @context.CreadoEn.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                    @TimeHelper.FormatearFechaHoraLocal(context.CreadoEn)
                 </MudTd>
                 <MudTd DataLabel="Acciones" Style="text-align: right;">
                     <MudButton Variant="Variant.Outlined"

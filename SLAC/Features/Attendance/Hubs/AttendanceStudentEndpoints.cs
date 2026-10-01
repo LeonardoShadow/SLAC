@@ -24,6 +24,9 @@ public static class AttendanceStudentEndpoints
             Guid sesionId,
             [FromQuery(Name = "t")] string? t,
             [FromQuery(Name = "modo")] string? modo,
+            [FromQuery(Name = "r")] string? rStr,
+            [FromQuery(Name = "clat")] string? clatStr,
+            [FromQuery(Name = "clon")] string? clonStr,
             HttpContext httpContext,
             ISuscripcionService suscripcionService,
             ITokenService tokenService,
@@ -36,6 +39,10 @@ public static class AttendanceStudentEndpoints
                 var html = AttendanceStudentView.RenderErrorView("Enlace Incompleto", "El enlace no contiene el token de verificación del código QR.");
                 return Results.Content(html, "text/html");
             }
+
+            int? r = int.TryParse(rStr, out var rVal) ? rVal : null;
+            double? clat = double.TryParse(clatStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var cvLat) ? cvLat : null;
+            double? clon = double.TryParse(clonStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var cvLon) ? cvLon : null;
 
             var deviceCookie = httpContext.Request.Cookies[CookieDeviceName];
             var userAgent = httpContext.Request.Headers.UserAgent.ToString();
@@ -99,7 +106,7 @@ public static class AttendanceStudentEndpoints
 
                     if (scanRes.RequiereRegistro)
                     {
-                        var formHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, scanRes.MateriaNombre ?? "Clase", scanRes.MateriaCodigo ?? "", modo: "wifi");
+                        var formHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, scanRes.MateriaNombre ?? "Clase", scanRes.MateriaCodigo ?? "", modo: "wifi", radioTolerancia: r, latReferencia: clat, lonReferencia: clon);
                         return Results.Content(formHtml, "text/html");
                     }
 
@@ -108,7 +115,7 @@ public static class AttendanceStudentEndpoints
                 }
 
                 // Primer escaneo en modo Wi-Fi
-                var regWifiHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, materiaNombre, materiaCodigo, modo: "wifi");
+                var regWifiHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, materiaNombre, materiaCodigo, modo: "wifi", radioTolerancia: r, latReferencia: clat, lonReferencia: clon);
                 return Results.Content(regWifiHtml, "text/html");
             }
 
@@ -116,12 +123,12 @@ public static class AttendanceStudentEndpoints
             // Si el alumno ya cuenta con credencial de dispositivo, validar presencia física por GPS en aula
             if (!string.IsNullOrWhiteSpace(deviceCookie))
             {
-                var gpsView = AttendanceStudentView.RenderGpsAutoVerifyView(sesionId, t, materiaNombre, materiaCodigo);
+                var gpsView = AttendanceStudentView.RenderGpsAutoVerifyView(sesionId, t, materiaNombre, materiaCodigo, r, clat, clon);
                 return Results.Content(gpsView, "text/html");
             }
 
             // Primer escaneo (Sin cookie de dispositivo): Mostrar formulario de vinculación con GPS
-            var regHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, materiaNombre, materiaCodigo, modo: "gps");
+            var regHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, materiaNombre, materiaCodigo, modo: "gps", radioTolerancia: r, latReferencia: clat, lonReferencia: clon);
             return Results.Content(regHtml, "text/html");
         });
 
@@ -146,7 +153,11 @@ public static class AttendanceStudentEndpoints
             double? latitud = double.TryParse(form["lat"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var latVal) ? latVal : null;
             double? longitud = double.TryParse(form["lon"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lonVal) ? lonVal : null;
             double? precision = double.TryParse(form["acc"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var accVal) ? accVal : null;
+            int? radioPersonalizado = int.TryParse(form["r"].ToString(), out var rVal) ? rVal : null;
+            double? clat = double.TryParse(form["clat"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var clatVal) ? clatVal : null;
+            double? clon = double.TryParse(form["clon"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var clonVal) ? clonVal : null;
 
+            var modo = form["modo"].ToString().Trim();
             var scanReq = new AttendanceScanRequest
             {
                 SesionId = sesionId,
@@ -155,7 +166,11 @@ public static class AttendanceStudentEndpoints
                 UserAgent = userAgent,
                 Latitud = latitud,
                 Longitud = longitud,
-                PrecisionGpsMetros = precision
+                PrecisionGpsMetros = precision,
+                RadioToleranciaPersonalizado = radioPersonalizado,
+                LatitudReferencia = clat,
+                LongitudReferencia = clon,
+                Modo = !string.IsNullOrWhiteSpace(modo) ? modo : "gps"
             };
 
             var scanRes = await suscripcionService.ProcesarEscaneoAsync(scanReq, ct);
@@ -185,13 +200,13 @@ public static class AttendanceStudentEndpoints
 
             if (scanRes.RequiereRegistro)
             {
-                var formHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, scanRes.MateriaNombre ?? "Clase", scanRes.MateriaCodigo ?? "");
+                var formHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, scanRes.MateriaNombre ?? "Clase", scanRes.MateriaCodigo ?? "", modo: "gps", radioTolerancia: radioPersonalizado, latReferencia: clat, lonReferencia: clon);
                 return Results.Content(formHtml, "text/html");
             }
 
             var errHtml = AttendanceStudentView.RenderErrorView("No se pudo registrar asistencia", scanRes.MensajeError ?? "Código QR inválido o expirado.");
             return Results.Content(errHtml, "text/html");
-        });
+        }).DisableAntiforgery();
 
         // POST /a/{sesionId} (Pasos 32 y 33: Procesamiento del formulario y emisión de cookie)
         endpoints.MapPost("/a/{sesionId:guid}", async (
@@ -224,6 +239,9 @@ public static class AttendanceStudentEndpoints
             double? latitud = double.TryParse(form["lat"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var latForm) ? latForm : null;
             double? longitud = double.TryParse(form["lon"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lonForm) ? lonForm : null;
             double? precision = double.TryParse(form["acc"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var accForm) ? accForm : null;
+            int? radioPersonalizado = int.TryParse(form["r"].ToString(), out var rVal) ? rVal : null;
+            double? clat = double.TryParse(form["clat"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var clatVal) ? clatVal : null;
+            double? clon = double.TryParse(form["clon"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var clonVal) ? clonVal : null;
 
             if (string.IsNullOrWhiteSpace(t))
             {
@@ -247,7 +265,10 @@ public static class AttendanceStudentEndpoints
                 Modo = modo,
                 Latitud = latitud,
                 Longitud = longitud,
-                PrecisionGpsMetros = precision
+                PrecisionGpsMetros = precision,
+                RadioToleranciaPersonalizado = radioPersonalizado,
+                LatitudReferencia = clat,
+                LongitudReferencia = clon
             };
 
             var scanRes = await suscripcionService.ProcesarEscaneoAsync(scanReq, ct);
@@ -276,13 +297,17 @@ public static class AttendanceStudentEndpoints
                 return Results.Content(revHtml, "text/html");
             }
 
-            // Si falló por validación de formulario, volver a mostrar el formulario con el error
+            // Si falló por validación de formulario o GPS, volver a mostrar el formulario con el error
             var formRetryHtml = AttendanceStudentView.RenderRegistrationView(
                 sesionId,
                 t,
                 scanRes.MateriaNombre ?? "Clase",
                 scanRes.MateriaCodigo ?? "",
-                scanRes.MensajeError ?? "Revisa los datos de identificación ingresados.");
+                scanRes.MensajeError ?? "Revisa los datos de identificación ingresados.",
+                modo: modo,
+                radioTolerancia: radioPersonalizado,
+                latReferencia: clat,
+                lonReferencia: clon);
 
             return Results.Content(formRetryHtml, "text/html");
         }).DisableAntiforgery(); // Enlace público estático para escaneo QR móvil

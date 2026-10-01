@@ -1,4 +1,5 @@
 using SLAC.Core.Attendance.Services;
+using SLAC.Core;
 
 namespace SLAC.Features.Attendance.Hubs;
 
@@ -14,7 +15,7 @@ public static class AttendanceStudentView
         var codigo = EncodeHtml(result.EstudianteCodigo ?? "");
         var materia = EncodeHtml(result.MateriaNombre ?? "Clase");
         var codigoMateria = EncodeHtml(result.MateriaCodigo ?? "");
-        var horaLlegada = result.HoraLlegada?.ToLocalTime().ToString("HH:mm:ss") ?? DateTime.Now.ToString("HH:mm:ss");
+        var horaLlegada = TimeHelper.FormatearHoraLocal(result.HoraLlegada);
         var minutos = result.MinutosDesdeInicio ?? 0;
         var estadoBadge = result.YaRegistradoHoy ? "Asistencia Previamente Registrada" : "¡Asistencia a Clases Registrada!";
         var tiempoTexto = minutos == 0 ? "A tiempo al inicio" : $"{minutos} min tras apertura";
@@ -160,9 +161,14 @@ public static class AttendanceStudentView
         string materiaNombre,
         string materiaCodigo,
         string? errorMensaje = null,
-        string modo = "gps")
+        string modo = "gps",
+        int? radioTolerancia = null,
+        double? latReferencia = null,
+        double? lonReferencia = null)
     {
         var tokenSeguro = EncodeHtml(qrToken);
+        var latReferenciaString = latReferencia?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
+        var lonReferenciaString = lonReferencia?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
         var materia = EncodeHtml(materiaNombre);
         var codigoMat = EncodeHtml(materiaCodigo);
         var esWifi = string.Equals(modo, "wifi", StringComparison.OrdinalIgnoreCase);
@@ -323,6 +329,9 @@ public static class AttendanceStudentView
                 <form method="POST" action="/a/{{sesionId}}" id="regForm">
                     <input type="hidden" name="t" value="{{tokenSeguro}}" />
                     <input type="hidden" name="modo" value="{{modo}}" />
+                    <input type="hidden" name="r" value="{{radioTolerancia}}" />
+                    <input type="hidden" name="clat" value="{{latReferenciaString}}" />
+                    <input type="hidden" name="clon" value="{{lonReferenciaString}}" />
                     <input type="hidden" id="lat" name="lat" />
                     <input type="hidden" id="lon" name="lon" />
                     <input type="hidden" id="acc" name="acc" />
@@ -331,7 +340,7 @@ public static class AttendanceStudentView
                         <label for="identificador">Código de Estudiante o Correo Institucional (CI) *</label>
                         <input type="text" id="identificador" name="identificador" required autofocus />
                         <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 0.25rem;">
-                            Ingresa tu código único, carnet de identidad o correo institucional.
+                            Ingresa tu código único, carnet (CI) o correo institucional.
                         </span>
                     </div>
 
@@ -349,11 +358,6 @@ public static class AttendanceStudentView
             </div>
 
             <script>
-                const isPrivateIp = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(location.hostname);
-                if (!isPrivateIp && location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-                    location.replace('https:' + window.location.href.substring(window.location.protocol.length));
-                }
-
                 const esWifi = {{esWifi.ToString().ToLowerInvariant()}};
                 if (!esWifi) {
                     const gpsBox = document.getElementById('gps-status');
@@ -405,11 +409,20 @@ public static class AttendanceStudentView
         """;
     }
 
-    public static string RenderGpsAutoVerifyView(Guid sesionId, string qrToken, string materiaNombre, string materiaCodigo)
+    public static string RenderGpsAutoVerifyView(
+        Guid sesionId,
+        string qrToken,
+        string materiaNombre,
+        string materiaCodigo,
+        int? radioTolerancia = null,
+        double? latReferencia = null,
+        double? lonReferencia = null)
     {
         var materia = EncodeHtml(materiaNombre);
         var codigoMat = EncodeHtml(materiaCodigo);
         var tokenSeguro = EncodeHtml(qrToken);
+        var latReferenciaString = latReferencia?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
+        var lonReferenciaString = lonReferencia?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
 
         return $$"""
         <!DOCTYPE html>
@@ -550,33 +563,32 @@ public static class AttendanceStudentView
 
                 <form method="POST" action="/a/{{sesionId}}/confirmar-gps" id="gpsForm">
                     <input type="hidden" name="t" value="{{tokenSeguro}}" />
+                    <input type="hidden" name="r" value="{{radioTolerancia}}" />
+                    <input type="hidden" name="clat" value="{{latReferenciaString}}" />
+                    <input type="hidden" name="clon" value="{{lonReferenciaString}}" />
                     <input type="hidden" id="lat" name="lat" />
                     <input type="hidden" id="lon" name="lon" />
                     <input type="hidden" id="acc" name="acc" />
                 </form>
 
-                <button class="btn" id="retryBtn" onclick="solicitarUbicacion()">
+                <button class="btn" id="retryBtn" onclick="solicitarUbicacion()" style="margin-top: 0.5rem;">
                     🔄 Reintentar Detección GPS
                 </button>
             </div>
 
             <script>
-                const isPrivateIpAuto = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(location.hostname);
-                if (!isPrivateIpAuto && location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-                    location.replace('https:' + window.location.href.substring(window.location.protocol.length));
-                }
-
                 function solicitarUbicacion() {
                     const badge = document.getElementById('statusBadge');
                     const retryBtn = document.getElementById('retryBtn');
-                    badge.innerHTML = '📡 Obteniendo ubicación en aula...';
+
+                    badge.innerHTML = '📡 Conectando con satélites GPS en aula...';
                     badge.style.color = '#93c5fd';
                     badge.style.background = 'rgba(59, 130, 246, 0.1)';
                     badge.style.borderColor = 'rgba(99, 102, 241, 0.3)';
                     retryBtn.style.display = 'none';
 
                     if (!navigator.geolocation) {
-                        badge.innerHTML = '⚠️ Tu navegador no soporta geolocalización GPS.';
+                        badge.innerHTML = '⚠️ Tu navegador móvil no soporta geolocalización GPS.';
                         badge.style.color = '#fca5a5';
                         return;
                     }
@@ -592,15 +604,15 @@ public static class AttendanceStudentView
                     };
 
                     const onPosErr = (err) => {
-                        retryBtn.style.display = 'block';
                         badge.style.background = 'rgba(239, 68, 68, 0.15)';
                         badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
                         badge.style.color = '#fca5a5';
+                        retryBtn.style.display = 'block';
 
                         if (err.code === 1) { // PERMISSION_DENIED
                             badge.innerHTML = '⚠️ <b>Permiso Denegado:</b> En tu navegador móvil toca el candado 🔒 de la barra de direcciones y activa <b>Ubicación</b>.';
                         } else if (err.code === 2) { // POSITION_UNAVAILABLE
-                            badge.innerHTML = '⚠️ <b>GPS Desactivado:</b> Enciende la Ubicación en la barra de ajustes de tu celular.';
+                            badge.innerHTML = '⚠️ <b>GPS Desactivado:</b> Enciende la Ubicación en la barra de ajustes rápidos de tu celular.';
                         } else if (err.code === 3) { // TIMEOUT
                             badge.innerHTML = '📡 <b>Buscando señal bajo techo...</b> Reintentando con red celular/Wi-Fi...';
                             navigator.geolocation.getCurrentPosition(onPosOk, (errFinal) => {
@@ -611,7 +623,6 @@ public static class AttendanceStudentView
                         }
                     };
 
-                    // Primero precisión de red que responde en < 1s bajo techo
                     navigator.geolocation.getCurrentPosition(
                         onPosOk,
                         (errNormal) => {
@@ -715,6 +726,9 @@ public static class AttendanceStudentView
                 <div class="notice">
                     Si estás en el aula, solicita al docente proyectar el código QR actualizado o comunícate con soporte de tu institución.
                 </div>
+                <button onclick="window.location.reload()" style="margin-top: 1.25rem; width: 100%; background: #4f46e5; color: #fff; font-weight: 700; padding: 0.75rem; border: none; border-radius: 0.75rem; cursor: pointer; font-size: 0.9rem;">
+                    🔄 Reintentar Escaneo / Actualizar
+                </button>
             </div>
         </body>
         </html>

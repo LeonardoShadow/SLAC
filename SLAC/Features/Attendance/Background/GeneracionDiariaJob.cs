@@ -5,6 +5,7 @@ using SLAC.Core.Attendance.Repositories;
 using SLAC.Core.Docentes.Repositories;
 using SLAC.Core.Institucional.Entities;
 using SLAC.Core.Institucional.Repositories;
+using SLAC.Core;
 
 namespace SLAC.Features.Attendance.Background;
 
@@ -35,8 +36,8 @@ public class GeneracionDiariaJob(
 
     public async Task Execute(IJobExecutionContext context)
     {
-        var hoyFecha = DateOnly.FromDateTime(DateTime.Today);
-        var diaSemana = DateTime.Today.DayOfWeek;
+        var hoyFecha = TimeHelper.Today;
+        var diaSemana = TimeHelper.Now.DayOfWeek;
 
         _logger.LogInformation("Iniciando Generación Diaria de Sesiones para {Fecha} ({DiaSemana})", hoyFecha, diaSemana);
 

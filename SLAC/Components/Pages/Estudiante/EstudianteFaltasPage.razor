@@ -120,7 +120,7 @@
                         </MudChip>
                     </MudTd>
                     <MudTd DataLabel="Registrado En">
-                        @context.Detalle.CreadoEn.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                        @TimeHelper.FormatearFechaHoraLocal(context.Detalle.CreadoEn)
                     </MudTd>
                 </RowTemplate>
                 <PagerContent>

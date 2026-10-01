@@ -24,6 +24,9 @@ public class AttendanceScanRequest
     public double? Latitud { get; set; }
     public double? Longitud { get; set; }
     public double? PrecisionGpsMetros { get; set; }
+    public int? RadioToleranciaPersonalizado { get; set; }
+    public double? LatitudReferencia { get; set; }
+    public double? LongitudReferencia { get; set; }
 }
 
 public class AttendanceScanResult

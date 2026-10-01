@@ -9,16 +9,39 @@ namespace SLAC.Core.Security;
 /// </summary>
 public class KeyManager : IKeyManager, IDisposable
 {
+    private const string DefaultMasterPem = """
+    -----BEGIN EC PRIVATE KEY-----
+    MHcCAQEEIGiTeL+tSZK8p3AO32Quu8TH8zcKOAiFgZKkaVaZJdBIoAoGCCqGSM49
+    AwEHoUQDQgAErr+KPTwEk5SCtRp2Oug/uYstceOGjVJC2chdV4E9hS3OLBTne13b
+    dkWqOJ+w6dZrWzOnszSMUDGScnphEuSwUw==
+    -----END EC PRIVATE KEY-----
+    """;
+
     private readonly ConcurrentDictionary<string, ECDsa> _keyStore = new();
     private readonly string _activeKid;
     private readonly ECDsa _activeKey;
 
-    public KeyManager()
+    public KeyManager(Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
     {
-        // En producción puede cargarse desde Azure KeyVault, AWS KMS o un secreto cifrado.
-        // Inicializamos con una llave ECDSA P-256 de alta entropía.
-        _activeKid = $"slac-{DateTime.UtcNow:yyyyMM}-k1";
-        _activeKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        _activeKid = "slac-master-k1";
+        var pem = configuration?["Security:SigningKeyPem"]
+                  ?? Environment.GetEnvironmentVariable("SLAC_SIGNING_KEY_PEM");
+
+        if (string.IsNullOrWhiteSpace(pem))
+        {
+            pem = DefaultMasterPem;
+        }
+
+        try
+        {
+            _activeKey = ECDsa.Create();
+            _activeKey.ImportFromPem(pem);
+        }
+        catch
+        {
+            _activeKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        }
+
         _keyStore.TryAdd(_activeKid, _activeKey);
     }
 
@@ -40,6 +63,12 @@ public class KeyManager : IKeyManager, IDisposable
         if (_keyStore.TryGetValue(kid, out var key))
         {
             return key;
+        }
+
+        // Retrocompatibilidad con tokens emitidos con formato dinámico previo (slac-*)
+        if (kid.StartsWith("slac-", StringComparison.OrdinalIgnoreCase))
+        {
+            return _activeKey;
         }
 
         return null;

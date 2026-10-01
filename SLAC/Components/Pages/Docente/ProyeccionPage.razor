@@ -53,7 +53,7 @@
         <div class="header-right">
             <div class="live-clock">
                 <span class="clock-time">@_horaActualString</span>
-                <span class="clock-date">@DateTime.Now.ToString("dddd, dd MMMM yyyy")</span>
+                <span class="clock-date">@TimeHelper.FormatearFechaLarga(TimeHelper.Today)</span>
             </div>
 
             <div class="header-actions">
@@ -454,12 +454,58 @@
                 @if (_modoValidacion == "gps")
                 {
                     <div class="mb-4">
-                        <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
-                            Alcance de Ubicación GPS (Tolerancia en Metros):
-                        </label>
-                        <MudNumericField T="int" @bind-Value="_radioToleranciaMetros" Min="20" Max="5000" Step="50"
+                        <div class="d-flex justify-space-between align-center mb-1">
+                            <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0;">
+                                Alcance de Ubicación GPS (Tolerancia en Metros):
+                            </label>
+                            <span style="font-size: 0.8rem; color: #38bdf8; font-weight: 700;">@_radioToleranciaMetros m</span>
+                        </div>
+                        <MudNumericField T="int" @bind-Value="_radioToleranciaMetros" Min="20" Max="100000" Step="100"
                                          Variant="Variant.Outlined" Margin="Margin.Dense"
-                                         HelperText="Distancia máxima permitida entre el estudiante y el aula (ej. 300m campus universitario)." />
+                                         HelperText="Distancia máxima permitida. Para pruebas desde casa o campus extendido, puedes ampliarlo a 10000m o más." />
+
+                        <div class="d-flex gap-1 mt-2 flex-wrap">
+                            <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 50 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => _radioToleranciaMetros = 50)">Aula (50m)</MudChip>
+                            <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 300 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => _radioToleranciaMetros = 300)">Campus (300m)</MudChip>
+                            <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 1000 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => _radioToleranciaMetros = 1000)">Zona (1 km)</MudChip>
+                            <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 10000 ? Variant.Filled : Variant.Outlined)" Color="Color.Success" OnClick="@(() => _radioToleranciaMetros = 10000)">Pruebas Ciudad (10 km)</MudChip>
+                            <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 50000 ? Variant.Filled : Variant.Outlined)" Color="Color.Warning" OnClick="@(() => _radioToleranciaMetros = 50000)">Pruebas Remotas (50 km)</MudChip>
+                        </div>
+
+                        <div class="pa-2 mt-2" style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid #38bdf8; border-radius: 4px; font-size: 0.72rem; color: #bae6fd;">
+                            💡 <b>Aclaración:</b> El GPS compara la posición satelital del celular contra las <b>coordenadas geográficas del Campus Universitario</b> (no contra la pantalla de la PC). Para probar desde tu casa, pulsa <b>"Fijar Aula con Mi GPS Actual"</b> o <b>"Pruebas Ciudad (10 km)"</b>.
+                        </div>
+
+                        <!-- Calibración GPS del Docente -->
+                        <div class="mt-3 pa-2" style="background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px dashed rgba(255,255,255,0.15);">
+                            <div class="d-flex justify-space-between align-center">
+                                <span style="font-size: 0.75rem; color: #94a3b8;">Calibración de Aula:</span>
+                                <MudButton Variant="Variant.Outlined"
+                                           Color="Color.Tertiary"
+                                           Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.MyLocation"
+                                           OnClick="CalibrarUbicacionDocenteAsync"
+                                           Disabled="_calibrandoGps">
+                                    @(_calibrandoGps ? "Detectando..." : "Fijar Aula con Mi GPS Actual")
+                                </MudButton>
+                            </div>
+                            @if (!string.IsNullOrEmpty(_calibracionMensaje))
+                            {
+                                <div style="font-size: 0.72rem; color: #34d399; margin-top: 0.25rem;">
+                                    @_calibracionMensaje
+                                </div>
+                            }
+
+                            <!-- Coordenadas Exactas del Aula (Editables) -->
+                            <div class="d-flex gap-2 mt-2">
+                                <MudNumericField T="double?" Value="_latitudPersonalizada ?? _espacio?.Latitud"
+                                                 ValueChanged="@((double? val) => { _latitudPersonalizada = val; _ = RotarCodigoQrAsync(); })"
+                                                 Label="Latitud Aula" Variant="Variant.Outlined" Margin="Margin.Dense" Format="F6" />
+                                <MudNumericField T="double?" Value="_longitudPersonalizada ?? _espacio?.Longitud"
+                                                 ValueChanged="@((double? val) => { _longitudPersonalizada = val; _ = RotarCodigoQrAsync(); })"
+                                                 Label="Longitud Aula" Variant="Variant.Outlined" Margin="Margin.Dense" Format="F6" />
+                            </div>
+                        </div>
                     </div>
                 }
 
@@ -1104,8 +1150,61 @@
     private string _modoValidacion = "wifi"; // Default Wi-Fi para que en localhost y pruebas no sea bloqueado por navegadores móviles sin HTTPS
     private int _minutosCaducidad = 20;
     private int _radioToleranciaMetros = 300;
+    private double? _latitudPersonalizada;
+    private double? _longitudPersonalizada;
+    private bool _calibrandoGps = false;
+    private string _calibracionMensaje = string.Empty;
     private bool _mostrarAjustesModal = false;
     private bool _qrPantallaCompleta = false;
+
+    private async Task CalibrarUbicacionDocenteAsync()
+    {
+        try
+        {
+            _calibrandoGps = true;
+            _calibracionMensaje = "Obteniendo ubicación del dispositivo...";
+            StateHasChanged();
+
+            var coords = await JS.InvokeAsync<double[]>("slacGetDocenteLocation");
+            if (coords != null && coords.Length >= 2)
+            {
+                _latitudPersonalizada = coords[0];
+                _longitudPersonalizada = coords[1];
+                var acc = coords.Length >= 3 ? coords[2] : 0;
+
+                if (acc > 100)
+                {
+                    _calibracionMensaje = $"📍 Aula fijada por red PC ({coords[0]:F4}, {coords[1]:F4}) con margen de ~{acc:F0}m (las computadoras no tienen antena GPS satelital).";
+                    if (_radioToleranciaMetros < (int)acc)
+                    {
+                        _radioToleranciaMetros = (int)acc + 100;
+                    }
+                }
+                else
+                {
+                    _calibracionMensaje = $"✅ Aula fijada por satélite: {coords[0]:F4}, {coords[1]:F4} (Precisión: {acc:F0}m)";
+                }
+
+                if (_espacio != null)
+                {
+                    _espacio.Latitud = coords[0];
+                    _espacio.Longitud = coords[1];
+                }
+                await RotarCodigoQrAsync();
+                Snackbar.Add("¡Ubicación del aula calibrada con éxito!", Severity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            _calibracionMensaje = "⚠️ No se pudo obtener el GPS: " + ex.Message;
+            Snackbar.Add("No se pudo obtener la posición del docente: " + ex.Message, Severity.Warning);
+        }
+        finally
+        {
+            _calibrandoGps = false;
+            StateHasChanged();
+        }
+    }
 
     private async Task AlternarModoValidacionAsync(string nuevoModo)
     {
@@ -1127,6 +1226,11 @@
         if (_espacio != null)
         {
             _espacio.RadioMetros = _radioToleranciaMetros;
+            if (_latitudPersonalizada.HasValue && _longitudPersonalizada.HasValue)
+            {
+                _espacio.Latitud = _latitudPersonalizada.Value;
+                _espacio.Longitud = _longitudPersonalizada.Value;
+            }
             try
             {
                 await EspacioRepo.UpdateAsync(_espacio);
@@ -1147,7 +1251,7 @@
     private int _segundosRestantesSesion = 20 * 60;
     private double _porcentajeTiempoSesion => Math.Max(0, (_segundosRestantesSesion / (double)_segundosTotalesSesion) * 100.0);
     private string _tiempoRestanteSesionString => TimeSpan.FromSeconds(Math.Max(0, _segundosRestantesSesion)).ToString(@"mm\:ss");
-    private string _horaActualString => DateTime.Now.ToString("HH:mm:ss");
+    private string _horaActualString => TimeHelper.Now.ToString("HH:mm:ss");
 
     // Asistentes y SignalR
     private int _totalPresentes = 0;
@@ -1174,7 +1278,7 @@
                 _espacio = await EspacioRepo.GetByIdAsync(_materia.EspacioId);
             }
 
-            var hoy = DateOnly.FromDateTime(DateTime.Today);
+            var hoy = TimeHelper.Today;
             var sesionExistente = await ListaRepo.ObtenerPorMateriaYFechaAsync(MateriaId, hoy);
 
             var docenteId = _materia?.DocenteId != null && _materia.DocenteId != Guid.Empty
@@ -1194,7 +1298,7 @@
                     DocenteId = docenteId,
                     EspacioId = espacioId,
                     Fecha = hoy,
-                    HoraInicio = _materia?.HoraInicio ?? DateTime.Now.TimeOfDay,
+                    HoraInicio = _materia?.HoraInicio ?? TimeHelper.TimeOfDay,
                     Estado = "Abierta"
                 };
                 _sesion = await ListaRepo.CrearOActualizarAsync(nueva);
@@ -1319,9 +1423,7 @@
 
     private static string FormatearHoraLocal(DateTimeOffset? fechaUtc)
     {
-        if (!fechaUtc.HasValue) return DateTime.Now.ToString("HH:mm:ss");
-        var utc = fechaUtc.Value.UtcDateTime;
-        return TimeZoneInfo.ConvertTimeFromUtc(utc, TimeZoneInfo.Local).ToString("HH:mm:ss");
+        return TimeHelper.FormatearHoraLocal(fechaUtc);
     }
 
     private async Task ReiniciarAsistenciaParaPruebasAsync()
@@ -1403,7 +1505,7 @@
                 {
                     _totalPresentes = totalPresentes;
                     _ultimosRegistrados.RemoveAll(x => x.Codigo == estudianteCodigo);
-                    _ultimosRegistrados.Insert(0, (estudianteNombre, estudianteCodigo, DateTime.Now.ToString("HH:mm:ss")));
+                    _ultimosRegistrados.Insert(0, (estudianteNombre, estudianteCodigo, TimeHelper.Now.ToString("HH:mm:ss")));
                     if (_ultimosRegistrados.Count > 10)
                     {
                         _ultimosRegistrados.RemoveAt(_ultimosRegistrados.Count - 1);
@@ -1519,12 +1621,17 @@
                     ? _ipLocalSugerida
                     : Navigation.BaseUri.TrimEnd('/'));
 
-            if (!baseUrl.Contains("localhost") && !baseUrl.Contains("127.0.0.1") && baseUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            // Mantener el esquema real de la aplicación (http o https según el hosting) sin forzar SSL si el servidor no lo soporta
+            if (Navigation.BaseUri.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && baseUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !baseUrl.Contains("192.168.") && !baseUrl.Contains("10."))
             {
                 baseUrl = "https://" + baseUrl.Substring(7);
             }
 
-            var modoParam = _modoValidacion == "wifi" ? "&modo=wifi" : "";
+            var modoParam = _modoValidacion == "wifi" ? "&modo=wifi" : $"&r={_radioToleranciaMetros}";
+            if (_modoValidacion == "gps" && _latitudPersonalizada.HasValue && _longitudPersonalizada.HasValue)
+            {
+                modoParam += $"&clat={_latitudPersonalizada.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}&clon={_longitudPersonalizada.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            }
             _urlEscaneoActual = $"{baseUrl}/a/{_sesion.Id}?t={tokenString}{modoParam}";
             _qrSvgContent = QrService.GenerateSvg(_urlEscaneoActual, pixelsPerModule: 10, darkColorHex: "#0F172A", lightColorHex: "#FFFFFF");
 

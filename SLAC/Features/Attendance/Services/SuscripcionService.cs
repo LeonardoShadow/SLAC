@@ -116,9 +116,11 @@ public class SuscripcionService(
                 ? await _espacioRepo.GetByIdAsync(lista.EspacioId, ct)
                 : null;
 
-            var targetLat = espacio?.Latitud ?? -17.7655;
-            var targetLon = espacio?.Longitud ?? -63.1788;
-            var radioTolerancia = espacio?.RadioMetros > 0 ? espacio.RadioMetros : 300;
+            var targetLat = request.LatitudReferencia ?? espacio?.Latitud ?? -17.7762;
+            var targetLon = request.LongitudReferencia ?? espacio?.Longitud ?? -63.1951;
+            var radioTolerancia = request.RadioToleranciaPersonalizado.HasValue && request.RadioToleranciaPersonalizado.Value > 0
+                ? request.RadioToleranciaPersonalizado.Value
+                : (espacio?.RadioMetros > 0 ? espacio.RadioMetros : 300);
 
             var distancia = CalcularDistanciaMetros(request.Latitud.Value, request.Longitud.Value, targetLat, targetLon);
             var margenPrecision = request.PrecisionGpsMetros.HasValue ? Math.Min(request.PrecisionGpsMetros.Value, 500) : 150;
