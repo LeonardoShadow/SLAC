@@ -29,6 +29,7 @@
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
 @inject IRevinculacionService RevinculacionService
+@inject IRevinculacionRepository RevinculacionRepo
 @inject ICorreccionAsistenciaService CorreccionService
 @inject IDialogService DialogService
 
@@ -1439,6 +1440,19 @@
 
             _totalPresentes = 0;
             _ultimosRegistrados.Clear();
+
+            // Limpiar también solicitudes de revinculación de prueba para esta materia
+            try
+            {
+                var pendientes = await RevinculacionService.ListarPendientesPorMateriaAsync(MateriaId);
+                foreach (var p in pendientes)
+                {
+                    await RevinculacionRepo.MarcarComoUsadaAsync(p.Id);
+                }
+            }
+            catch { /* Silencioso en pruebas */ }
+
+            _solicitudesRevinculacionPendientes = 0;
 
             Snackbar.Add("Asistencia reiniciada a 0. Lista lista para nueva prueba de escaneo.", Severity.Success);
         }
