@@ -326,7 +326,7 @@ public static class AttendanceStudentView
 
                 {{bannerGpsHtml}}
 
-                <form method="POST" action="/a/{{sesionId}}" id="regForm">
+                <form method="POST" action="/a/{{sesionId}}" id="regForm" onsubmit="if(this.dataset.submitted) return false; this.dataset.submitted = 'true'; document.getElementById('submitBtn').disabled = true; return true;">
                     <input type="hidden" name="t" value="{{tokenSeguro}}" />
                     <input type="hidden" name="modo" value="{{modo}}" />
                     <input type="hidden" name="r" value="{{radioTolerancia}}" />
@@ -593,7 +593,10 @@ public static class AttendanceStudentView
                         return;
                     }
 
+                    let enviado = false;
                     const onPosOk = (pos) => {
+                        if (enviado) return;
+                        enviado = true;
                         badge.innerHTML = '✅ Ubicación verificada (' + Math.round(pos.coords.accuracy) + 'm). Registrando asistencia...';
                         badge.style.color = '#34d399';
                         badge.style.background = 'rgba(16, 185, 129, 0.15)';
@@ -604,6 +607,7 @@ public static class AttendanceStudentView
                     };
 
                     const onPosErr = (err) => {
+                        if (enviado) return;
                         badge.style.background = 'rgba(239, 68, 68, 0.15)';
                         badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
                         badge.style.color = '#fca5a5';
@@ -616,7 +620,9 @@ public static class AttendanceStudentView
                         } else if (err.code === 3) { // TIMEOUT
                             badge.innerHTML = '📡 <b>Buscando señal bajo techo...</b> Reintentando con red celular/Wi-Fi...';
                             navigator.geolocation.getCurrentPosition(onPosOk, (errFinal) => {
-                                badge.innerHTML = '⚠️ <b>Señal GPS débil bajo techo:</b> Pulsa "Reintentar" o acércate a una puerta/ventana.';
+                                if (!enviado) {
+                                    badge.innerHTML = '⚠️ <b>Señal GPS débil bajo techo:</b> Pulsa "Reintentar" o acércate a una puerta/ventana.';
+                                }
                             }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 600000 });
                         } else {
                             badge.innerHTML = '⚠️ <b>Error de ubicación:</b> ' + (err.message || 'No se pudo obtener coordenadas.');
@@ -626,11 +632,13 @@ public static class AttendanceStudentView
                     navigator.geolocation.getCurrentPosition(
                         onPosOk,
                         (errNormal) => {
-                            navigator.geolocation.getCurrentPosition(
-                                onPosOk,
-                                onPosErr,
-                                { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-                            );
+                            if (!enviado) {
+                                navigator.geolocation.getCurrentPosition(
+                                    onPosOk,
+                                    onPosErr,
+                                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+                                );
+                            }
                         },
                         { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
                     );

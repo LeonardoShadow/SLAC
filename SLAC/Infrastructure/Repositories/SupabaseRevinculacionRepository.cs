@@ -65,6 +65,12 @@ public class SupabaseRevinculacionRepository(Client supabaseClient, ILogger<Supa
                 foreach (var model in response.Models)
                 {
                     var entity = MapToEntity(model);
+                    // Si en memoria local ya fue marcada como usada, ignorarla de pendientes
+                    if (_fallbackStore.TryGetValue(entity.Id, out var local) && local.UsadaEn != null)
+                    {
+                        continue;
+                    }
+
                     if (entity.EstaPendiente)
                     {
                         resultados[entity.Id] = entity;
@@ -80,9 +86,17 @@ public class SupabaseRevinculacionRepository(Client supabaseClient, ILogger<Supa
         // Siempre fusionar con las solicitudes locales del almacén en memoria
         foreach (var local in _fallbackStore.Values)
         {
-            if (local.MateriaId == materiaId && local.EstaPendiente)
+            if (local.MateriaId == materiaId)
             {
-                resultados[local.Id] = local;
+                if (local.EstaPendiente)
+                {
+                    resultados[local.Id] = local;
+                }
+                else
+                {
+                    // Si ya fue usada o autorizada, removerla si vino de Supabase
+                    resultados.Remove(local.Id);
+                }
             }
         }
 
@@ -137,7 +151,16 @@ public class SupabaseRevinculacionRepository(Client supabaseClient, ILogger<Supa
             {
                 var pending = response.Models
                     .Select(MapToEntity)
-                    .FirstOrDefault(r => r.EstaPendiente);
+                    .Where(entity =>
+                    {
+                        if (_fallbackStore.TryGetValue(entity.Id, out var local) && local.UsadaEn != null)
+                        {
+                            return false;
+                        }
+                        return entity.EstaPendiente;
+                    })
+                    .OrderByDescending(r => r.CreadoEn)
+                    .FirstOrDefault();
 
                 if (pending != null)
                 {
@@ -163,6 +186,10 @@ public class SupabaseRevinculacionRepository(Client supabaseClient, ILogger<Supa
         {
             r.UsadaEn = now;
         }
+        else
+        {
+            _fallbackStore[id] = new Revinculacion { Id = id, UsadaEn = now };
+        }
 
         try
         {
@@ -175,6 +202,19 @@ public class SupabaseRevinculacionRepository(Client supabaseClient, ILogger<Supa
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error actualizando revinculación {Id} como usada en Supabase.", id);
+            try
+            {
+                var model = new RevinculacionDbModel
+                {
+                    Id = id,
+                    UsadaEn = now.UtcDateTime
+                };
+                await _supabaseClient.From<RevinculacionDbModel>().Update(model, cancellationToken: ct);
+            }
+            catch (Exception ex2)
+            {
+                _logger.LogWarning(ex2, "Fallback de actualización de revinculación {Id} también falló.", id);
+            }
         }
     }
 

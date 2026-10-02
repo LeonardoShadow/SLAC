@@ -260,13 +260,27 @@ public class SuscripcionService(
             {
                 Id = nuevoDispId,
                 JtiHash = jtiHash,
-                Kid = "slac-key-v1",
+                Kid = "slac-master-k1",
                 AgenteResumen = request.UserAgent
             };
 
             await _dispositivoRepo.RegistrarDispositivoAsync(nuevoDisp, estudiante.Id, lista.InstitucionId, ct);
             dispositivoIdUsado = nuevoDisp.Id;
             nuevaCookieDispositivo = tokenString;
+
+            // Al emitir nuevo dispositivo autorizado para el estudiante, cerrar cualquier solicitud de revinculación pendiente
+            try
+            {
+                var revAutorizada = await _revinculacionRepo.ObtenerPendientePorEstudianteYMateriaAsync(estudiante.Id, lista.MateriaId, ct);
+                if (revAutorizada != null)
+                {
+                    await _revinculacionRepo.MarcarComoUsadaAsync(revAutorizada.Id, ct);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error al cerrar revinculación autorizada para estudiante {EstudianteId}", estudiante.Id);
+            }
         }
 
         // 5. Suscripción y Faltas Retroactivas (Paso 30)
@@ -289,6 +303,17 @@ public class SuscripcionService(
                 estudiante.NombreCompleto,
                 estudiante.Codigo,
                 ct);
+
+            // Auto-resolver cualquier revinculación residual si el estudiante ya está presente
+            try
+            {
+                var revResidual = await _revinculacionRepo.ObtenerPendientePorEstudianteYMateriaAsync(estudiante.Id, lista.MateriaId, ct);
+                if (revResidual != null && revResidual.UsadaEn is null)
+                {
+                    await _revinculacionRepo.MarcarComoUsadaAsync(revResidual.Id, ct);
+                }
+            }
+            catch { /* Silencioso */ }
 
             return new AttendanceScanResult
             {
@@ -322,6 +347,20 @@ public class SuscripcionService(
         };
 
         await _detalleRepo.RegistrarAsistenciaAsync(nuevoDetalle, ct);
+
+        // Auto-resolver cualquier revinculación previa si el estudiante acaba de marcar presencia exitosa
+        try
+        {
+            var revResidual = await _revinculacionRepo.ObtenerPendientePorEstudianteYMateriaAsync(estudiante.Id, lista.MateriaId, ct);
+            if (revResidual != null && revResidual.UsadaEn is null)
+            {
+                await _revinculacionRepo.MarcarComoUsadaAsync(revResidual.Id, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error al auto-resolver revinculación residual tras marcar asistencia para estudiante {EstudianteId}", estudiante.Id);
+        }
 
         // 7. Incrementar contadores en Redis y actualizar totales en Postgres
         var totalPresentes = (int)await _sessionCache.IncrementAttendanceCounterAsync(lista.Id, ct);
