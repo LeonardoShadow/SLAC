@@ -48,4 +48,4 @@ La estructura se divide en entidades de configuración y entidades transaccional
 *   **Valores por Defecto Cero:** En `lista_asistencia`, los campos `total_suscritos`, `total_presentes` y `total_faltas` deben iniciar en 0[cite: 6].
 
 ## 5. Índices Críticos para el Rendimiento
-*   **Reportes y Filtros:** Se debe crear un índice compuesto sobre `(institucion_id, lista_id)` en la tabla `asistencia_detalle` para optimizar las consultas del docente y la aplicación de políticas RLS[cite: 6].
+*   **Reportes y Filtros:** Se debe crear un índice compuesto sobre `(institucion_id, lista_id)` en la tabla `asistencia_detalle` para optimizar las consultas del docente y la aplicación de políticas RLS[cite: 6]..

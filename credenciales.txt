@@ -17,7 +17,7 @@ Permisos:  - Catálogo de Aulas y Laboratorios
            - Edición de Estudiantes y cambio exclusivo de horarios de clase
 
 2. PROFESOR / DOCENTE
-------------------------------------------------------------------------
+----------------------------------------------------------------------------
 Rol:       Docente Titular
 Nombre:    Jimmy Requena
 Correo:    sc.jimmy.requena.l@upds.edu.bo
