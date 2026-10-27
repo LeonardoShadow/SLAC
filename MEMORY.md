@@ -35,3 +35,17 @@
 ## 3. Despliegue
 - Paquete de publicación listo: `slac_publish.zip` en la raíz del proyecto.
 - Para publicar en el hosting: extraer el contenido en la raíz de la aplicación en MonsterASP.NET.
+
+---
+
+## 4. Instrucciones para Antigravity en la Laptop (Continuación de Trabajo)
+Cuando abras Antigravity en la laptop:
+1. **Contexto Inmediato:** No tienes que adivinar nada. Este archivo `MEMORY.md`, junto con `AGENTS.md`, `DATABASE.md` y `credenciales.txt`, contiene todo el estado del sistema.
+2. **Base de Datos y Configuración:**
+   - Supabase URL y llaves están en `SLAC/appsettings.json` y el esquema completo en `DATABASE.md`.
+   - La clave criptográfica maestra (`slac-master-k1`) NO debe cambiarse nunca para preservar las cookies en los celulares de los estudiantes.
+3. **Última Función Implementada y Probada:**
+   - **QR Único (Sin Rotación):** Botón en proyección para congelar el QR durante toda la clase sin rotar cada 15 segundos (`rotacionIndex: -1`).
+   - Todos los 47 tests unitarios pasan al 100% (`dotnet test ..\SLAC.Tests\SLAC.Tests.csproj`).
+   - El archivo `slac_publish.zip` ya contiene esta compilación lista para desplegar.
+4. **Para Iniciar en la Laptop:** Simplemente dile al chat: `"Continuemos según MEMORY.md"`.
