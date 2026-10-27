@@ -94,6 +94,26 @@ public class CryptoTests
     }
 
     [Fact]
+    public void SessionQrToken_StaticNonRotatingToken_ShouldPassValidationThroughoutClassWindow()
+    {
+        // Arrange - Sesión que empezó hace 8 minutos con ventana de 20 minutos (rotacionIndex = -1 para QR Único)
+        var inicio = DateTimeOffset.UtcNow.AddMinutes(-8);
+        var sesionId = Guid.NewGuid();
+        var institucionId = Guid.NewGuid();
+        var tokenEstatico = _tokenService.GenerateSessionQrToken(sesionId, institucionId, inicio, 20, -1);
+
+        // Act - Se valida con validarRotacion = true
+        var isValid = _tokenService.TryValidateSessionQrToken(tokenEstatico, out var payload, out var error, validarRotacion: true);
+
+        // Assert - A pesar de que pasaron 8 minutos (32 rotaciones de 15s), debe ser 100% válido por ser QR Único
+        Assert.True(isValid);
+        Assert.Null(error);
+        Assert.NotNull(payload);
+        Assert.Equal(-1, payload.RotacionIndex);
+        Assert.Equal(sesionId, payload.SesionId);
+    }
+
+    [Fact]
     public void DeviceCredential_GeneratesAndValidatesSuccessfully()
     {
         // Arrange

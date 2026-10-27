@@ -152,11 +152,29 @@
                     <div class="qr-status-bar">
                         <div class="status-pulse">
                             <span class="pulse-dot"></span>
-                            <span class="status-text">SESIÓN ACTIVA &bull; ESCANEO ABIERTO</span>
+                            <span class="status-text">SESIÓN ACTIVA &bull; @(_qrEstaticoUnico ? "QR ÚNICO FIJO" : "ESCANEO ABIERTO")</span>
                         </div>
-                        <div class="rotation-timer">
-                            <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" Class="mr-1 spin-icon" />
-                            <span>Rotación en <b>@_segundosRestantesRotacion s</b></span>
+                        <div class="d-flex align-center gap-2">
+                            @if (!_qrEstaticoUnico)
+                            {
+                                <div class="rotation-timer">
+                                    <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" Class="mr-1 spin-icon" />
+                                    <span>Rotación en <b>@_segundosRestantesRotacion s</b></span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="rotation-timer" style="color: #f59e0b; font-weight: 700;">
+                                    <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Class="mr-1" />
+                                    <span>QR Único Fijo</span>
+                                </div>
+                            }
+                            <MudTooltip Text="@(_qrEstaticoUnico ? "Cambiar a QR dinámico con rotación cada 15s" : "Fijar un único QR para toda la clase (sin rotación)")">
+                                <MudIconButton Icon="@(_qrEstaticoUnico ? Icons.Material.Filled.Lock : Icons.Material.Filled.LockOpen)"
+                                               Size="Size.Small"
+                                               Color="@(_qrEstaticoUnico ? Color.Warning : Color.Default)"
+                                               OnClick="AlternarQREstaticoAsync" />
+                            </MudTooltip>
                         </div>
                     </div>
 
@@ -176,7 +194,7 @@
 
                     <!-- Barra de progreso de rotación (15s) -->
                     <div class="rotation-progress-bar">
-                        <div class="progress-fill" style="width: @(_porcentajeRotacion)%;"></div>
+                        <div class="progress-fill" style="width: @(_porcentajeRotacion)%; background: @(_qrEstaticoUnico ? "linear-gradient(90deg, #f59e0b, #10b981)" : "linear-gradient(90deg, #4f46e5, #06b6d4)");"></div>
                     </div>
 
                     <!-- Instrucción para el estudiante -->
@@ -251,7 +269,7 @@
                             </MudChip>
                         </div>
 
-                        <!-- Selector Rápido: Modo Wi-Fi vs GPS y Alcance -->
+                        <!-- Selector Rápido: Modo Wi-Fi vs GPS, Alcance y QR Único -->
                         <div class="d-flex align-center gap-2 mt-2 pt-2 flex-wrap" style="border-top: 1px solid rgba(255,255,255,0.06);">
                             <span style="font-size: 0.75rem; color: #94a3b8;">Modo:</span>
                             <MudChip T="string"
@@ -269,6 +287,14 @@
                                      Icon="@Icons.Material.Filled.GpsFixed"
                                      OnClick="@(() => AlternarModoValidacionAsync("gps"))">
                                 📍 GPS Obligatorio (@(_radioToleranciaMetros)m)
+                            </MudChip>
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="@(_qrEstaticoUnico ? Variant.Filled : Variant.Outlined)"
+                                     Color="@(_qrEstaticoUnico ? Color.Warning : Color.Default)"
+                                     Icon="@(_qrEstaticoUnico ? Icons.Material.Filled.Lock : Icons.Material.Filled.Autorenew)"
+                                     OnClick="AlternarQREstaticoAsync">
+                                @(_qrEstaticoUnico ? "🔒 QR Único (Sin rotar)" : "🔄 QR Dinámico (15s)")
                             </MudChip>
                             <MudChip T="string"
                                      Size="Size.Small"
@@ -451,6 +477,34 @@
                                      HelperText="Tiempo total que la sesión permanecerá abierta para escaneo (actualiza el temporizador)." />
                 </div>
 
+                <!-- 3. Comportamiento del Código QR (Dinámico vs QR Único) -->
+                <div class="mb-4">
+                    <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
+                        Rotación del Código QR:
+                    </label>
+                    <div class="d-flex gap-2">
+                        <MudButton Variant="@(!_qrEstaticoUnico ? Variant.Filled : Variant.Outlined)"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.Autorenew"
+                                   OnClick="@(() => _qrEstaticoUnico = false)"
+                                   Class="flex-grow-1 py-2">
+                            🔄 Dinámico (Rotación 15s)
+                        </MudButton>
+                        <MudButton Variant="@(_qrEstaticoUnico ? Variant.Filled : Variant.Outlined)"
+                                   Color="Color.Warning"
+                                   StartIcon="@Icons.Material.Filled.Lock"
+                                   OnClick="@(() => _qrEstaticoUnico = true)"
+                                   Class="flex-grow-1 py-2">
+                            🔒 QR Único (Sin rotación)
+                        </MudButton>
+                    </div>
+                    <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 0.35rem;">
+                        @(!_qrEstaticoUnico 
+                            ? "🛡️ Modo anti-fraude: el código QR cambia cada 15 segundos para evitar que compartan capturas de pantalla." 
+                            : "📌 QR Fijo: se proyecta un único código QR válido durante toda la clase sin rotar.")
+                    </span>
+                </div>
+
                 <!-- 3. Alcance de Ubicación (Radio de Tolerancia en Metros) -->
                 @if (_modoValidacion == "gps")
                 {
@@ -553,10 +607,29 @@
                         <span>@_totalPresentes alumnos presentes</span>
                     </div>
 
-                    <div class="rotation-timer" style="font-size: 1.15rem; color: #cbd5e1;">
-                        <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" Class="mr-1 spin-icon" />
-                        <span>Rotación en <b>@_segundosRestantesRotacion s</b></span>
-                    </div>
+                    @if (!_qrEstaticoUnico)
+                    {
+                        <div class="rotation-timer" style="font-size: 1.15rem; color: #cbd5e1;">
+                            <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" Class="mr-1 spin-icon" />
+                            <span>Rotación en <b>@_segundosRestantesRotacion s</b></span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="rotation-timer" style="font-size: 1.15rem; color: #f59e0b; font-weight: 700;">
+                            <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Class="mr-1" />
+                            <span>QR Único Fijo</span>
+                        </div>
+                    }
+
+                    <MudButton Variant="@(_qrEstaticoUnico ? Variant.Filled : Variant.Outlined)"
+                               Color="@(_qrEstaticoUnico ? Color.Warning : Color.Info)"
+                               StartIcon="@(_qrEstaticoUnico ? Icons.Material.Filled.Lock : Icons.Material.Filled.Autorenew)"
+                               Size="Size.Small"
+                               OnClick="AlternarQREstaticoAsync"
+                               Style="font-weight: 700; border-radius: 8px;">
+                        @(_qrEstaticoUnico ? "🔒 QR Único (Sin rotar)" : "🔄 Cambiar a QR Único")
+                    </MudButton>
 
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Error"
@@ -584,7 +657,7 @@
                 </div>
 
                 <div class="rotation-progress-bar mt-4" style="width: min(75vh, 600px); height: 8px;">
-                    <div class="progress-fill" style="width: @(_porcentajeRotacion)%;"></div>
+                    <div class="progress-fill" style="width: @(_porcentajeRotacion)%; background: @(_qrEstaticoUnico ? "linear-gradient(90deg, #f59e0b, #10b981)" : "linear-gradient(90deg, #4f46e5, #06b6d4)");"></div>
                 </div>
 
                 <p style="color: #cbd5e1; font-size: 1.1rem; margin-top: 1rem; text-align: center; font-weight: 500;">
@@ -1137,11 +1210,12 @@
     private Espacio? _espacio;
     private ListaAsistencia? _sesion;
 
-    // Estado QR y Rotación (cada 15s)
+    // Estado QR y Rotación (cada 15s o QR Único)
     private string _qrSvgContent = string.Empty;
     private int _rotacion = 0;
     private int _segundosRestantesRotacion = 15;
-    private double _porcentajeRotacion => ((15 - _segundosRestantesRotacion) / 15.0) * 100.0;
+    private bool _qrEstaticoUnico = false;
+    private double _porcentajeRotacion => _qrEstaticoUnico ? 100.0 : ((15 - _segundosRestantesRotacion) / 15.0) * 100.0;
     private DateTimeOffset _horaInicioSesion = DateTimeOffset.UtcNow;
     private string _urlEscaneoActual = string.Empty;
     private string _servidorBasePersonalizado = string.Empty;
@@ -1157,6 +1231,20 @@
     private string _calibracionMensaje = string.Empty;
     private bool _mostrarAjustesModal = false;
     private bool _qrPantallaCompleta = false;
+
+    private async Task AlternarQREstaticoAsync()
+    {
+        _qrEstaticoUnico = !_qrEstaticoUnico;
+        if (!_qrEstaticoUnico)
+        {
+            _segundosRestantesRotacion = 15;
+        }
+        await RotarCodigoQrAsync();
+        Snackbar.Add(_qrEstaticoUnico
+            ? "🔒 Modo 'QR Único' activado: El código QR permanecerá fijo y válido durante toda la clase sin rotar."
+            : "🔄 Modo 'QR Dinámico' activado: El código QR rotará automáticamente cada 15 segundos.",
+            Severity.Info);
+    }
 
     private async Task CalibrarUbicacionDocenteAsync()
     {
@@ -1591,13 +1679,16 @@
                         return;
                     }
 
-                    // Decrementar rotación (15s)
-                    _segundosRestantesRotacion--;
-                    if (_segundosRestantesRotacion <= 0)
+                    // Decrementar rotación (15s) solo en modo dinámico
+                    if (!_qrEstaticoUnico)
                     {
-                        _rotacion++;
-                        _segundosRestantesRotacion = 15;
-                        await RotarCodigoQrAsync();
+                        _segundosRestantesRotacion--;
+                        if (_segundosRestantesRotacion <= 0)
+                        {
+                            _rotacion++;
+                            _segundosRestantesRotacion = 15;
+                            await RotarCodigoQrAsync();
+                        }
                     }
 
                     // Decrementar tiempo total de apertura (20 min)
@@ -1619,15 +1710,24 @@
 
         try
         {
-            var segundosDesdeInicio = Math.Max(0, (int)(DateTimeOffset.UtcNow - _horaInicioSesion).TotalSeconds);
-            _rotacion = segundosDesdeInicio / 15;
+            int rotacionIndexParaToken;
+            if (_qrEstaticoUnico)
+            {
+                rotacionIndexParaToken = -1; // -1 indica QR Único / Estático sin caducidad por rotación
+            }
+            else
+            {
+                var segundosDesdeInicio = Math.Max(0, (int)(DateTimeOffset.UtcNow - _horaInicioSesion).TotalSeconds);
+                _rotacion = segundosDesdeInicio / 15;
+                rotacionIndexParaToken = _rotacion;
+            }
 
             var tokenString = TokenService.GenerateSessionQrToken(
                 _sesion.Id,
                 _sesion.InstitucionId,
                 _horaInicioSesion,
                 ventanaMinutos: _minutosCaducidad,
-                rotacionIndex: _rotacion);
+                rotacionIndex: rotacionIndexParaToken);
 
             var baseUrl = !string.IsNullOrWhiteSpace(_servidorBasePersonalizado)
                 ? _servidorBasePersonalizado.TrimEnd('/')
@@ -1658,7 +1758,7 @@
                 DocenteId = _sesion.DocenteId != Guid.Empty ? _sesion.DocenteId : (_materia?.DocenteId ?? Guid.Empty),
                 InicioVigencia = _horaInicioSesion,
                 Vencimiento = _horaInicioSesion.AddMinutes(_minutosCaducidad),
-                RotacionIndex = _rotacion,
+                RotacionIndex = rotacionIndexParaToken,
                 TokenActual = tokenString,
                 ContadorAsistentes = _totalPresentes,
                 EstaAbierta = true
