@@ -19,6 +19,29 @@ public static class AttendanceStudentView
         var minutos = result.MinutosDesdeInicio ?? 0;
         var estadoBadge = result.YaRegistradoHoy ? "Asistencia Previamente Registrada" : "¡Asistencia a Clases Registrada!";
         var tiempoTexto = minutos == 0 ? "A tiempo al inicio" : $"{minutos} min tras apertura";
+        var distanciaHtml = "";
+        if (result.DistanciaCalculadaMetros.HasValue || result.LatitudEstudiante.HasValue)
+        {
+            var celCoords = result.LatitudEstudiante.HasValue && result.LongitudEstudiante.HasValue
+                ? $"{result.LatitudEstudiante.Value:F6}, {result.LongitudEstudiante.Value:F6}"
+                : "No reportada";
+            var qrCoords = result.LatitudReferencia.HasValue && result.LongitudReferencia.HasValue
+                ? $"{result.LatitudReferencia.Value:F6}, {result.LongitudReferencia.Value:F6}"
+                : "Campus";
+            var precStr = result.PrecisionGpsMetros.HasValue ? $" (±{result.PrecisionGpsMetros.Value:F0}m)" : "";
+            var distStr = result.DistanciaCalculadaMetros.HasValue ? $"{result.DistanciaCalculadaMetros.Value:F1} m" : "0 m";
+            var radStr = result.RadioPermitidoMetros.HasValue ? $"{result.RadioPermitidoMetros.Value:F0} m" : "25 m";
+
+            distanciaHtml = $"""
+                <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 0.75rem; padding: 0.75rem; margin-top: 0.75rem; font-size: 0.8rem; text-align: left;">
+                    <div style="color: #34d399; font-weight: 700; margin-bottom: 0.35rem;">📡 Telemetría GPS en Vivo</div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;"><span style="color: #94a3b8;">📍 Celular:</span><span style="color: #f8fafc; font-family: monospace;">{celCoords}{precStr}</span></div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;"><span style="color: #94a3b8;">🎯 QR Docente:</span><span style="color: #f8fafc; font-family: monospace;">{qrCoords}</span></div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;"><span style="color: #94a3b8;">📏 Distancia:</span><span style="color: #34d399; font-weight: 700;">{distStr}</span></div>
+                    <div style="display: flex; justify-content: space-between;"><span style="color: #94a3b8;">🎯 Radio:</span><span style="color: #f8fafc;">{radStr} (+5m satélite)</span></div>
+                </div>
+                """;
+        }
 
         return $$"""
         <!DOCTYPE html>
@@ -143,7 +166,7 @@ public static class AttendanceStudentView
                     <div class="detail-row">
                         <span class="detail-label">Credencial</span>
                         <span class="detail-val" style="color: #818cf8;">Dispositivo Verificado (ES256)</span>
-                    </div>
+                    </div>{{distanciaHtml}}
                 </div>
 
                 <p class="footer-notice">
@@ -363,13 +386,50 @@ public static class AttendanceStudentView
                     const gpsBox = document.getElementById('gps-status');
                     if (navigator.geolocation) {
                         const setPosOk = (pos) => {
-                            document.getElementById('lat').value = pos.coords.latitude;
-                            document.getElementById('lon').value = pos.coords.longitude;
-                            document.getElementById('acc').value = pos.coords.accuracy;
-                            gpsBox.style.background = 'rgba(16, 185, 129, 0.15)';
-                            gpsBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
-                            gpsBox.style.color = '#34d399';
-                            gpsBox.innerHTML = '✅ <b>Ubicación fijada:</b> Precisión de ' + Math.round(pos.coords.accuracy) + 'm';
+                            const latB = pos.coords.latitude;
+                            const lonB = pos.coords.longitude;
+                            const accB = Math.round(pos.coords.accuracy);
+
+                            document.getElementById('lat').value = latB;
+                            document.getElementById('lon').value = lonB;
+                            document.getElementById('acc').value = accB;
+
+                            const refLat = parseFloat(document.querySelector('input[name="clat"]').value);
+                            const refLon = parseFloat(document.querySelector('input[name="clon"]').value);
+                            const radio = parseFloat(document.querySelector('input[name="r"]').value) || 25;
+
+                            function haversineDist(lat1, lon1, lat2, lon2) {
+                                const R = 6371000;
+                                const dLat = (lat2 - lat1) * Math.PI / 180;
+                                const dLon = (lon2 - lon1) * Math.PI / 180;
+                                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                                          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                                          Math.sin(dLon/2) * Math.sin(dLon/2);
+                                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                                return R * c;
+                            }
+
+                            if (!isNaN(refLat) && !isNaN(refLon)) {
+                                const d = haversineDist(latB, lonB, refLat, refLon);
+                                const maxPermitido = radio + 5;
+                                if (d <= maxPermitido) {
+                                    gpsBox.style.background = 'rgba(16, 185, 129, 0.15)';
+                                    gpsBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                                    gpsBox.style.color = '#34d399';
+                                    gpsBox.innerHTML = '✅ <b>GPS Verificado (' + d.toFixed(1) + 'm de ' + radio + 'm)</b><br><span style="font-size:0.75rem; color:#cbd5e1;">📍 Cel: ' + latB.toFixed(6) + ',' + lonB.toFixed(6) + ' | 🎯 QR: ' + refLat.toFixed(6) + ',' + refLon.toFixed(6) + '</span>';
+                                } else {
+                                    gpsBox.style.background = 'rgba(239, 68, 68, 0.15)';
+                                    gpsBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                                    gpsBox.style.color = '#fca5a5';
+                                    const diff = (d - maxPermitido).toFixed(1);
+                                    gpsBox.innerHTML = '❌ <b>Fuera de rango (a ' + d.toFixed(1) + 'm, máx ' + radio + 'm):</b> Excedido por ' + diff + 'm<br><span style="font-size:0.75rem; color:#cbd5e1;">📍 Cel: ' + latB.toFixed(6) + ',' + lonB.toFixed(6) + ' | 🎯 QR: ' + refLat.toFixed(6) + ',' + refLon.toFixed(6) + '</span>';
+                                }
+                            } else {
+                                gpsBox.style.background = 'rgba(16, 185, 129, 0.15)';
+                                gpsBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                                gpsBox.style.color = '#34d399';
+                                gpsBox.innerHTML = '✅ <b>Ubicación fijada:</b> ' + latB.toFixed(6) + ', ' + lonB.toFixed(6) + ' (±' + accB + 'm)';
+                            }
                         };
 
                         const setPosErr = (err) => {
@@ -387,14 +447,14 @@ public static class AttendanceStudentView
 
                         navigator.geolocation.getCurrentPosition(
                             setPosOk,
-                            (err1) => {
+                            (errHigh) => {
                                 navigator.geolocation.getCurrentPosition(
                                     setPosOk,
                                     setPosErr,
-                                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+                                    { enableHighAccuracy: false, timeout: 8000, maximumAge: 10000 }
                                 );
                             },
-                            { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
+                            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                         );
                     } else {
                         gpsBox.style.background = 'rgba(239, 68, 68, 0.15)';
@@ -561,6 +621,32 @@ public static class AttendanceStudentView
                     📡 Conectando con satélites GPS...
                 </div>
 
+                <!-- Tarjeta de Telemetría GPS en Vivo (Punto A vs Punto B) -->
+                <div id="telemetryBox" style="display: none; background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 1rem; padding: 1rem; margin-bottom: 1.25rem; font-size: 0.8125rem; text-align: left;">
+                    <div style="font-weight: 800; color: #38bdf8; margin-bottom: 0.65rem; display: flex; align-items: center; justify-content: space-between;">
+                        <span>🧪 Telemetría GPS en Vivo</span>
+                        <span id="telPill" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 9999px;">Calculando...</span>
+                    </div>
+                    <div style="margin-bottom: 0.4rem; display: flex; justify-content: space-between; gap: 0.5rem;">
+                        <span style="color: #94a3b8;">📍 Tu Celular (B):</span>
+                        <span id="telCel" style="color: #f8fafc; font-family: monospace; font-weight: 700;">-</span>
+                    </div>
+                    <div style="margin-bottom: 0.4rem; display: flex; justify-content: space-between; gap: 0.5rem;">
+                        <span style="color: #94a3b8;">🎯 QR Docente (A):</span>
+                        <span id="telQr" style="color: #f8fafc; font-family: monospace; font-weight: 700;">-</span>
+                    </div>
+                    <div style="margin-bottom: 0.4rem; display: flex; justify-content: space-between; gap: 0.5rem;">
+                        <span style="color: #94a3b8;">📏 Distancia Directa:</span>
+                        <span id="telDist" style="font-weight: 800; font-size: 1rem;">-</span>
+                    </div>
+                    <div style="margin-bottom: 0.65rem; display: flex; justify-content: space-between; gap: 0.5rem;">
+                        <span style="color: #94a3b8;">🎯 Radio Permitido:</span>
+                        <span id="telRadio" style="color: #f8fafc; font-weight: 600;">-</span>
+                    </div>
+                    <div id="telStatus" style="padding: 0.5rem; border-radius: 0.5rem; text-align: center; font-weight: 700;">
+                    </div>
+                </div>
+
                 <form method="POST" action="/a/{{sesionId}}/confirmar-gps" id="gpsForm">
                     <input type="hidden" name="t" value="{{tokenSeguro}}" />
                     <input type="hidden" name="r" value="{{radioTolerancia}}" />
@@ -581,6 +667,7 @@ public static class AttendanceStudentView
                     const badge = document.getElementById('statusBadge');
                     const retryBtn = document.getElementById('retryBtn');
 
+                    badge.style.display = 'block';
                     badge.innerHTML = '📡 Conectando con satélites GPS en aula...';
                     badge.style.color = '#93c5fd';
                     badge.style.background = 'rgba(59, 130, 246, 0.1)';
@@ -594,16 +681,86 @@ public static class AttendanceStudentView
                     }
 
                     let enviado = false;
+                    function haversineDist(lat1, lon1, lat2, lon2) {
+                        const R = 6371000;
+                        const dLat = (lat2 - lat1) * Math.PI / 180;
+                        const dLon = (lon2 - lon1) * Math.PI / 180;
+                        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                                  Math.sin(dLon/2) * Math.sin(dLon/2);
+                        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                        return R * c;
+                    }
+
                     const onPosOk = (pos) => {
-                        if (enviado) return;
-                        enviado = true;
-                        badge.innerHTML = '✅ Ubicación verificada (' + Math.round(pos.coords.accuracy) + 'm). Registrando asistencia...';
-                        badge.style.color = '#34d399';
-                        badge.style.background = 'rgba(16, 185, 129, 0.15)';
-                        document.getElementById('lat').value = pos.coords.latitude;
-                        document.getElementById('lon').value = pos.coords.longitude;
-                        document.getElementById('acc').value = pos.coords.accuracy;
-                        document.getElementById('gpsForm').submit();
+                        const latB = pos.coords.latitude;
+                        const lonB = pos.coords.longitude;
+                        const accB = Math.round(pos.coords.accuracy);
+
+                        document.getElementById('lat').value = latB;
+                        document.getElementById('lon').value = lonB;
+                        document.getElementById('acc').value = accB;
+
+                        const refLat = parseFloat(document.querySelector('input[name="clat"]').value);
+                        const refLon = parseFloat(document.querySelector('input[name="clon"]').value);
+                        const radio = parseFloat(document.querySelector('input[name="r"]').value) || 25;
+
+                        const telBox = document.getElementById('telemetryBox');
+                        const telCel = document.getElementById('telCel');
+                        const telQr = document.getElementById('telQr');
+                        const telDist = document.getElementById('telDist');
+                        const telRadio = document.getElementById('telRadio');
+                        const telPill = document.getElementById('telPill');
+                        const telStatus = document.getElementById('telStatus');
+
+                        telBox.style.display = 'block';
+                        telCel.innerText = latB.toFixed(6) + ', ' + lonB.toFixed(6) + ' (±' + accB + 'm)';
+                        telQr.innerText = (!isNaN(refLat) && !isNaN(refLon)) ? (refLat.toFixed(6) + ', ' + refLon.toFixed(6)) : 'No definido';
+                        telRadio.innerText = radio + 'm (+5m margen = ' + (radio + 5) + 'm)';
+
+                        if (!isNaN(refLat) && !isNaN(refLon)) {
+                            const d = haversineDist(latB, lonB, refLat, refLon);
+                            const maxPermitido = radio + 5;
+                            telDist.innerText = d.toFixed(1) + ' metros';
+
+                            if (d <= maxPermitido) {
+                                telDist.style.color = '#34d399';
+                                telPill.style.background = 'rgba(16, 185, 129, 0.2)';
+                                telPill.style.color = '#34d399';
+                                telPill.innerText = 'DENTRO';
+                                telStatus.style.background = 'rgba(16, 185, 129, 0.2)';
+                                telStatus.style.color = '#34d399';
+                                telStatus.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+                                telStatus.innerHTML = '✅ <b>DENTRO DEL RANGO</b> (' + d.toFixed(1) + 'm &le; ' + maxPermitido + 'm). Registrando asistencia...';
+                                badge.style.display = 'none';
+                                if (!enviado) {
+                                    enviado = true;
+                                    setTimeout(() => document.getElementById('gpsForm').submit(), 600);
+                                }
+                            } else {
+                                telDist.style.color = '#f87171';
+                                telPill.style.background = 'rgba(239, 68, 68, 0.2)';
+                                telPill.style.color = '#f87171';
+                                telPill.innerText = 'FUERA';
+                                telStatus.style.background = 'rgba(239, 68, 68, 0.2)';
+                                telStatus.style.color = '#fca5a5';
+                                telStatus.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+                                const diff = (d - maxPermitido).toFixed(1);
+                                telStatus.innerHTML = '❌ <b>FUERA DEL RANGO:</b> Excedido por ' + diff + ' metros.<br><span style="font-size:0.75rem; font-weight:400; color:#cbd5e1;">(Detectado: ' + d.toFixed(1) + 'm | Permitido máx: ' + maxPermitido + 'm)</span>';
+                                badge.style.display = 'none';
+                                retryBtn.style.display = 'block';
+                            }
+                        } else {
+                            telDist.innerText = 'Sin coordenadas QR';
+                            telStatus.style.background = 'rgba(59, 130, 246, 0.2)';
+                            telStatus.style.color = '#93c5fd';
+                            telStatus.innerHTML = 'ℹ️ Coordenadas verificadas. Enviando asistencia...';
+                            badge.style.display = 'none';
+                            if (!enviado) {
+                                enviado = true;
+                                setTimeout(() => document.getElementById('gpsForm').submit(), 600);
+                            }
+                        }
                     };
 
                     const onPosErr = (err) => {
@@ -631,16 +788,16 @@ public static class AttendanceStudentView
 
                     navigator.geolocation.getCurrentPosition(
                         onPosOk,
-                        (errNormal) => {
+                        (errHigh) => {
                             if (!enviado) {
                                 navigator.geolocation.getCurrentPosition(
                                     onPosOk,
                                     onPosErr,
-                                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+                                    { enableHighAccuracy: false, timeout: 8000, maximumAge: 10000 }
                                 );
                             }
                         },
-                        { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
+                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                     );
                 }
 
@@ -651,10 +808,51 @@ public static class AttendanceStudentView
         """;
     }
 
-    public static string RenderErrorView(string titulo, string detalle)
+    public static string RenderErrorView(string titulo, string detalle, AttendanceScanResult? scanResult = null)
     {
         var tit = EncodeHtml(titulo);
         var det = EncodeHtml(detalle);
+
+        var telemetriaHtml = "";
+        if (scanResult != null && (scanResult.DistanciaCalculadaMetros.HasValue || scanResult.LatitudEstudiante.HasValue))
+        {
+            var celCoords = scanResult.LatitudEstudiante.HasValue && scanResult.LongitudEstudiante.HasValue
+                ? $"{scanResult.LatitudEstudiante.Value:F6}, {scanResult.LongitudEstudiante.Value:F6}"
+                : "No detectada";
+            var qrCoords = scanResult.LatitudReferencia.HasValue && scanResult.LongitudReferencia.HasValue
+                ? $"{scanResult.LatitudReferencia.Value:F6}, {scanResult.LongitudReferencia.Value:F6}"
+                : "Campus";
+            var precStr = scanResult.PrecisionGpsMetros.HasValue ? $" (±{scanResult.PrecisionGpsMetros.Value:F0}m)" : "";
+            var distStr = scanResult.DistanciaCalculadaMetros.HasValue ? $"{scanResult.DistanciaCalculadaMetros.Value:F1} m" : "N/D";
+            var radStr = scanResult.RadioPermitidoMetros.HasValue ? $"{scanResult.RadioPermitidoMetros.Value:F0} m" : "25 m";
+
+            telemetriaHtml = $"""
+                <div style="background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 0.85rem; padding: 0.85rem; margin: 1rem 0; font-size: 0.8125rem; text-align: left;">
+                    <div style="color: #38bdf8; font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.35rem;">
+                        <span>📡</span> <span>Diagnóstico Satelital GPS</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+                        <span style="color: #94a3b8;">📍 Tu Celular:</span>
+                        <span style="color: #f8fafc; font-family: monospace; font-weight: 600;">{celCoords}{precStr}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+                        <span style="color: #94a3b8;">🎯 QR Docente:</span>
+                        <span style="color: #f8fafc; font-family: monospace; font-weight: 600;">{qrCoords}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+                        <span style="color: #94a3b8;">📏 Distancia:</span>
+                        <span style="color: #f87171; font-weight: 800; font-size: 0.95rem;">{distStr}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="color: #94a3b8;">🎯 Radio Máximo:</span>
+                        <span style="color: #f8fafc; font-weight: 600;">{radStr} (+5m ruido)</span>
+                    </div>
+                    <div style="padding: 0.35rem 0.5rem; border-radius: 0.35rem; background: rgba(239, 68, 68, 0.2); color: #fca5a5; font-weight: 700; text-align: center; border: 1px solid rgba(239, 68, 68, 0.3);">
+                        ❌ Fuera del radio permitido ({distStr} > {radStr})
+                    </div>
+                </div>
+                """;
+        }
 
         return $$"""
         <!DOCTYPE html>
@@ -731,6 +929,7 @@ public static class AttendanceStudentView
                 </div>
                 <h1>{{tit}}</h1>
                 <p class="desc">{{det}}</p>
+                {{telemetriaHtml}}
                 <div class="notice">
                     Si estás en el aula, solicita al docente proyectar el código QR actualizado o comunícate con soporte de tu institución.
                 </div>
@@ -909,6 +1108,289 @@ public static class AttendanceStudentView
                     }, 2000);
                 }
             </script>
+        </body>
+        </html>
+        """;
+    }
+
+    public static string RenderDocenteCalibrationView(
+        Guid sesionId,
+        string materiaNombre,
+        string materiaCodigo,
+        string grupo,
+        string espacioNombre,
+        double? latActual,
+        double? lonActual)
+    {
+        var materiaEsc = EncodeHtml(materiaNombre);
+        var codigoEsc = EncodeHtml(materiaCodigo);
+        var grupoEsc = EncodeHtml(grupo);
+        var espacioEsc = EncodeHtml(espacioNombre);
+        var sesIdStr = sesionId.ToString();
+        var latStr = latActual?.ToString("F6", System.Globalization.CultureInfo.InvariantCulture) ?? "No calibrada";
+        var lonStr = lonActual?.ToString("F6", System.Globalization.CultureInfo.InvariantCulture) ?? "No calibrada";
+
+        return $$"""
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <title>SLAC - Calibrar GPS de Aula (Docente)</title>
+            <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body {
+                    background: #090d16;
+                    color: #f8fafc;
+                    font-family: 'Inter', -apple-system, sans-serif;
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 1.25rem;
+                }
+                .card {
+                    background: #0f172a;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 1.5rem;
+                    padding: 1.75rem 1.5rem;
+                    width: 100%;
+                    max-width: 460px;
+                    text-align: center;
+                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+                }
+                .radar-icon {
+                    width: 72px;
+                    height: 72px;
+                    border-radius: 50%;
+                    background: rgba(14, 165, 233, 0.15);
+                    border: 2px solid #0ea5e9;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    margin: 0 auto 1.25rem auto;
+                    color: #38bdf8;
+                }
+                h1 { font-size: 1.35rem; font-weight: 800; margin-bottom: 0.35rem; color: #ffffff; }
+                .badge {
+                    display: inline-block;
+                    background: rgba(99, 102, 241, 0.2);
+                    color: #818cf8;
+                    padding: 4px 12px;
+                    border-radius: 9999px;
+                    font-size: 0.8rem;
+                    font-weight: 700;
+                    margin-bottom: 1rem;
+                }
+                .info-box {
+                    background: rgba(255, 255, 255, 0.04);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 1rem;
+                    padding: 1rem;
+                    margin-bottom: 1.25rem;
+                    text-align: left;
+                    font-size: 0.85rem;
+                }
+                .info-row { display: flex; justify-content: space-between; margin-bottom: 0.35rem; }
+                .info-label { color: #94a3b8; }
+                .info-val { color: #f1f5f9; font-weight: 600; font-family: monospace; }
+                .gps-status {
+                    padding: 0.85rem;
+                    border-radius: 0.85rem;
+                    margin-bottom: 1.25rem;
+                    font-size: 0.85rem;
+                    font-weight: 600;
+                    background: rgba(59, 130, 246, 0.15);
+                    border: 1px solid rgba(59, 130, 246, 0.3);
+                    color: #93c5fd;
+                }
+                .btn {
+                    width: 100%;
+                    padding: 1rem;
+                    background: linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%);
+                    color: #ffffff;
+                    border: none;
+                    border-radius: 0.85rem;
+                    font-size: 1rem;
+                    font-weight: 700;
+                    cursor: pointer;
+                    display: none;
+                    box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4);
+                }
+                .btn:active { transform: scale(0.98); }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="radar-icon">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="3 11 22 2 13 21 11 13 3 11"></polygon>
+                    </svg>
+                </div>
+                <div class="badge">{{codigoEsc}} &bull; Gr. {{grupoEsc}}</div>
+                <h1>{{materiaEsc}}</h1>
+                <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 1.25rem;">
+                    Aula: <b>{{espacioEsc}}</b><br>
+                    Usa el satélite GPS de tu celular para fijar la ubicación real de la clase (hospital, teatro o campus).
+                </p>
+
+                <div class="info-box">
+                    <div class="info-row"><span class="info-label">Coordenadas previas:</span><span class="info-val">{{latStr}}, {{lonStr}}</span></div>
+                </div>
+
+                <div class="gps-status" id="gpsStatus">
+                    📡 Conectando con satélites GPS de alta precisión...
+                </div>
+
+                <form method="POST" action="/docente/calibrar/{{sesIdStr}}" id="calibForm">
+                    <input type="hidden" id="lat" name="lat" />
+                    <input type="hidden" id="lon" name="lon" />
+                    <input type="hidden" id="acc" name="acc" />
+                    <button type="submit" class="btn" id="fijarBtn">
+                        📍 Fijar Esta Ubicación como Aula Oficial
+                    </button>
+                </form>
+            </div>
+
+            <script>
+                function detectarGpsDocente() {
+                    const status = document.getElementById('gpsStatus');
+                    const btn = document.getElementById('fijarBtn');
+
+                    if (!navigator.geolocation) {
+                        status.style.background = 'rgba(239, 68, 68, 0.15)';
+                        status.style.color = '#fca5a5';
+                        status.innerHTML = '⚠️ Tu navegador móvil no soporta geolocalización GPS.';
+                        return;
+                    }
+
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            const lat = pos.coords.latitude;
+                            const lon = pos.coords.longitude;
+                            const acc = Math.round(pos.coords.accuracy);
+
+                            document.getElementById('lat').value = lat;
+                            document.getElementById('lon').value = lon;
+                            document.getElementById('acc').value = acc;
+
+                            status.style.background = 'rgba(16, 185, 129, 0.15)';
+                            status.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+                            status.style.color = '#34d399';
+                            status.innerHTML = '✅ <b>Satélite Fijado:</b><br>' + lat.toFixed(6) + ', ' + lon.toFixed(6) + '<br><small>Margen de precisión: ' + acc + 'm</small>';
+
+                            btn.style.display = 'block';
+                        },
+                        (err) => {
+                            status.style.background = 'rgba(239, 68, 68, 0.15)';
+                            status.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+                            status.style.color = '#fca5a5';
+                            if (err.code === 1) {
+                                status.innerHTML = '⚠️ <b>Permiso Denegado:</b> En la barra de tu navegador toca el candado 🔒 y activa Ubicación.';
+                            } else {
+                                status.innerHTML = '⚠️ No se pudo conectar a los satélites GPS. Enciende el GPS de tu celular y pulsa Reintentar.';
+                            }
+                        },
+                        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                    );
+                }
+
+                window.addEventListener('DOMContentLoaded', detectarGpsDocente);
+            </script>
+        </body>
+        </html>
+        """;
+    }
+
+    public static string RenderDocenteCalibrationSuccessView(
+        string materiaNombre,
+        string espacioNombre,
+        double lat,
+        double lon,
+        double acc)
+    {
+        var materiaEsc = EncodeHtml(materiaNombre);
+        var espacioEsc = EncodeHtml(espacioNombre);
+        var latStr = lat.ToString("F6", System.Globalization.CultureInfo.InvariantCulture);
+        var lonStr = lon.ToString("F6", System.Globalization.CultureInfo.InvariantCulture);
+
+        return $$"""
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <title>SLAC - ¡Aula Calibrada Exitosamente!</title>
+            <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body {
+                    background: #090d16;
+                    color: #f8fafc;
+                    font-family: 'Inter', -apple-system, sans-serif;
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 1.25rem;
+                }
+                .card {
+                    background: #0f172a;
+                    border: 1px solid rgba(16, 185, 129, 0.3);
+                    border-radius: 1.5rem;
+                    padding: 2rem 1.5rem;
+                    width: 100%;
+                    max-width: 460px;
+                    text-align: center;
+                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+                }
+                .check-icon {
+                    width: 76px;
+                    height: 76px;
+                    border-radius: 50%;
+                    background: rgba(16, 185, 129, 0.15);
+                    border: 2px solid #10b981;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    margin: 0 auto 1.25rem auto;
+                    color: #10b981;
+                }
+                h1 { font-size: 1.4rem; font-weight: 800; color: #ffffff; margin-bottom: 0.5rem; }
+                p { font-size: 0.9rem; color: #94a3b8; line-height: 1.5; margin-bottom: 1.25rem; }
+                .coords-box {
+                    background: rgba(16, 185, 129, 0.08);
+                    border: 1px dashed rgba(16, 185, 129, 0.3);
+                    border-radius: 1rem;
+                    padding: 1rem;
+                    margin-bottom: 1.5rem;
+                    font-family: monospace;
+                    font-size: 0.875rem;
+                    color: #34d399;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="check-icon">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                </div>
+                <h1>¡Aula Calibrada con Éxito!</h1>
+                <p>
+                    La ubicación geográfica de <b>{{espacioEsc}}</b> ({{materiaEsc}}) ha sido fijada mediante el satélite GPS de tu celular.
+                </p>
+                <div class="coords-box">
+                    Latitud: {{latStr}}<br>
+                    Longitud: {{lonStr}}<br>
+                    Precisión satelital: ~{{acc:F0}} metros
+                </div>
+                <p style="font-size: 0.8rem; color: #cbd5e1;">
+                    🎯 Ahora los estudiantes que escaneen el código QR en este recinto serán validados con precisión métrica contra tu posición física real. Puedes cerrar esta ventana.
+                </p>
+            </div>
         </body>
         </html>
         """;

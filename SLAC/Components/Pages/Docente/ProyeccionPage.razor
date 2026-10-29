@@ -203,16 +203,27 @@
                         <span>Apunta la cámara de tu teléfono móvil hacia la pantalla para registrar tu asistencia.</span>
                     </div>
 
-                    <!-- Botón Expandir QR a Pantalla Completa para Proyección en Aula -->
+                    <!-- Botón Prominente PROYECTAR YA (Overlay de pantalla completa con botón X) -->
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Primary"
-                               StartIcon="@Icons.Material.Filled.Fullscreen"
+                               StartIcon="@Icons.Material.Filled.CastConnected"
                                OnClick="AbrirQRPantallaCompleta"
                                FullWidth="true"
-                               Size="Size.Small"
-                               Class="my-2 py-1"
-                               Style="font-weight: 700; background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%); border-radius: 8px;">
-                        Expandir QR (Pantalla Completa)
+                               Size="Size.Large"
+                               Class="my-3 py-3"
+                               Style="font-weight: 800; font-size: 1.15rem; background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%); border-radius: 14px; box-shadow: 0 4px 20px rgba(37, 99, 235, 0.45); text-transform: uppercase; letter-spacing: 0.5px;">
+                        PROYECTAR YA (PANTALLA COMPLETA)
+                    </MudButton>
+
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Info"
+                               StartIcon="@Icons.Material.Filled.OpenInNew"
+                               OnClick="AbrirVentanaExternaProyector"
+                               FullWidth="true"
+                               Size="Size.Medium"
+                               Class="mb-3 py-2"
+                               Style="font-weight: 700; border-radius: 10px;">
+                        📺 Abrir en Segunda Pantalla / Proyector (Ventana Limpia)
                     </MudButton>
 
                     <!-- Herramientas de Conectividad y Prueba para el Docente -->
@@ -269,7 +280,7 @@
                             </MudChip>
                         </div>
 
-                        <!-- Selector Rápido: Modo Wi-Fi vs GPS, Alcance y QR Único -->
+                        <!-- Selector Rápido: 3 Modos de Validación, Alcance y QR Único -->
                         <div class="d-flex align-center gap-2 mt-2 pt-2 flex-wrap" style="border-top: 1px solid rgba(255,255,255,0.06);">
                             <span style="font-size: 0.75rem; color: #94a3b8;">Modo:</span>
                             <MudChip T="string"
@@ -278,15 +289,23 @@
                                      Color="Color.Success"
                                      Icon="@Icons.Material.Filled.Wifi"
                                      OnClick="@(() => AlternarModoValidacionAsync("wifi"))">
-                                📶 Solo Wi-Fi / QR
+                                📶 Solo Wi-Fi
+                            </MudChip>
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="@(_modoValidacion == "proximidad" ? Variant.Filled : Variant.Outlined)"
+                                     Color="Color.Primary"
+                                     Icon="@Icons.Material.Filled.Science"
+                                     OnClick="@(() => AlternarModoValidacionAsync("proximidad"))">
+                                🧪 GPS Experimental (@(_radioToleranciaMetros)m)
                             </MudChip>
                             <MudChip T="string"
                                      Size="Size.Small"
                                      Variant="@(_modoValidacion == "gps" ? Variant.Filled : Variant.Outlined)"
                                      Color="Color.Info"
-                                     Icon="@Icons.Material.Filled.GpsFixed"
+                                     Icon="@Icons.Material.Filled.LocationCity"
                                      OnClick="@(() => AlternarModoValidacionAsync("gps"))">
-                                📍 GPS Obligatorio (@(_radioToleranciaMetros)m)
+                                🏛️ GPS Campus (@(_radioToleranciaMetros)m)
                             </MudChip>
                             <MudChip T="string"
                                      Size="Size.Small"
@@ -294,7 +313,7 @@
                                      Color="@(_qrEstaticoUnico ? Color.Warning : Color.Default)"
                                      Icon="@(_qrEstaticoUnico ? Icons.Material.Filled.Lock : Icons.Material.Filled.Autorenew)"
                                      OnClick="AlternarQREstaticoAsync">
-                                @(_qrEstaticoUnico ? "🔒 QR Único (Sin rotar)" : "🔄 QR Dinámico (15s)")
+                                @(_qrEstaticoUnico ? "🔒 QR Único" : "🔄 QR Dinámico (15s)")
                             </MudChip>
                             <MudChip T="string"
                                      Size="Size.Small"
@@ -370,13 +389,21 @@
                         {
                             @foreach (var reg in _ultimosRegistrados)
                             {
-                                <div class="feed-item slide-in">
+                                <div class="feed-item slide-in" style="cursor: pointer;" @ondblclick="@(() => AbrirDetalleGpsEstudiante(reg))" @onclick="@(() => AbrirDetalleGpsEstudiante(reg))">
                                     <div class="feed-item-icon">
                                         <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" />
                                     </div>
                                     <div class="feed-item-info">
-                                        <span class="feed-item-name">@reg.Nombre</span>
-                                        <span class="feed-item-code">@reg.Codigo &bull; @reg.Hora</span>
+                                        <div class="d-flex justify-space-between align-center">
+                                            <span class="feed-item-name">@reg.Nombre</span>
+                                            @if (reg.DistanciaMetros.HasValue)
+                                            {
+                                                <span style="font-size: 0.7rem; font-weight: 700; background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 2px 6px; border-radius: 4px;">
+                                                    @reg.DistanciaMetros.Value.ToString("F1")m
+                                                </span>
+                                            }
+                                        </div>
+                                        <span class="feed-item-code">@reg.Codigo &bull; @reg.Hora &bull; 🔍 Telemetría</span>
                                     </div>
                                 </div>
                             }
@@ -430,157 +457,364 @@
     <!-- Modal Flotante de Ajustes de Sesión (Tiempo, Modo y Alcance) -->
     @if (_mostrarAjustesModal)
     {
-        <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 1.25rem;">
-            <div class="ajustes-modal-card" style="background: #0f172a; border: 1px solid rgba(255,255,255,0.18); border-radius: 1.5rem; padding: 2rem; width: 100%; max-width: 520px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.9);">
-                <div class="d-flex justify-space-between align-center mb-4">
-                    <MudText Typo="Typo.h6" Style="font-weight: 700; color: #fff;">
-                        ⚙️ Ajustes de Sesión y Asistencia
-                    </MudText>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Inherit" OnClick="@(() => _mostrarAjustesModal = false)" />
-                </div>
-
-                <!-- 1. Modo de Asistencia -->
-                <div class="mb-4">
-                    <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
-                        Modo de Validación Requerido:
-                    </label>
-                    <div class="d-flex gap-2">
-                        <MudButton Variant="@(_modoValidacion == "wifi" ? Variant.Filled : Variant.Outlined)"
-                                   Color="Color.Success"
-                                   StartIcon="@Icons.Material.Filled.Wifi"
-                                   OnClick="@(() => _modoValidacion = "wifi")"
-                                   Class="flex-grow-1 py-2">
-                            📶 Solo Wi-Fi / QR
-                        </MudButton>
-                        <MudButton Variant="@(_modoValidacion == "gps" ? Variant.Filled : Variant.Outlined)"
-                                   Color="Color.Info"
-                                   StartIcon="@Icons.Material.Filled.GpsFixed"
-                                   OnClick="@(() => _modoValidacion = "gps")"
-                                   Class="flex-grow-1 py-2">
-                            📍 GPS Obligatorio
-                        </MudButton>
+        <div class="ajustes-modal-backdrop" @onclick="@(() => _mostrarAjustesModal = false)">
+            <div class="ajustes-modal-card" @onclick:stopPropagation="true">
+                <!-- Header Fijo con botón cerrar -->
+                <div class="ajustes-modal-header">
+                    <div class="d-flex align-center gap-2">
+                        <MudIcon Icon="@Icons.Material.Filled.Tune" Color="Color.Primary" />
+                        <span class="ajustes-modal-title">Ajustes de Sesión y Asistencia</span>
                     </div>
-                    <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 0.35rem;">
-                        @(_modoValidacion == "wifi" 
-                            ? "✅ Recomendado para pruebas en red interna o sin certificado SSL (no bloquea navegador móvil)." 
-                            : "🛰️ Exige al navegador móvil activar GPS y estar físicamente dentro del radio del aula.")
-                    </span>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                   Color="Color.Error"
+                                   Size="Size.Medium"
+                                   OnClick="@(() => _mostrarAjustesModal = false)"
+                                   Class="ajustes-header-close-btn" />
                 </div>
 
-                <!-- 2. Tiempo de Caducidad de la Sesión -->
-                <div class="mb-4">
-                    <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
-                        Tiempo de Caducidad / Ventana de Sesión (Minutos):
-                    </label>
-                    <MudNumericField T="int" @bind-Value="_minutosCaducidad" Min="1" Max="240" Step="5"
-                                     Variant="Variant.Outlined" Margin="Margin.Dense"
-                                     HelperText="Tiempo total que la sesión permanecerá abierta para escaneo (actualiza el temporizador)." />
-                </div>
-
-                <!-- 3. Comportamiento del Código QR (Dinámico vs QR Único) -->
-                <div class="mb-4">
-                    <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
-                        Rotación del Código QR:
-                    </label>
-                    <div class="d-flex gap-2">
-                        <MudButton Variant="@(!_qrEstaticoUnico ? Variant.Filled : Variant.Outlined)"
-                                   Color="Color.Primary"
-                                   StartIcon="@Icons.Material.Filled.Autorenew"
-                                   OnClick="@(() => _qrEstaticoUnico = false)"
-                                   Class="flex-grow-1 py-2">
-                            🔄 Dinámico (Rotación 15s)
-                        </MudButton>
-                        <MudButton Variant="@(_qrEstaticoUnico ? Variant.Filled : Variant.Outlined)"
-                                   Color="Color.Warning"
-                                   StartIcon="@Icons.Material.Filled.Lock"
-                                   OnClick="@(() => _qrEstaticoUnico = true)"
-                                   Class="flex-grow-1 py-2">
-                            🔒 QR Único (Sin rotación)
-                        </MudButton>
-                    </div>
-                    <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 0.35rem;">
-                        @(!_qrEstaticoUnico 
-                            ? "🛡️ Modo anti-fraude: el código QR cambia cada 15 segundos para evitar que compartan capturas de pantalla." 
-                            : "📌 QR Fijo: se proyecta un único código QR válido durante toda la clase sin rotar.")
-                    </span>
-                </div>
-
-                <!-- 3. Alcance de Ubicación (Radio de Tolerancia en Metros) -->
-                @if (_modoValidacion == "gps")
-                {
+                <!-- Cuerpo con scroll táctil independiente -->
+                <div class="ajustes-modal-body">
+                    <!-- 1. Modo de Asistencia -->
                     <div class="mb-4">
-                        <div class="d-flex justify-space-between align-center mb-1">
-                            <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0;">
-                                Alcance de Ubicación GPS (Tolerancia en Metros):
-                            </label>
-                            <span style="font-size: 0.8rem; color: #38bdf8; font-weight: 700;">@_radioToleranciaMetros m</span>
+                        <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
+                            Modo de Validación Requerido:
+                        </label>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <MudButton Variant="@(_modoValidacion == "proximidad" ? Variant.Filled : Variant.Outlined)"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Science"
+                                       OnClick="@(() => AlternarModoValidacionAsync("proximidad"))"
+                                       Class="flex-grow-1 py-2"
+                                       Style="font-weight: 700;">
+                                🧪 GPS Experimental
+                            </MudButton>
+                            <MudButton Variant="@(_modoValidacion == "wifi" ? Variant.Filled : Variant.Outlined)"
+                                       Color="Color.Success"
+                                       StartIcon="@Icons.Material.Filled.Wifi"
+                                       OnClick="@(() => AlternarModoValidacionAsync("wifi"))"
+                                       Class="flex-grow-1 py-2">
+                                📶 Solo Wi-Fi / QR
+                            </MudButton>
+                            <MudButton Variant="@(_modoValidacion == "gps" ? Variant.Filled : Variant.Outlined)"
+                                       Color="Color.Info"
+                                       StartIcon="@Icons.Material.Filled.LocationCity"
+                                       OnClick="@(() => AlternarModoValidacionAsync("gps"))"
+                                       Class="flex-grow-1 py-2">
+                                🏛️ GPS Campus Fijo
+                            </MudButton>
                         </div>
-                        <MudNumericField T="int" @bind-Value="_radioToleranciaMetros" Min="20" Max="100000" Step="100"
-                                         Variant="Variant.Outlined" Margin="Margin.Dense"
-                                         HelperText="Distancia máxima permitida. Para pruebas desde casa o campus extendido, puedes ampliarlo a 10000m o más." />
-
-                        <div class="d-flex gap-1 mt-2 flex-wrap">
-                            <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 50 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => _radioToleranciaMetros = 50)">Aula (50m)</MudChip>
-                            <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 300 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => _radioToleranciaMetros = 300)">Campus (300m)</MudChip>
-                            <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 1000 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => _radioToleranciaMetros = 1000)">Zona (1 km)</MudChip>
-                            <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 10000 ? Variant.Filled : Variant.Outlined)" Color="Color.Success" OnClick="@(() => _radioToleranciaMetros = 10000)">Pruebas Ciudad (10 km)</MudChip>
-                            <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 50000 ? Variant.Filled : Variant.Outlined)" Color="Color.Warning" OnClick="@(() => _radioToleranciaMetros = 50000)">Pruebas Remotas (50 km)</MudChip>
-                        </div>
-
-                        <div class="pa-2 mt-2" style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid #38bdf8; border-radius: 4px; font-size: 0.72rem; color: #bae6fd;">
-                            💡 <b>Aclaración:</b> El GPS compara la posición satelital del celular contra las <b>coordenadas geográficas del Campus Universitario</b> (no contra la pantalla de la PC). Para probar desde tu casa, pulsa <b>"Fijar Aula con Mi GPS Actual"</b> o <b>"Pruebas Ciudad (10 km)"</b>.
-                        </div>
-
-                        <!-- Calibración GPS del Docente -->
-                        <div class="mt-3 pa-2" style="background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px dashed rgba(255,255,255,0.15);">
-                            <div class="d-flex justify-space-between align-center">
-                                <span style="font-size: 0.75rem; color: #94a3b8;">Calibración de Aula:</span>
-                                <MudButton Variant="Variant.Outlined"
-                                           Color="Color.Tertiary"
-                                           Size="Size.Small"
-                                           StartIcon="@Icons.Material.Filled.MyLocation"
-                                           OnClick="CalibrarUbicacionDocenteAsync"
-                                           Disabled="_calibrandoGps">
-                                    @(_calibrandoGps ? "Detectando..." : "Fijar Aula con Mi GPS Actual")
-                                </MudButton>
-                            </div>
-                            @if (!string.IsNullOrEmpty(_calibracionMensaje))
-                            {
-                                <div style="font-size: 0.72rem; color: #34d399; margin-top: 0.25rem;">
-                                    @_calibracionMensaje
-                                </div>
-                            }
-
-                            <!-- Coordenadas Exactas del Aula (Editables) -->
-                            <div class="d-flex gap-2 mt-2">
-                                <MudNumericField T="double?" Value="_latitudPersonalizada ?? _espacio?.Latitud"
-                                                 ValueChanged="@((double? val) => { _latitudPersonalizada = val; _ = RotarCodigoQrAsync(); })"
-                                                 Label="Latitud Aula" Variant="Variant.Outlined" Margin="Margin.Dense" Format="F6" />
-                                <MudNumericField T="double?" Value="_longitudPersonalizada ?? _espacio?.Longitud"
-                                                 ValueChanged="@((double? val) => { _longitudPersonalizada = val; _ = RotarCodigoQrAsync(); })"
-                                                 Label="Longitud Aula" Variant="Variant.Outlined" Margin="Margin.Dense" Format="F6" />
-                            </div>
-                        </div>
+                        <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 0.35rem;">
+                            @(_modoValidacion == "proximidad" 
+                                ? "🧪 GPS Experimental (P2P): Compara la distancia satelital exacta entre el punto fijado por el docente y el celular del estudiante con radio estricto (25m o 50m) y margen máx de +5m."
+                                : (_modoValidacion == "wifi" 
+                                    ? "📶 Modo Wi-Fi: Valida inmediatamente sin requerir satélites GPS (ideal para pruebas y lugares sin señal)."
+                                    : "🏛️ Modo Campus: Valida contra las coordenadas fijas del catálogo institucional del aula."))
+                        </span>
                     </div>
-                }
 
-                <!-- 4. Dominio / Servidor Base para el QR -->
-                <div class="mb-4">
-                    <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
-                        Dominio / Servidor Base para el QR (Opcional):
-                    </label>
-                    <MudTextField @bind-Value="_servidorBasePersonalizado"
-                                  Placeholder="@(Navigation.BaseUri.TrimEnd('/'))"
-                                  Variant="Variant.Outlined" Margin="Margin.Dense"
-                                  HelperText="Si se deja vacío, el QR usa automáticamente el dominio actual (en MonsterASP.NET usa el dominio público)." />
+                    <!-- 2. Tiempo de Caducidad de la Sesión -->
+                    <div class="mb-4">
+                        <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
+                            Tiempo de Caducidad / Ventana de Sesión (Minutos):
+                        </label>
+                        <MudNumericField T="int" @bind-Value="_minutosCaducidad" Min="1" Max="240" Step="5"
+                                         Variant="Variant.Outlined" Margin="Margin.Dense"
+                                         HelperText="Tiempo total que la sesión permanecerá abierta para escaneo (actualiza el temporizador)." />
+                    </div>
+
+                    <!-- 3. Comportamiento del Código QR (Dinámico vs QR Único) -->
+                    <div class="mb-4">
+                        <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
+                            Rotación del Código QR:
+                        </label>
+                        <div class="d-flex gap-2">
+                            <MudButton Variant="@(!_qrEstaticoUnico ? Variant.Filled : Variant.Outlined)"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Autorenew"
+                                       OnClick="@(() => _qrEstaticoUnico = false)"
+                                       Class="flex-grow-1 py-2">
+                                🔄 Dinámico (Rotación 15s)
+                            </MudButton>
+                            <MudButton Variant="@(_qrEstaticoUnico ? Variant.Filled : Variant.Outlined)"
+                                       Color="Color.Warning"
+                                       StartIcon="@Icons.Material.Filled.Lock"
+                                       OnClick="@(() => _qrEstaticoUnico = true)"
+                                       Class="flex-grow-1 py-2">
+                                🔒 QR Único (Sin rotación)
+                            </MudButton>
+                        </div>
+                        <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 0.35rem;">
+                            @(!_qrEstaticoUnico 
+                                ? "🛡️ Modo anti-fraude: el código QR cambia cada 15 segundos para evitar que compartan capturas de pantalla." 
+                                : "📌 QR Fijo: se proyecta un único código QR válido durante toda la clase sin rotar.")
+                        </span>
+                    </div>
+
+                    <!-- 4. Alcance de Ubicación (Radio de Tolerancia en Metros) -->
+                    @if (_modoValidacion == "gps" || _modoValidacion == "proximidad")
+                    {
+                        <div class="mb-4">
+                            <div class="d-flex justify-space-between align-center mb-1">
+                                <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0;">
+                                    Alcance de Ubicación GPS (Tolerancia en Metros):
+                                </label>
+                                <span style="font-size: 0.8rem; color: #38bdf8; font-weight: 700;">@_radioToleranciaMetros m</span>
+                            </div>
+                            <MudNumericField T="int" @bind-Value="_radioToleranciaMetros" Min="20" Max="100000" Step="100"
+                                             Variant="Variant.Outlined" Margin="Margin.Dense"
+                                             HelperText="Distancia máxima permitida. Para pruebas desde casa o campus extendido, puedes ampliarlo a 10000m o más." />
+
+                            <div class="d-flex gap-1 mt-2 flex-wrap">
+                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 25 ? Variant.Filled : Variant.Outlined)" Color="Color.Error" OnClick="@(() => _radioToleranciaMetros = 25)" Style="font-weight: 700;">🎯 Aula Estricta (25m)</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 50 ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" OnClick="@(() => _radioToleranciaMetros = 50)" Style="font-weight: 700;">🏫 Aula Grande (50m)</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 100 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => _radioToleranciaMetros = 100)">🏢 Pabellón (100m)</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 300 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => _radioToleranciaMetros = 300)">🌳 Campus (300m)</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 10000 ? Variant.Filled : Variant.Outlined)" Color="Color.Success" OnClick="@(() => _radioToleranciaMetros = 10000)">🏠 Modo Pruebas (10 km)</MudChip>
+                            </div>
+
+                            <div class="pa-2 mt-2" style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid #38bdf8; border-radius: 4px; font-size: 0.72rem; color: #bae6fd;">
+                                💡 <b>Aclaración:</b> El GPS compara la posición satelital del celular contra las <b>coordenadas geográficas del Campus Universitario</b> (no contra la pantalla de la PC). Para probar desde tu casa, pulsa <b>"Fijar Aula con Mi GPS Actual"</b> o <b>"Pruebas Ciudad (10 km)"</b>.
+                            </div>
+
+                            <!-- Calibración y Punto A (Coordenadas de Referencia del QR) -->
+                            <div class="mt-3 pa-3" style="background: rgba(14, 165, 233, 0.08); border-radius: 12px; border: 1.5px solid rgba(14, 165, 233, 0.35);">
+                                <div class="d-flex justify-space-between align-center mb-2 flex-wrap gap-1">
+                                    <label style="font-size: 0.85rem; color: #38bdf8; font-weight: 800; display: flex; align-items: center; gap: 4px;">
+                                        🎯 Coordenadas del QR (Punto A - Referencia)
+                                    </label>
+                                    <span style="font-size: 0.72rem; color: #94a3b8;">
+                                        (Ej: -17.839221, -63.194188)
+                                    </span>
+                                </div>
+
+                                <!-- Entrada Unificada de Coordenadas -->
+                                <div class="d-flex gap-2 align-center">
+                                    <MudTextField @bind-Value="_coordenadasPuntoATexto"
+                                                  Placeholder="Pega aquí: -17.839221, -63.194188 o link Maps"
+                                                  Variant="Variant.Outlined"
+                                                  Margin="Margin.Dense"
+                                                  Class="flex-grow-1"
+                                                  Style="font-family: monospace; font-size: 0.95rem; font-weight: 700; color: #38bdf8; background: rgba(0,0,0,0.25);" />
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="Color.Primary"
+                                               Size="Size.Medium"
+                                               OnClick="ActualizarCoordenadasDesdeTextoAsync"
+                                               StartIcon="@Icons.Material.Filled.CheckCircle"
+                                               Style="white-space: nowrap; font-weight: 800;">
+                                        Fijar
+                                    </MudButton>
+                                </div>
+
+                                <!-- Indicador Visual Prominente de Coordenada Activa -->
+                                <div class="pa-2 mt-2" style="background: rgba(0, 0, 0, 0.4); border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.2); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                                    <div>
+                                        <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">📍 Coordenada Activa en el Código QR:</span>
+                                        <span style="font-family: monospace; font-size: 0.95rem; font-weight: 800; color: #34d399;">
+                                            @((_latitudPersonalizada ?? _espacio?.Latitud ?? -17.776200).ToString("F6", System.Globalization.CultureInfo.InvariantCulture)), 
+                                            @((_longitudPersonalizada ?? _espacio?.Longitud ?? -63.195100).ToString("F6", System.Globalization.CultureInfo.InvariantCulture))
+                                        </span>
+                                    </div>
+                                    <div class="d-flex gap-1 flex-wrap">
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="Color.Info"
+                                                   Size="Size.Small"
+                                                   StartIcon="@Icons.Material.Filled.MyLocation"
+                                                   OnClick="CalibrarUbicacionDocenteAsync"
+                                                   Disabled="_calibrandoGps"
+                                                   Style="font-size: 0.72rem;">
+                                            @(_calibrandoGps ? "Detectando..." : "📍 GPS de esta PC")
+                                        </MudButton>
+                                        <MudButton Variant="Variant.Filled"
+                                                   Color="Color.Tertiary"
+                                                   Size="Size.Small"
+                                                   StartIcon="@Icons.Material.Filled.PhoneAndroid"
+                                                   OnClick="AbrirModalCalibracionCelular"
+                                                   Style="font-size: 0.72rem;">
+                                            📱 Celular Docente
+                                        </MudButton>
+                                    </div>
+                                </div>
+
+                                @if (_calibracionMargenErrorPc > 100 && _radioToleranciaMetros <= 100)
+                                {
+                                    <div class="pa-2 mt-2" style="background: rgba(239, 68, 68, 0.15); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 0.72rem; color: #fca5a5;">
+                                        ⚠️ <b>Aviso:</b> El GPS de esta PC fue estimado por Wi-Fi/IP (margen de ~@(_calibracionMargenErrorPc.ToString("F0"))m). Si estás en tu casa o recinto, pega tus coordenadas de Google Maps arriba para un cálculo satelital exacto.
+                                    </div>
+                                }
+                                @if (!string.IsNullOrEmpty(_calibracionMensaje))
+                                {
+                                    <div style="font-size: 0.72rem; color: #34d399; margin-top: 0.35rem;">
+                                        @_calibracionMensaje
+                                    </div>
+                                }
+
+                                <!-- Sedes y Recintos Frecuentes (1 Clic) -->
+                                <div class="mt-2 pt-2" style="border-top: 1px solid rgba(255,255,255,0.06);">
+                                    <div class="d-flex justify-space-between align-center mb-1">
+                                        <span style="font-size: 0.72rem; color: #94a3b8; font-weight: 600;">
+                                            Sedes Rápidas (1 Clic):
+                                        </span>
+                                        <a href="https://maps.google.com" target="_blank" style="font-size: 0.72rem; color: #38bdf8; text-decoration: underline;">
+                                            🌐 Abrir Google Maps
+                                        </a>
+                                    </div>
+                                    <div class="d-flex gap-1 flex-wrap">
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => FijarCoordenadasDirectas(-17.776200, -63.195100, "UPDS Central"))">🎓 UPDS Central</MudChip>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => FijarCoordenadasDirectas(-17.776500, -63.191500, "UAGRM Campus"))">🏛️ UAGRM Campus</MudChip>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => FijarCoordenadasDirectas(-17.788400, -63.181200, "San Juan de Dios"))">🏥 Hosp. San Juan</MudChip>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => FijarCoordenadasDirectas(-17.768100, -63.153900, "Hosp. Japonés"))">🏥 Hosp. Japonés</MudChip>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- 5. Dominio / Servidor Base para el QR -->
+                    <div class="mb-4">
+                        <label style="font-size: 0.8125rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 0.5rem;">
+                            Dominio / Servidor Base para el QR (Opcional):
+                        </label>
+                        <MudTextField @bind-Value="_servidorBasePersonalizado"
+                                      Placeholder="@(Navigation.BaseUri.TrimEnd('/'))"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      HelperText="Si se deja vacío, el QR usa automáticamente el dominio actual (en MonsterASP.NET usa el dominio público)." />
+                    </div>
                 </div>
 
-                <div class="d-flex justify-end gap-2 mt-6">
-                    <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="@(() => _mostrarAjustesModal = false)">
-                        Cancelar
+                <!-- Footer Fijo con botones Guardar y Cancelar -->
+                <div class="ajustes-modal-footer">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Default"
+                               Size="Size.Medium"
+                               OnClick="@(() => _mostrarAjustesModal = false)">
+                        Cerrar
                     </MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GuardarAjustesSesionAsync" StartIcon="@Icons.Material.Filled.Save">
-                        Aplicar Ajustes
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               Size="Size.Medium"
+                               OnClick="GuardarAjustesSesionAsync"
+                               StartIcon="@Icons.Material.Filled.Save"
+                               Style="font-weight: 700;">
+                        Guardar y Aplicar
+                    </MudButton>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Modal para Calibrar Aula con Celular del Docente -->
+    @if (_mostrarModalCalibrarCelular)
+    {
+        <div class="ajustes-modal-backdrop" style="z-index: 100010;">
+            <div class="ajustes-modal-card" style="max-width: 440px; text-align: center; padding: 1.5rem;">
+                <div class="d-flex justify-space-between align-center mb-3">
+                    <div class="d-flex align-center gap-2">
+                        <MudIcon Icon="@Icons.Material.Filled.PhoneAndroid" Color="Color.Info" />
+                        <span style="font-weight: 700; font-size: 1.1rem; color: #ffffff;">Calibrar con Celular</span>
+                    </div>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" Size="Size.Small" OnClick="@(() => _mostrarModalCalibrarCelular = false)" />
+                </div>
+
+                <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 1rem;">
+                    Apunta la cámara de tu celular a este código para capturar los satélites GPS reales de la sala (hospital, teatro o aula) con 5m de precisión.
+                </p>
+
+                <div style="background: #ffffff; padding: 0.85rem; border-radius: 1rem; display: inline-block; margin-bottom: 1rem;">
+                    @((MarkupString)_qrCalibrarCelularSvg)
+                </div>
+
+                <div class="d-flex gap-2 justify-center mb-1">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.ContentCopy" OnClick="CopiarEnlaceCalibrarAsync">
+                        Copiar Enlace
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small" OnClick="CerrarModalCalibracionCelularAsync">
+                        ✅ Ya Calibré / Listo
+                    </MudButton>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Modal Telemetría de Estudiante (Doble Clic o Toque en Lista en Vivo) -->
+    @if (_estudianteSeleccionadoTelemetria != null)
+    {
+        <div class="ajustes-modal-backdrop" style="z-index: 100015;" @onclick="@(() => _estudianteSeleccionadoTelemetria = null)">
+            <div class="ajustes-modal-card" style="max-width: 480px;" @onclick:stopPropagation="true">
+                <div class="ajustes-modal-header">
+                    <div class="d-flex align-center gap-2">
+                        <MudIcon Icon="@Icons.Material.Filled.GpsFixed" Color="Color.Primary" />
+                        <span class="ajustes-modal-title">Telemetría de Asistencia del Alumno</span>
+                    </div>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" Size="Size.Medium" OnClick="@(() => _estudianteSeleccionadoTelemetria = null)" Class="ajustes-header-close-btn" />
+                </div>
+                <div class="ajustes-modal-body">
+                    <div class="d-flex align-center gap-3 mb-3">
+                        <div style="width: 48px; height: 48px; border-radius: 50%; background: rgba(99, 102, 241, 0.2); display: flex; align-items: center; justify-content: center; color: #818cf8; font-weight: 800; font-size: 1.25rem;">
+                            @(_estudianteSeleccionadoTelemetria.Nombre.Length > 0 ? _estudianteSeleccionadoTelemetria.Nombre[0].ToString() : "E")
+                        </div>
+                        <div>
+                            <h4 style="margin: 0; color: #f8fafc; font-size: 1.1rem; font-weight: 700;">@_estudianteSeleccionadoTelemetria.Nombre</h4>
+                            <span style="color: #94a3b8; font-size: 0.85rem;">Código: @_estudianteSeleccionadoTelemetria.Codigo &bull; Hora: @_estudianteSeleccionadoTelemetria.Hora</span>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 0.75rem; padding: 1rem; margin-bottom: 1rem; font-size: 0.875rem;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                            <span style="color: #94a3b8;">Modo de Validación:</span>
+                            <span style="color: #38bdf8; font-weight: 600;">@_estudianteSeleccionadoTelemetria.Modo.ToUpperInvariant()</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                            <span style="color: #94a3b8;">📍 Coordenadas Celular:</span>
+                            <span style="color: #f8fafc; font-weight: 600; font-family: monospace;">
+                                @(_estudianteSeleccionadoTelemetria.Latitud.HasValue && _estudianteSeleccionadoTelemetria.Longitud.HasValue 
+                                    ? $"{_estudianteSeleccionadoTelemetria.Latitud.Value:F6}, {_estudianteSeleccionadoTelemetria.Longitud.Value:F6}" 
+                                    : "N/D (Wi-Fi)")
+                            </span>
+                        </div>
+                        @if (_estudianteSeleccionadoTelemetria.PrecisionMetros.HasValue)
+                        {
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                <span style="color: #94a3b8;">📡 Precisión Satelital (Margen):</span>
+                                <span style="color: #f8fafc; font-weight: 600;">±@(_estudianteSeleccionadoTelemetria.PrecisionMetros.Value.ToString("F1")) metros</span>
+                            </div>
+                        }
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                            <span style="color: #94a3b8;">🎯 Punto Referencia QR:</span>
+                            <span style="color: #f8fafc; font-weight: 600; font-family: monospace;">
+                                @(_estudianteSeleccionadoTelemetria.QrLatitud.HasValue && _estudianteSeleccionadoTelemetria.QrLongitud.HasValue 
+                                    ? $"{_estudianteSeleccionadoTelemetria.QrLatitud.Value:F6}, {_estudianteSeleccionadoTelemetria.QrLongitud.Value:F6}" 
+                                    : (_latitudPersonalizada?.ToString("F6") ?? _espacio?.Latitud?.ToString("F6") ?? "N/D"))
+                            </span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                            <span style="color: #94a3b8;">📏 Distancia Calculada:</span>
+                            <span style="color: #34d399; font-weight: 800; font-size: 1rem;">
+                                @(_estudianteSeleccionadoTelemetria.DistanciaMetros.HasValue 
+                                    ? $"{_estudianteSeleccionadoTelemetria.DistanciaMetros.Value:F1} metros" 
+                                    : "Verificado por Red")
+                            </span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #94a3b8;">🎯 Radio Máx Permitido:</span>
+                            <span style="color: #f8fafc; font-weight: 600;">@(_radioToleranciaMetros)m (+5m ruido satelital)</span>
+                        </div>
+                    </div>
+
+                    @if (_estudianteSeleccionadoTelemetria.Latitud.HasValue && _estudianteSeleccionadoTelemetria.Longitud.HasValue)
+                    {
+                        <a href="https://www.google.com/maps?q=@(_estudianteSeleccionadoTelemetria.Latitud.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)),@(_estudianteSeleccionadoTelemetria.Longitud.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))" 
+                           target="_blank" 
+                           rel="noopener noreferrer" 
+                           class="mud-button-root mud-button mud-button-filled mud-button-filled-primary mud-button-size-medium w-100 py-2 d-flex align-center justify-center gap-2" 
+                           style="text-decoration: none; font-weight: 700; border-radius: 0.75rem;">
+                            <MudIcon Icon="@Icons.Material.Filled.Map" Size="Size.Small" />
+                            Ver Ubicación del Alumno en Google Maps
+                        </a>
+                    }
+                </div>
+                <div class="ajustes-modal-footer">
+                    <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="@(() => _estudianteSeleccionadoTelemetria = null)">
+                        Cerrar
                     </MudButton>
                 </div>
             </div>
@@ -591,32 +825,40 @@
     @if (_qrPantallaCompleta)
     {
         <div class="qr-fullscreen-modal">
+            <!-- Botón flotante circular X siempre accesible en móviles y PC -->
+            <button type="button" class="qr-floating-close-btn" @onclick="CerrarQRPantallaCompleta" aria-label="Cerrar proyección" title="Cerrar pantalla completa">
+                <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Medium" />
+            </button>
+
+            <!-- Barra Superior Adaptable -->
             <div class="qr-fullscreen-topbar">
-                <div class="d-flex align-center gap-3">
-                    <span class="qr-fs-title">@_materia?.Nombre (@_materia?.Codigo)</span>
-                    <span class="qr-fs-badge">Grupo @_materia?.Grupo</span>
-                    <div class="status-pulse ml-2">
-                        <span class="pulse-dot"></span>
-                        <span class="status-text">ESCANEO ACTIVO</span>
+                <div class="qr-fs-info-group">
+                    <h2 class="qr-fs-title">@_materia?.Nombre</h2>
+                    <div class="d-flex align-center gap-2 flex-wrap">
+                        <span class="qr-fs-badge">@_materia?.Codigo &bull; Gr. @_materia?.Grupo</span>
+                        <div class="status-pulse">
+                            <span class="pulse-dot"></span>
+                            <span class="status-text">ESCANEO ACTIVO</span>
+                        </div>
                     </div>
                 </div>
 
-                <div class="d-flex align-center gap-4">
-                    <div class="d-flex align-center gap-2" style="color: #38bdf8; font-weight: 700; font-size: 1.15rem;">
-                        <MudIcon Icon="@Icons.Material.Filled.PeopleAlt" Size="Size.Medium" />
-                        <span>@_totalPresentes alumnos presentes</span>
+                <div class="qr-fs-status-group">
+                    <div class="qr-fs-stat-item">
+                        <MudIcon Icon="@Icons.Material.Filled.PeopleAlt" Size="Size.Small" Class="mr-1 text-primary" />
+                        <span><b>@_totalPresentes</b> presentes</span>
                     </div>
 
                     @if (!_qrEstaticoUnico)
                     {
-                        <div class="rotation-timer" style="font-size: 1.15rem; color: #cbd5e1;">
+                        <div class="qr-fs-stat-item timer-active">
                             <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" Class="mr-1 spin-icon" />
                             <span>Rotación en <b>@_segundosRestantesRotacion s</b></span>
                         </div>
                     }
                     else
                     {
-                        <div class="rotation-timer" style="font-size: 1.15rem; color: #f59e0b; font-weight: 700;">
+                        <div class="qr-fs-stat-item timer-fixed">
                             <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Class="mr-1" />
                             <span>QR Único Fijo</span>
                         </div>
@@ -627,21 +869,14 @@
                                StartIcon="@(_qrEstaticoUnico ? Icons.Material.Filled.Lock : Icons.Material.Filled.Autorenew)"
                                Size="Size.Small"
                                OnClick="AlternarQREstaticoAsync"
+                               Class="qr-fs-toggle-btn"
                                Style="font-weight: 700; border-radius: 8px;">
-                        @(_qrEstaticoUnico ? "🔒 QR Único (Sin rotar)" : "🔄 Cambiar a QR Único")
-                    </MudButton>
-
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Error"
-                               StartIcon="@Icons.Material.Filled.FullscreenExit"
-                               Size="Size.Medium"
-                               OnClick="CerrarQRPantallaCompleta"
-                               Style="font-weight: 700; border-radius: 12px;">
-                        Salir de Pantalla Completa
+                        @(_qrEstaticoUnico ? "🔒 QR Fijo" : "🔄 QR Dinámico")
                     </MudButton>
                 </div>
             </div>
 
+            <!-- Centro con el Código QR -->
             <div class="qr-fullscreen-center">
                 <div class="qr-fullscreen-whitebox">
                     @if (!string.IsNullOrEmpty(_qrSvgContent))
@@ -656,11 +891,11 @@
                     }
                 </div>
 
-                <div class="rotation-progress-bar mt-4" style="width: min(75vh, 600px); height: 8px;">
+                <div class="rotation-progress-bar mt-3">
                     <div class="progress-fill" style="width: @(_porcentajeRotacion)%; background: @(_qrEstaticoUnico ? "linear-gradient(90deg, #f59e0b, #10b981)" : "linear-gradient(90deg, #4f46e5, #06b6d4)");"></div>
                 </div>
 
-                <p style="color: #cbd5e1; font-size: 1.1rem; margin-top: 1rem; text-align: center; font-weight: 500;">
+                <p class="qr-fullscreen-hint">
                     Apunta con la cámara de tu teléfono móvil registrado hacia la pantalla para registrar tu asistencia.
                 </p>
             </div>
@@ -780,12 +1015,75 @@
     @@media (max-width: 960px) {
         .proyeccion-container {
             height: auto;
+            min-height: 100vh;
             max-height: none;
             overflow-y: auto;
+            padding: 0.75rem 1rem;
+        }
+        .proyeccion-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+        .header-left {
+            width: 100%;
+        }
+        .header-right {
+            width: 100%;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .header-actions {
+            flex-wrap: wrap;
         }
         .proyeccion-body {
             grid-template-columns: 1fr;
             overflow: visible;
+            gap: 1.25rem;
+        }
+        .qr-section {
+            height: auto;
+            min-height: auto;
+            overflow: visible;
+        }
+        .qr-card {
+            max-width: 100%;
+            max-height: none;
+            padding: 1rem;
+        }
+        .qr-canvas-wrapper {
+            margin: 0.5rem 0;
+        }
+        .qr-svg-container svg {
+            width: min(70vw, 280px);
+            height: min(70vw, 280px);
+        }
+        .metrics-section {
+            height: auto;
+            min-height: auto;
+            overflow: visible;
+            gap: 0.85rem;
+        }
+        .feed-card {
+            min-height: 240px;
+            max-height: 400px;
+        }
+        .feed-list {
+            max-height: 280px;
+            overflow-y: auto;
+        }
+    }
+
+    @@media (max-width: 600px) {
+        .materia-title {
+            font-size: 1.2rem;
+        }
+        .clock-time {
+            font-size: 1.1rem;
+        }
+        .proyeccion-container {
+            padding: 0.5rem;
         }
     }
 
@@ -1102,11 +1400,80 @@
         color: #94a3b8;
     }
 
-    /* Modal de Ajustes: Estilo oscuro con textos e inputs legibles en blanco/slate */
+    /* Modal de Ajustes: Estilo oscuro con textos legibles y scroll táctil */
+    .ajustes-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(8px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 99999;
+        padding: 0.75rem;
+        box-sizing: border-box;
+    }
+
     .ajustes-modal-card {
         background: #0f172a !important;
         color: #f8fafc !important;
+        border: 1px solid rgba(255, 255, 255, 0.18) !important;
+        border-radius: 1.25rem;
+        width: 100%;
+        max-width: 560px;
+        max-height: 90dvh !important;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.95);
+        overflow: hidden;
+        margin: auto;
     }
+
+    .ajustes-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        background: #0f172a;
+        flex-shrink: 0;
+    }
+
+    .ajustes-modal-title {
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #ffffff;
+    }
+
+    .ajustes-header-close-btn {
+        background: rgba(239, 68, 68, 0.15) !important;
+        border: 1px solid rgba(239, 68, 68, 0.4) !important;
+        border-radius: 50% !important;
+        color: #ef4444 !important;
+    }
+
+    .ajustes-modal-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 1.25rem;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .ajustes-modal-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.85rem 1.25rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        background: #0b1120;
+        flex-shrink: 0;
+        position: sticky;
+        bottom: 0;
+        z-index: 10;
+    }
+
     .ajustes-modal-card label,
     .ajustes-modal-card .mud-input-label {
         color: #f1f5f9 !important;
@@ -1143,8 +1510,32 @@
         z-index: 99999;
         display: flex;
         flex-direction: column;
-        padding: 1.25rem 2.5rem;
+        padding: 1rem 1.5rem;
         box-sizing: border-box;
+        overflow: hidden;
+    }
+
+    .qr-floating-close-btn {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        z-index: 100005;
+        background: rgba(239, 68, 68, 0.95) !important;
+        color: #ffffff !important;
+        border: 2px solid #ffffff !important;
+        border-radius: 50% !important;
+        width: 44px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7);
+        transition: transform 0.15s ease, background 0.15s ease;
+    }
+    .qr-floating-close-btn:active {
+        transform: scale(0.92);
+        background: #dc2626 !important;
     }
 
     .qr-fullscreen-topbar {
@@ -1152,23 +1543,59 @@
         justify-content: space-between;
         align-items: center;
         border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-        padding-bottom: 0.75rem;
+        padding-bottom: 0.65rem;
+        padding-right: 54px; /* Espacio reservado para el botón flotante X */
         flex-shrink: 0;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .qr-fs-info-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
     }
 
     .qr-fs-title {
-        font-size: 1.4rem;
+        font-size: 1.25rem;
         font-weight: 800;
         color: #ffffff;
+        margin: 0;
+        line-height: 1.2;
     }
 
     .qr-fs-badge {
         background: rgba(99, 102, 241, 0.2);
         color: #818cf8;
-        padding: 4px 12px;
+        padding: 2px 10px;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+    }
+
+    .qr-fs-status-group {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .qr-fs-stat-item {
+        display: inline-flex;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.06);
+        padding: 0.25rem 0.65rem;
         border-radius: 9999px;
         font-size: 0.85rem;
+        color: #f1f5f9;
+    }
+    .qr-fs-stat-item.timer-fixed {
+        color: #f59e0b;
         font-weight: 700;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .qr-fs-stat-item.timer-active {
+        color: #cbd5e1;
     }
 
     .qr-fullscreen-center {
@@ -1178,22 +1605,164 @@
         justify-content: center;
         align-items: center;
         min-height: 0;
+        padding: 0.5rem 0;
     }
 
     .qr-fullscreen-whitebox {
         background: #ffffff;
-        padding: 1.75rem;
-        border-radius: 2rem;
+        padding: 1.25rem;
+        border-radius: 1.5rem;
         box-shadow: 0 25px 70px -10px rgba(0, 0, 0, 0.9), 0 0 80px -10px rgba(99, 102, 241, 0.4);
         display: flex;
         justify-content: center;
         align-items: center;
+        box-sizing: border-box;
     }
 
     .qr-fullscreen-svg-wrap svg {
         display: block;
-        width: min(60vh, 520px);
-        height: min(60vh, 520px);
+        width: min(65vh, 75vw);
+        height: min(65vh, 75vw);
+        max-width: 480px;
+        max-height: 480px;
+    }
+
+    .qr-fullscreen-center .rotation-progress-bar {
+        width: min(65vh, 75vw);
+        max-width: 480px;
+        height: 6px;
+    }
+
+    .qr-fullscreen-hint {
+        color: #cbd5e1;
+        font-size: 0.95rem;
+        margin-top: 0.75rem;
+        text-align: center;
+        font-weight: 500;
+        max-width: 500px;
+    }
+
+    /* Ajustes específicos para móviles verticales */
+    @@media (max-width: 600px) {
+        .qr-fullscreen-modal {
+            padding: 0.5rem 0.75rem;
+        }
+        .qr-fullscreen-topbar {
+            padding-right: 48px;
+            gap: 0.35rem;
+        }
+        .qr-fs-title {
+            font-size: 1.05rem;
+        }
+        .qr-fullscreen-whitebox {
+            padding: 0.75rem;
+            border-radius: 1rem;
+        }
+        .qr-fullscreen-svg-wrap svg {
+            width: min(76vw, 320px);
+            height: min(76vw, 320px);
+        }
+        .qr-fullscreen-center .rotation-progress-bar {
+            width: min(76vw, 320px);
+        }
+        .qr-fullscreen-hint {
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+        }
+        .ajustes-modal-card {
+            max-height: 88dvh !important;
+            max-height: 88vh;
+            margin: auto 0.5rem;
+        }
+        .ajustes-modal-body {
+            padding: 1rem;
+            max-height: calc(88dvh - 120px);
+        }
+    }
+
+    /* Ajustes específicos para móviles horizontales (Landscape) y pantallas de baja altura */
+    @@media (orientation: landscape) and (max-height: 600px), (max-height: 520px) {
+        .qr-fullscreen-modal {
+            padding: 0.25rem 0.65rem;
+        }
+        .qr-fullscreen-topbar {
+            padding-bottom: 0.2rem;
+            padding-right: 50px;
+            gap: 0.5rem;
+            flex-wrap: nowrap;
+            max-height: 44px;
+            overflow: hidden;
+        }
+        .qr-fs-info-group {
+            flex-direction: row;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .qr-fs-title {
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+        .qr-fs-badge {
+            font-size: 0.7rem;
+            padding: 1px 6px;
+        }
+        .qr-fs-stat-item {
+            font-size: 0.75rem;
+            padding: 2px 6px;
+        }
+        .qr-fs-toggle-btn {
+            font-size: 0.75rem !important;
+            padding: 2px 8px !important;
+        }
+        .qr-fullscreen-center {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 2px 0;
+            overflow: hidden;
+        }
+        .qr-fullscreen-whitebox {
+            padding: 0.4rem;
+            border-radius: 0.85rem;
+            width: min(60vh, 60vw);
+            height: min(60vh, 60vw);
+            max-width: calc(100vh - 75px);
+            max-height: calc(100vh - 75px);
+            box-sizing: border-box;
+        }
+        .qr-fullscreen-svg-wrap {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .qr-fullscreen-svg-wrap svg {
+            width: 100% !important;
+            height: 100% !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
+            display: block;
+        }
+        .qr-fullscreen-hint {
+            display: none !important;
+        }
+        .qr-fullscreen-center .rotation-progress-bar {
+            margin-top: 3px !important;
+            width: min(60vh, 60vw);
+            max-width: calc(100vh - 75px);
+            height: 4px;
+        }
+        .qr-floating-close-btn {
+            top: 6px;
+            right: 6px;
+            width: 36px;
+            height: 36px;
+            z-index: 100010;
+        }
     }
 </style>
 
@@ -1222,12 +1791,17 @@
     private const string _ipLocalSugerida = "http://192.168.0.18:5257";
 
     // Configuración Dinámica de Sesión (Tiempo, Modo y Alcance)
-    private string _modoValidacion = "wifi"; // Default Wi-Fi para que en localhost y pruebas no sea bloqueado por navegadores móviles sin HTTPS
+    private string _modoValidacion = "proximidad"; // Default Wi-Fi para que en localhost y pruebas no sea bloqueado por navegadores móviles sin HTTPS
     private int _minutosCaducidad = 20;
-    private int _radioToleranciaMetros = 300;
+    private int _radioToleranciaMetros = 25;
     private double? _latitudPersonalizada;
     private double? _longitudPersonalizada;
     private bool _calibrandoGps = false;
+    private bool _mostrarModalCalibrarCelular = false;
+    private string _urlCalibrarCelular = string.Empty;
+    private string _qrCalibrarCelularSvg = string.Empty;
+    private double _calibracionMargenErrorPc = 0;
+    private string _coordenadasPuntoATexto = string.Empty;
     private string _calibracionMensaje = string.Empty;
     private bool _mostrarAjustesModal = false;
     private bool _qrPantallaCompleta = false;
@@ -1259,10 +1833,12 @@
             {
                 _latitudPersonalizada = coords[0];
                 _longitudPersonalizada = coords[1];
+                _coordenadasPuntoATexto = $"{coords[0].ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}, {coords[1].ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}";
                 var acc = coords.Length >= 3 ? coords[2] : 0;
 
                 if (acc > 100)
                 {
+                    _calibracionMargenErrorPc = acc;
                     _calibracionMensaje = $"📍 Aula fijada por red PC ({coords[0]:F4}, {coords[1]:F4}) con margen de ~{acc:F0}m (las computadoras no tienen antena GPS satelital).";
                     if (_radioToleranciaMetros < (int)acc)
                     {
@@ -1271,6 +1847,7 @@
                 }
                 else
                 {
+                    _calibracionMargenErrorPc = 0;
                     _calibracionMensaje = $"✅ Aula fijada por satélite: {coords[0]:F4}, {coords[1]:F4} (Precisión: {acc:F0}m)";
                 }
 
@@ -1300,9 +1877,105 @@
         _modoValidacion = nuevoModo;
         await RotarCodigoQrAsync();
         Snackbar.Add(nuevoModo == "wifi"
-            ? "Modo cambiado a 'Solo Wi-Fi / QR': los alumnos pueden registrarse directamente sin requerir GPS."
-            : $"Modo cambiado a 'GPS Obligatorio': se exige presencia física satelital dentro de {_radioToleranciaMetros}m.",
+            ? "Modo cambiado a 'Solo Wi-Fi': los alumnos se registran directamente sin requerir satélites GPS."
+            : (nuevoModo == "proximidad"
+                ? $"Modo cambiado a '🧪 GPS Experimental': validación P2P contra el docente ({_radioToleranciaMetros}m + 5m margen satelital)."
+                : $"Modo cambiado a 'GPS Campus Fijo': validación institucional dentro de {_radioToleranciaMetros}m."),
             Severity.Info);
+    }
+
+    private async Task ActualizarCoordenadasDesdeTextoAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_coordenadasPuntoATexto))
+        {
+            Snackbar.Add("Ingresa las coordenadas en formato: -17.839221, -63.194188", Severity.Warning);
+            return;
+        }
+
+        var input = _coordenadasPuntoATexto.Trim();
+        var match = System.Text.RegularExpressions.Regex.Match(input, @"(-?\d{1,2}[\.,]\d+)[,\s;]+(-?\d{1,3}[\.,]\d+)");
+        if (match.Success)
+        {
+            var latStr = match.Groups[1].Value.Replace(',', '.');
+            var lonStr = match.Groups[2].Value.Replace(',', '.');
+
+            if (double.TryParse(latStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lat) &&
+                double.TryParse(lonStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lon))
+            {
+                await FijarCoordenadasDirectas(lat, lon, "Punto A Fijado");
+                return;
+            }
+        }
+
+        Snackbar.Add("No se reconocieron coordenadas válidas. Formato: -17.839221, -63.194188 o enlace de Google Maps.", Severity.Warning);
+    }
+
+    private async Task FijarCoordenadasDirectas(double lat, double lon, string lugarNombre)
+    {
+        _latitudPersonalizada = lat;
+        _longitudPersonalizada = lon;
+        _coordenadasPuntoATexto = $"{lat.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}, {lon.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}";
+        _calibracionMargenErrorPc = 0; // Coordenada satelital exacta fijada por el usuario
+        _calibracionMensaje = $"✅ Ubicación fijada ({lugarNombre}): {lat.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}, {lon.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}";
+
+        if (_espacio != null)
+        {
+            _espacio.Latitud = lat;
+            _espacio.Longitud = lon;
+            await EspacioRepo.UpdateAsync(_espacio);
+        }
+
+        await RotarCodigoQrAsync();
+        Snackbar.Add($"Punto A fijado: {lugarNombre} ({lat:F6}, {lon:F6})", Severity.Success);
+        StateHasChanged();
+    }
+
+    private void AbrirModalCalibracionCelular()
+    {
+        if (_sesion == null) return;
+        var baseUrl = !string.IsNullOrWhiteSpace(_servidorBasePersonalizado) 
+            ? _servidorBasePersonalizado.TrimEnd('/') 
+            : Navigation.BaseUri.TrimEnd('/');
+        _urlCalibrarCelular = $"{baseUrl}/docente/calibrar/{_sesion.Id}";
+        _qrCalibrarCelularSvg = QrService.GenerateSvg(_urlCalibrarCelular, pixelsPerModule: 8, darkColorHex: "#0F172A", lightColorHex: "#FFFFFF");
+        _mostrarModalCalibrarCelular = true;
+    }
+
+    private async Task CopiarEnlaceCalibrarAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_urlCalibrarCelular)) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _urlCalibrarCelular);
+            Snackbar.Add("Enlace de calibración copiado al portapapeles.", Severity.Success);
+        }
+        catch
+        {
+            Snackbar.Add($"Enlace: {_urlCalibrarCelular}", Severity.Info);
+        }
+    }
+
+    private async Task CerrarModalCalibracionCelularAsync()
+    {
+        _mostrarModalCalibrarCelular = false;
+        if (_espacio != null)
+        {
+            var espacioActualizado = await EspacioRepo.GetByIdAsync(_espacio.Id);
+            if (espacioActualizado != null)
+            {
+                _espacio = espacioActualizado;
+                _latitudPersonalizada = espacioActualizado.Latitud;
+                _longitudPersonalizada = espacioActualizado.Longitud;
+                _coordenadasPuntoATexto = (espacioActualizado.Latitud.HasValue && espacioActualizado.Longitud.HasValue)
+                    ? $"{espacioActualizado.Latitud.Value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}, {espacioActualizado.Longitud.Value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}"
+                    : "";
+                _calibracionMensaje = $"✅ Aula fijada por satélite móvil: {espacioActualizado.Latitud:F4}, {espacioActualizado.Longitud:F4}";
+                _calibracionMargenErrorPc = 0;
+                await RotarCodigoQrAsync();
+                Snackbar.Add("¡Coordenadas del aula actualizadas con éxito desde el celular!", Severity.Success);
+                StateHasChanged();
+            }
+        }
     }
 
     private async Task GuardarAjustesSesionAsync()
@@ -1343,11 +2016,33 @@
     private string _horaActualString => TimeHelper.Now.ToString("HH:mm:ss");
 
     // Asistentes y SignalR
+    public class AsistenteEnVivoModel
+    {
+        public string Nombre { get; set; } = "";
+        public string Codigo { get; set; } = "";
+        public string Hora { get; set; } = "";
+        public double? Latitud { get; set; }
+        public double? Longitud { get; set; }
+        public double? PrecisionMetros { get; set; }
+        public double? DistanciaMetros { get; set; }
+        public double? QrLatitud { get; set; }
+        public double? QrLongitud { get; set; }
+        public double? RadioPermitido { get; set; }
+        public string Modo { get; set; } = "gps";
+    }
+
     private int _totalPresentes = 0;
-    private readonly List<(string Nombre, string Codigo, string Hora)> _ultimosRegistrados = [];
+    private readonly List<AsistenteEnVivoModel> _ultimosRegistrados = [];
+    private AsistenteEnVivoModel? _estudianteSeleccionadoTelemetria;
     private HubConnection? _hubConnection;
     private PeriodicTimer? _timer;
     private CancellationTokenSource _cts = new();
+
+    private void AbrirDetalleGpsEstudiante(AsistenteEnVivoModel estudiante)
+    {
+        _estudianteSeleccionadoTelemetria = estudiante;
+        StateHasChanged();
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -1366,6 +2061,15 @@
             {
                 _espacio = await EspacioRepo.GetByIdAsync(_materia.EspacioId);
             }
+
+            if (_espacio != null)
+            {
+                _latitudPersonalizada ??= _espacio.Latitud;
+                _longitudPersonalizada ??= _espacio.Longitud;
+            }
+            _latitudPersonalizada ??= -17.776200;
+            _longitudPersonalizada ??= -63.195100;
+            _coordenadasPuntoATexto = $"{_latitudPersonalizada.Value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}, {_longitudPersonalizada.Value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}";
 
             var hoy = TimeHelper.Today;
             var sesionExistente = await ListaRepo.ObtenerPorMateriaYFechaAsync(MateriaId, hoy);
@@ -1475,13 +2179,33 @@
                         .ToList();
 
                     _ultimosRegistrados.Clear();
+                    var refLat = _latitudPersonalizada ?? _espacio?.Latitud;
+                    var refLon = _longitudPersonalizada ?? _espacio?.Longitud;
                     foreach (var p in presentes)
                     {
                         var est = await EstudianteRepo.ObtenerPorIdAsync(p.EstudianteId);
                         if (est != null)
                         {
                             var horaStr = FormatearHoraLocal(p.HoraLlegada);
-                            _ultimosRegistrados.Add((est.NombreCompleto, est.Codigo, horaStr));
+                            double? distCalc = null;
+                            if (p.Latitud.HasValue && p.Longitud.HasValue && refLat.HasValue && refLon.HasValue)
+                            {
+                                distCalc = SuscripcionService.CalcularDistanciaMetros(p.Latitud.Value, p.Longitud.Value, refLat.Value, refLon.Value);
+                            }
+                            _ultimosRegistrados.Add(new AsistenteEnVivoModel
+                            {
+                                Nombre = est.NombreCompleto,
+                                Codigo = est.Codigo,
+                                Hora = horaStr,
+                                Latitud = p.Latitud,
+                                Longitud = p.Longitud,
+                                PrecisionMetros = p.PrecisionGps,
+                                DistanciaMetros = distCalc,
+                                QrLatitud = refLat,
+                                QrLongitud = refLon,
+                                RadioPermitido = _radioToleranciaMetros,
+                                Modo = _modoValidacion
+                            });
                         }
                     }
                 }
@@ -1601,16 +2325,53 @@
                 .WithAutomaticReconnect()
                 .Build();
 
+            _hubConnection.On<AsistenciaTelemetriaDto>("AsistenciaRegistradaConTelemetria", (dto) =>
+            {
+                InvokeAsync(() =>
+                {
+                    _totalPresentes = dto.TotalPresentes;
+                    _ultimosRegistrados.RemoveAll(x => x.Codigo == dto.Codigo);
+                    _ultimosRegistrados.Insert(0, new AsistenteEnVivoModel
+                    {
+                        Nombre = dto.Nombre,
+                        Codigo = dto.Codigo,
+                        Hora = TimeHelper.Now.ToString("HH:mm:ss"),
+                        Latitud = dto.Latitud,
+                        Longitud = dto.Longitud,
+                        PrecisionMetros = dto.PrecisionMetros,
+                        DistanciaMetros = dto.DistanciaMetros,
+                        QrLatitud = dto.QrLatitud,
+                        QrLongitud = dto.QrLongitud,
+                        RadioPermitido = dto.RadioPermitido,
+                        Modo = dto.Modo
+                    });
+                    if (_ultimosRegistrados.Count > 10)
+                    {
+                        _ultimosRegistrados.RemoveAt(_ultimosRegistrados.Count - 1);
+                    }
+                    StateHasChanged();
+                });
+            });
+
             _hubConnection.On<string, string, int>("AsistenciaRegistrada", (estudianteNombre, estudianteCodigo, totalPresentes) =>
             {
                 InvokeAsync(() =>
                 {
                     _totalPresentes = totalPresentes;
-                    _ultimosRegistrados.RemoveAll(x => x.Codigo == estudianteCodigo);
-                    _ultimosRegistrados.Insert(0, (estudianteNombre, estudianteCodigo, TimeHelper.Now.ToString("HH:mm:ss")));
-                    if (_ultimosRegistrados.Count > 10)
+                    if (!_ultimosRegistrados.Any(x => x.Codigo == estudianteCodigo))
                     {
-                        _ultimosRegistrados.RemoveAt(_ultimosRegistrados.Count - 1);
+                        _ultimosRegistrados.Insert(0, new AsistenteEnVivoModel
+                        {
+                            Nombre = estudianteNombre,
+                            Codigo = estudianteCodigo,
+                            Hora = TimeHelper.Now.ToString("HH:mm:ss"),
+                            Modo = _modoValidacion,
+                            RadioPermitido = _radioToleranciaMetros
+                        });
+                        if (_ultimosRegistrados.Count > 10)
+                        {
+                            _ultimosRegistrados.RemoveAt(_ultimosRegistrados.Count - 1);
+                        }
                     }
                     StateHasChanged();
                 });
@@ -1741,10 +2502,15 @@
                 baseUrl = "https://" + baseUrl.Substring(7);
             }
 
-            var modoParam = _modoValidacion == "wifi" ? "&modo=wifi" : $"&r={_radioToleranciaMetros}";
-            if (_modoValidacion == "gps" && _latitudPersonalizada.HasValue && _longitudPersonalizada.HasValue)
+            var modoParam = _modoValidacion == "wifi" 
+                ? "&modo=wifi" 
+                : (_modoValidacion == "proximidad" ? "&modo=proximidad" : "&modo=gps");
+            modoParam += $"&r={_radioToleranciaMetros}";
+            var refLat = _latitudPersonalizada ?? _espacio?.Latitud ?? -17.776200;
+            var refLon = _longitudPersonalizada ?? _espacio?.Longitud ?? -63.195100;
+            if (_modoValidacion != "wifi")
             {
-                modoParam += $"&clat={_latitudPersonalizada.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}&clon={_longitudPersonalizada.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+                modoParam += $"&clat={refLat.ToString(System.Globalization.CultureInfo.InvariantCulture)}&clon={refLon.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
             }
             _urlEscaneoActual = $"{baseUrl}/a/{_sesion.Id}?t={tokenString}{modoParam}";
             _qrSvgContent = QrService.GenerateSvg(_urlEscaneoActual, pixelsPerModule: 10, darkColorHex: "#0F172A", lightColorHex: "#FFFFFF");
@@ -1867,6 +2633,20 @@
             _sesionSuspendida = true;
             _sesionCerrada = true;
             StateHasChanged();
+        }
+    }
+
+    private async Task AbrirVentanaExternaProyector()
+    {
+        var url = Navigation.ToAbsoluteUri($"/proyeccion/{MateriaId}/pantalla").ToString();
+        try
+        {
+            await JS.InvokeVoidAsync("slacOpenCleanProjector", url);
+            Snackbar.Add("Ventana de proyección limpia abierta.", Severity.Info);
+        }
+        catch
+        {
+            Navigation.NavigateTo($"/proyeccion/{MateriaId}/pantalla");
         }
     }
 

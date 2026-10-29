@@ -97,7 +97,7 @@
             <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Size="Size.Large" Color="Color.Secondary" Class="mb-3" />
             <MudText Typo="Typo.h6">No hay materias registradas</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
-                Comienza agregando tu primera materia con aula, días de clase (L-V) y horario de inicio.
+                Comienza agregando tu primera materia con aula, días de clase (Lunes a Sábado) y horario de inicio.
             </MudText>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="AbrirDialogoNuevaMateria">
                 Registrar Primera Materia
@@ -183,8 +183,8 @@
                                     <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mb-1">
                                         DÍAS DE CLASE:
                                     </MudText>
-                                    <div class="d-flex gap-1">
-                                        @foreach (var sigla in new[] { "L", "M", "X", "J", "V" })
+                                    <div class="d-flex gap-1 flex-wrap">
+                                        @foreach (var sigla in new[] { "L", "M", "X", "J", "V", "S" })
                                         {
                                             var activo = materia.ObtenerListaDias().Contains(sigla);
                                             <MudChip T="string"
@@ -318,54 +318,19 @@
             _periodos = await periodosTask;
             _espacios = await espaciosTask;
 
-            if (_periodos.Count == 0)
-            {
-                // Crear periodo por defecto si no existe
-                var nuevoPeriodo = new PeriodoAcademico
-                {
-                    InstitucionId = _institucionId,
-                    Nombre = "Gestión I-2026",
-                    FechaInicio = new DateOnly(2026, 2, 1),
-                    FechaFin = new DateOnly(2026, 6, 30)
-                };
-                await PeriodoRepo.CreateAsync(nuevoPeriodo);
-                _periodos = [nuevoPeriodo];
-            }
-
             var hoy = TimeHelper.Today;
             _periodoVigente = _periodos.FirstOrDefault(p => p.FechaInicio <= hoy && hoy <= p.FechaFin) ?? _periodos.FirstOrDefault();
 
-            if (_espacios.Count == 0)
-            {
-                // Crear aulas demo si no existen
-                var aula1 = new Espacio { InstitucionId = _institucionId, Nombre = "Aula Magna 101", Tipo = "aula", Capacidad = 40 };
-                var aula2 = new Espacio { InstitucionId = _institucionId, Nombre = "Lab Computación 2", Tipo = "laboratorio", Capacidad = 25 };
-                await EspacioRepo.CreateAsync(aula1);
-                await EspacioRepo.CreateAsync(aula2);
-                _espacios = [aula1, aula2];
-            }
-
             // 2. Cargar docente actual
-            var docentes = await DocenteRepo.ListarPorInstitucionAsync(_institucionId);
-            _docenteActual = docentes.FirstOrDefault();
-            if (_docenteActual == null && _institucionId == Guid.Parse("11111111-1111-1111-1111-111111111111"))
-            {
-                _docenteActual = new Docente
-                {
-                    InstitucionId = _institucionId,
-                    UserId = Guid.Parse("55555555-5555-5555-5555-555555555555"),
-                    Nombres = "Jimmy",
-                    Apellidos = "Requena",
-                    Correo = "sc.jimmy.requena.l@upds.edu.bo",
-                    Codigo = "87438"
-                };
-                await DocenteRepo.GuardarAsync(_docenteActual);
-            }
-
             if (SessionService.UsuarioActual?.DocenteId.HasValue == true)
             {
                 var docSesion = await DocenteRepo.ObtenerPorIdAsync(SessionService.UsuarioActual.DocenteId.Value);
                 if (docSesion != null) _docenteActual = docSesion;
+            }
+            else
+            {
+                var docentes = await DocenteRepo.ListarPorInstitucionAsync(_institucionId);
+                _docenteActual = docentes.FirstOrDefault();
             }
 
             // 3. Cargar materias del docente
@@ -383,58 +348,6 @@
             {
                 _materias = [];
                 _materiasHoy = [];
-            }
-
-            // 5. Pre-cargar estudiante de prueba solo para UPDS
-            if (_institucionId == Guid.Parse("11111111-1111-1111-1111-111111111111"))
-            {
-                var estLeo = await EstudianteRepo.ObtenerPorCodigoAsync(_institucionId, "8127564");
-                if (estLeo == null)
-                {
-                    estLeo = new Estudiante
-                    {
-                        InstitucionId = _institucionId,
-                        Codigo = "8127564",
-                        Nombres = "Leonardo David",
-                        Apellidos = "Vargas Monasterio",
-                        Correo = "sc.leonardo.vargas.m@upds.net.bo",
-                        DocumentoIdentidad = "8127564",
-                        ConsentimientoEn = DateTimeOffset.UtcNow
-                    };
-                    estLeo = await EstudianteRepo.CrearOActualizarAsync(estLeo);
-                }
-
-                // Inscribir en las materias activas para que esté listo en el padrón
-                foreach (var mat in _materias)
-                {
-                    var sub = await SuscripcionRepo.ObtenerAsync(mat.Id, estLeo.Id);
-                    if (sub == null)
-                    {
-                        await SuscripcionRepo.SuscribirAsync(new Suscripcion
-                        {
-                            InstitucionId = _institucionId,
-                            MateriaId = mat.Id,
-                            EstudianteId = estLeo.Id,
-                            Fecha = DateTimeOffset.UtcNow,
-                            Estado = "activa"
-                        });
-                    }
-                }
-
-                // 6. Purgar registros obsoletos o no deseados (ej. 'Ana María García López')
-                var todosEstudiantes = await EstudianteRepo.ListarPorInstitucionAsync(_institucionId);
-                foreach (var estObsoleto in todosEstudiantes.Where(e =>
-                    e.Codigo == "100234" ||
-                    e.Codigo == "7654321" ||
-                    (e.Correo != null && e.Correo.Contains("ana.garcia", StringComparison.OrdinalIgnoreCase)) ||
-                    (e.Nombres != null && e.Nombres.Contains("Ana María", StringComparison.OrdinalIgnoreCase))))
-                {
-                    foreach (var mat in _materias)
-                    {
-                        await SuscripcionRepo.DesinscribirAsync(mat.Id, estObsoleto.Id);
-                    }
-                    await EstudianteRepo.EliminarAsync(estObsoleto.Id);
-                }
             }
         }
         catch (Exception ex)
@@ -468,7 +381,7 @@
             PeriodoId = _periodoVigente.Id,
             EspacioId = _espacios.First().Id,
             HoraInicio = new TimeSpan(8, 0, 0),
-            Dias = "L,M,V"
+            Dias = "L,M,X,J,V"
         };
 
         var parameters = new DialogParameters<MateriaDialog>
@@ -476,7 +389,8 @@
             { x => x.Materia, nuevaMateria },
             { x => x.Periodos, _periodos },
             { x => x.Espacios, _espacios },
-            { x => x.EsAdmin, false }
+            { x => x.EsAdmin, false },
+            { x => x.EsNuevo, true }
         };
 
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
@@ -514,7 +428,8 @@
             { x => x.Materia, clone },
             { x => x.Periodos, _periodos },
             { x => x.Espacios, _espacios },
-            { x => x.EsAdmin, false }
+            { x => x.EsAdmin, false },
+            { x => x.EsNuevo, false }
         };
 
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };

@@ -18,7 +18,7 @@ public class AttendanceScanRequest
     public bool AceptaTerminos { get; set; } = true;
     public string? UserAgent { get; set; }
 
-    // Geolocalización GPS y Modo de Validación ("gps" o "wifi")
+    // Geolocalización GPS y Modo de Validación ("gps", "wifi" o "proximidad")
     public string Modo { get; set; } = "gps";
     public bool RequiereGps => !string.Equals(Modo, "wifi", StringComparison.OrdinalIgnoreCase);
     public double? Latitud { get; set; }
@@ -52,6 +52,16 @@ public class AttendanceScanResult
     public string? NuevaDeviceCookie { get; set; }
 
     public Guid? SolicitudRevinculacionId { get; set; }
+
+    // Métricas de validación por Proximidad / GPS
+    public double? DistanciaCalculadaMetros { get; set; }
+    public double? RadioPermitidoMetros { get; set; }
+    public string? ModoValidacionAplicado { get; set; }
+    public double? LatitudEstudiante { get; set; }
+    public double? LongitudEstudiante { get; set; }
+    public double? PrecisionGpsMetros { get; set; }
+    public double? LatitudReferencia { get; set; }
+    public double? LongitudReferencia { get; set; }
 
     public static AttendanceScanResult Error(string mensaje) => new()
     {

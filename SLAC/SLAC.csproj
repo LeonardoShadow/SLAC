@@ -20,4 +20,8 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="web.config" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
+  </ItemGroup>
+
 </Project>

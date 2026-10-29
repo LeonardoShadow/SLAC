@@ -48,12 +48,13 @@ public class GeneracionDiariaJob(
             DayOfWeek.Wednesday => "X",
             DayOfWeek.Thursday => "J",
             DayOfWeek.Friday => "V",
+            DayOfWeek.Saturday => "S",
             _ => null
         };
 
         if (diaSigla == null)
         {
-            _logger.LogInformation("Fin de semana detectado ({DiaSemana}). No se programan sesiones de clase (RN-01).", diaSemana);
+            _logger.LogInformation("Fin de semana detectado (Domingo). No se programan sesiones de clase (RN-01).");
             return;
         }
 

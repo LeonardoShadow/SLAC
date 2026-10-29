@@ -1,0 +1,413 @@
+@page "/proyeccion/{materiaId:guid}/pantalla"
+@page "/docente/proyeccion/{materiaId:guid}/pantalla"
+@namespace SLAC.Components.Pages.Docente
+@rendermode InteractiveServer
+@layout EmptyLayout
+@implements IAsyncDisposable
+@using Microsoft.AspNetCore.SignalR.Client
+@using SLAC.Core.Attendance.Entities
+@using SLAC.Core.Attendance.Repositories
+@using SLAC.Core.Security
+@using SLAC.Core.Session
+@using SLAC.Core.Session.Models
+@inject IMateriaRepository MateriaRepo
+@inject IListaAsistenciaRepository ListaRepo
+@inject ITokenService TokenService
+@inject IQrCodeGeneratorService QrService
+@inject ISessionCacheRepository SessionCache
+@inject NavigationManager Navigation
+
+<PageTitle>SLAC - Pantalla de Proyección Limpia</PageTitle>
+
+<div class="pantalla-proyector-wrapper">
+    @if (_loading)
+    {
+        <div class="d-flex flex-column align-center justify-center" style="height: 100vh;">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+            <span class="mt-4" style="color: #94a3b8; font-family: monospace;">Sincronizando con el aula...</span>
+        </div>
+    }
+    else if (_sesionCerrada)
+    {
+        <div class="d-flex flex-column align-center justify-center" style="height: 100vh; text-align: center; padding: 2rem;">
+            <MudIcon Icon="@Icons.Material.Filled.CheckCircleOutline" Color="Color.Success" Size="Size.Large" Style="font-size: 5rem;" />
+            <h1 style="color: #ffffff; font-size: 2.2rem; margin-top: 1rem;">Sesión de Asistencia Cerrada</h1>
+            <p style="color: #94a3b8; font-size: 1.2rem; max-width: 500px;">
+                La ventana de escaneo para esta clase ha concluido.
+            </p>
+        </div>
+    }
+    else
+    {
+        <header class="proyector-header">
+            <div class="header-info">
+                <span class="materia-codigo">@(_materia?.Codigo) &bull; Grupo @(_materia?.Grupo)</span>
+                <h1 class="materia-nombre">@(_materia?.Nombre)</h1>
+            </div>
+            <div class="header-status">
+                <div class="status-indicator">
+                    <span class="pulse-dot"></span>
+                    <span class="status-text">@(_qrEstaticoUnico ? "QR ÚNICO FIJO" : "ESCANEO EN VIVO")</span>
+                </div>
+                @if (!_qrEstaticoUnico)
+                {
+                    <div class="timer-badge">
+                        <MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" Class="spin-icon mr-1" />
+                        <span>Rotación en <b>@_segundosRestantesRotacion s</b></span>
+                    </div>
+                }
+            </div>
+        </header>
+
+        <main class="proyector-main">
+            <div class="qr-canvas-box">
+                @if (!string.IsNullOrEmpty(_qrSvgContent))
+                {
+                    <div class="qr-svg-holder">
+                        @((MarkupString)_qrSvgContent)
+                    </div>
+                }
+                else
+                {
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+                }
+            </div>
+
+            @if (!_qrEstaticoUnico)
+            {
+                <div class="proyector-progress-bar">
+                    <div class="proyector-progress-fill" style="width: @(_porcentajeRotacion)%;"></div>
+                </div>
+            }
+
+            <div class="proyector-instruction">
+                <MudIcon Icon="@Icons.Material.Filled.CameraAlt" Size="Size.Small" Class="mr-2 text-primary" />
+                <span>Escanea el código QR con tu celular para registrar tu asistencia en el sistema oficial UPDS</span>
+            </div>
+        </main>
+    }
+</div>
+
+<style>
+    body, html {
+        margin: 0;
+        padding: 0;
+        background-color: #090d16 !important;
+        overflow: hidden;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    }
+
+    .pantalla-proyector-wrapper {
+        min-height: 100vh;
+        width: 100vw;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        background: radial-gradient(circle at 50% 30%, #151d30 0%, #080c14 100%);
+        color: #ffffff;
+        box-sizing: border-box;
+        padding: 2.5vh 3vw;
+    }
+
+    .proyector-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding-bottom: 1.5vh;
+    }
+
+    .materia-codigo {
+        font-size: 1rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: #38bdf8;
+        text-transform: uppercase;
+    }
+
+    .materia-nombre {
+        font-size: clamp(1.4rem, 2.5vw, 2.2rem);
+        font-weight: 800;
+        margin: 0.2rem 0 0 0;
+        color: #f8fafc;
+    }
+
+    .header-status {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+    }
+
+    .status-indicator {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: rgba(16, 185, 129, 0.15);
+        border: 1px solid rgba(16, 185, 129, 0.4);
+        padding: 0.4rem 0.8rem;
+        border-radius: 9999px;
+    }
+
+    .pulse-dot {
+        width: 10px;
+        height: 10px;
+        background-color: #10b981;
+        border-radius: 50%;
+        box-shadow: 0 0 10px #10b981;
+        animation: pulse 1.5s infinite;
+    }
+
+    .status-text {
+        font-size: 0.85rem;
+        font-weight: 800;
+        color: #34d399;
+        letter-spacing: 0.5px;
+    }
+
+    .timer-badge {
+        display: flex;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 0.4rem 0.8rem;
+        border-radius: 9999px;
+        font-size: 0.95rem;
+        color: #cbd5e1;
+    }
+
+    .proyector-main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        flex-grow: 1;
+        margin: 2vh 0;
+    }
+
+    .qr-canvas-box {
+        background: #ffffff;
+        padding: 2.2vh;
+        border-radius: 24px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), 0 0 60px rgba(56, 189, 248, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        max-width: min(72vh, 85vw);
+        max-height: min(72vh, 85vw);
+        aspect-ratio: 1 / 1;
+    }
+
+    .qr-svg-holder {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .qr-svg-holder svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+
+    .proyector-progress-bar {
+        width: min(72vh, 85vw);
+        height: 8px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 9999px;
+        overflow: hidden;
+        margin-top: 2vh;
+    }
+
+    .proyector-progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #4f46e5, #06b6d4);
+        transition: width 0.95s linear;
+    }
+
+    .proyector-instruction {
+        margin-top: 1.5vh;
+        display: flex;
+        align-items: center;
+        color: #94a3b8;
+        font-size: clamp(0.85rem, 1.2vw, 1.1rem);
+        text-align: center;
+    }
+
+    .spin-icon {
+        animation: spin 3s linear infinite;
+    }
+
+    @@keyframes spin {
+        100% { transform: rotate(360deg); }
+    }
+
+    @@keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+    }
+</style>
+
+@code {
+    [Parameter]
+    public Guid MateriaId { get; set; }
+
+    private bool _loading = true;
+    private bool _sesionCerrada = false;
+    private Materia? _materia;
+    private ListaAsistencia? _sesionHoy;
+    private HubConnection? _hubConnection;
+    private PeriodicTimer? _rotationTimer;
+    private CancellationTokenSource _cts = new();
+
+    private string _qrSvgContent = string.Empty;
+    private bool _qrEstaticoUnico = false;
+    private int _segundosRestantesRotacion = 15;
+    private int _rotacionIndex = 0;
+    private double _porcentajeRotacion => _qrEstaticoUnico ? 100 : (_segundosRestantesRotacion / 15.0) * 100.0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _materia = await MateriaRepo.ObtenerPorIdAsync(MateriaId);
+            if (_materia == null)
+            {
+                _sesionCerrada = true;
+                _loading = false;
+                return;
+            }
+
+            var hoy = TimeHelper.Today;
+            _sesionHoy = await ListaRepo.ObtenerPorMateriaYFechaAsync(MateriaId, hoy);
+            if (_sesionHoy == null || _sesionHoy.Estado == "Cerrada")
+            {
+                _sesionCerrada = true;
+                _loading = false;
+                return;
+            }
+
+            // Conectar a SignalR para sincronización con la consola del docente
+            await IniciarSignalRAsync();
+
+            // Cargar estado inicial de la sesión
+            await CargarEstadoSesionAsync();
+
+            // Iniciar temporizador de rotación
+            IniciarTemporizadorRotacion();
+        }
+        catch (Exception)
+        {
+            _sesionCerrada = true;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task CargarEstadoSesionAsync()
+    {
+        if (_sesionHoy == null) return;
+        var cached = await SessionCache.GetActiveSessionAsync(_sesionHoy.Id);
+        if (cached != null)
+        {
+            _qrEstaticoUnico = cached.RotacionIndex == -1;
+            _rotacionIndex = cached.RotacionIndex;
+        }
+        await GenerarQrActualAsync();
+    }
+
+    private async Task IniciarSignalRAsync()
+    {
+        var hubUrl = Navigation.ToAbsoluteUri("/hubs/attendance");
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(hubUrl)
+            .WithAutomaticReconnect()
+            .Build();
+
+        _hubConnection.On<Guid, string, int>("OnQrRotated", async (sesionId, token, rotacion) =>
+        {
+            if (_sesionHoy != null && sesionId == _sesionHoy.Id)
+            {
+                _rotacionIndex = rotacion;
+                _qrEstaticoUnico = rotacion == -1;
+                _segundosRestantesRotacion = 15;
+                await GenerarQrActualAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        });
+
+        _hubConnection.On<Guid>("OnSessionClosed", async (sesionId) =>
+        {
+            if (_sesionHoy != null && sesionId == _sesionHoy.Id)
+            {
+                _sesionCerrada = true;
+                await InvokeAsync(StateHasChanged);
+            }
+        });
+
+        try
+        {
+            await _hubConnection.StartAsync();
+            if (_sesionHoy != null)
+            {
+                await _hubConnection.SendAsync("JoinClassroomSession", _sesionHoy.Id.ToString());
+            }
+        }
+        catch
+        {
+            // Fallback si SignalR está en reconexión
+        }
+    }
+
+    private void IniciarTemporizadorRotacion()
+    {
+        _rotationTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        _ = Task.Run(async () =>
+        {
+            while (await _rotationTimer.WaitForNextTickAsync(_cts.Token))
+            {
+                if (!_qrEstaticoUnico)
+                {
+                    _segundosRestantesRotacion--;
+                    if (_segundosRestantesRotacion <= 0)
+                    {
+                        _segundosRestantesRotacion = 15;
+                        _rotacionIndex++;
+                        await GenerarQrActualAsync();
+                    }
+                }
+                await InvokeAsync(StateHasChanged);
+            }
+        }, _cts.Token);
+    }
+
+    private async Task GenerarQrActualAsync()
+    {
+        if (_sesionHoy == null) return;
+
+        var rotacionParaToken = _qrEstaticoUnico ? -1 : _rotacionIndex;
+        var token = TokenService.GenerateSessionQrToken(
+            _sesionHoy.Id,
+            _sesionHoy.InstitucionId,
+            _sesionHoy.CreadoEn,
+            ventanaMinutos: 20,
+            rotacionIndex: rotacionParaToken);
+
+        var url = Navigation.ToAbsoluteUri($"/a/{_sesionHoy.Id}?t={token}").ToString();
+        _qrSvgContent = QrService.GenerateSvg(url, pixelsPerModule: 12, darkColorHex: "#0F172A", lightColorHex: "#FFFFFF");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+        _rotationTimer?.Dispose();
+
+        if (_hubConnection is not null)
+        {
+            await _hubConnection.DisposeAsync();
+        }
+    }
+}

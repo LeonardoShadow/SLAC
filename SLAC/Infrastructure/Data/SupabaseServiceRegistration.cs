@@ -11,6 +11,9 @@ public static class SupabaseServiceRegistration
     {
         services.Configure<SlacSupabaseOptions>(configuration.GetSection(SlacSupabaseOptions.SectionName));
 
+        services.AddHttpClient<DatabaseHealthService>();
+        services.AddScoped<IDatabaseHealthService, DatabaseHealthService>();
+
         services.AddScoped<Supabase.Client>(provider =>
         {
             var options = provider.GetRequiredService<IOptions<SlacSupabaseOptions>>().Value;

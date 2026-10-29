@@ -225,7 +225,7 @@
             PeriodoId = _periodos.First().Id,
             EspacioId = _espacios.First().Id,
             HoraInicio = new TimeSpan(7, 0, 0),
-            Dias = "L,M,V"
+            Dias = "L,M,X,J,V"
         };
 
         var parameters = new DialogParameters<MateriaDialog>
@@ -234,7 +234,8 @@
             { x => x.Periodos, _periodos },
             { x => x.Espacios, _espacios },
             { x => x.Docentes, _docentes },
-            { x => x.EsAdmin, true }
+            { x => x.EsAdmin, true },
+            { x => x.EsNuevo, true }
         };
 
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
@@ -273,7 +274,8 @@
             { x => x.Periodos, _periodos },
             { x => x.Espacios, _espacios },
             { x => x.Docentes, _docentes },
-            { x => x.EsAdmin, true }
+            { x => x.EsAdmin, true },
+            { x => x.EsNuevo, false }
         };
 
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };

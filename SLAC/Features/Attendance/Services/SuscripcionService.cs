@@ -107,28 +107,52 @@ public class SuscripcionService(
             }
         }
 
-        // 3.5. Validación Geográfica GPS Obligatoria (Presencia Física en Aula)
-        // Se ejecuta únicamente si el docente no configuró modo Wi-Fi y se detectaron coordenadas
+        // 3.5. Validación Geográfica (Modo "proximidad", "gps" o "wifi")
         var esModoWifi = string.Equals(request.Modo, "wifi", StringComparison.OrdinalIgnoreCase);
+        var esModoProximidad = string.Equals(request.Modo, "proximidad", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(request.Modo, "p2p", StringComparison.OrdinalIgnoreCase);
+
+        double? distanciaCalculada = null;
+        double? radioPermitidoEfectivo = null;
+
         if (!esModoWifi && request.Latitud.HasValue && request.Longitud.HasValue)
         {
             var espacio = lista.EspacioId != Guid.Empty && _espacioRepo != null
                 ? await _espacioRepo.GetByIdAsync(lista.EspacioId, ct)
                 : null;
 
+            // En modo proximidad dinámica, se prioriza estrictamente la coordenada fijada por el docente
             var targetLat = request.LatitudReferencia ?? espacio?.Latitud ?? -17.7762;
             var targetLon = request.LongitudReferencia ?? espacio?.Longitud ?? -63.1951;
             var radioTolerancia = request.RadioToleranciaPersonalizado.HasValue && request.RadioToleranciaPersonalizado.Value > 0
                 ? request.RadioToleranciaPersonalizado.Value
-                : (espacio?.RadioMetros > 0 ? espacio.RadioMetros : 300);
+                : (espacio?.RadioMetros > 0 ? espacio.RadioMetros : (esModoProximidad ? 25 : 300));
 
             var distancia = CalcularDistanciaMetros(request.Latitud.Value, request.Longitud.Value, targetLat, targetLon);
-            var margenPrecision = request.PrecisionGpsMetros.HasValue ? Math.Min(request.PrecisionGpsMetros.Value, 500) : 150;
+            distanciaCalculada = distancia;
+
+            // En modo proximidad estricto: ruido satelital máximo de 5 metros (especificado en /grill-me)
+            var margenMaximoRuido = esModoProximidad ? 5.0 : 15.0;
+            var margenPrecision = request.PrecisionGpsMetros.HasValue
+                ? Math.Clamp(request.PrecisionGpsMetros.Value, 0, margenMaximoRuido)
+                : (esModoProximidad ? 3.0 : 10.0);
+
             var toleranciaTotal = radioTolerancia + margenPrecision;
+            radioPermitidoEfectivo = toleranciaTotal;
 
             if (distancia > toleranciaTotal)
             {
-                return AttendanceScanResult.Error($"Ubicación fuera del aula ({distancia:F0}m de distancia detectada, radio permitido: {toleranciaTotal:F0}m con margen de señal). Debes estar físicamente en la clase.");
+                var modoTexto = esModoProximidad ? "GPS Experimental" : "GPS Institucional";
+                var resErr = AttendanceScanResult.Error($"Ubicación fuera de rango ({distancia:F1}m detectados, máximo permitido: {toleranciaTotal:F0}m en modo {modoTexto}). Debes estar físicamente en la clase.");
+                resErr.DistanciaCalculadaMetros = distanciaCalculada;
+                resErr.RadioPermitidoMetros = radioPermitidoEfectivo;
+                resErr.ModoValidacionAplicado = request.Modo;
+                resErr.LatitudEstudiante = request.Latitud;
+                resErr.LongitudEstudiante = request.Longitud;
+                resErr.PrecisionGpsMetros = request.PrecisionGpsMetros;
+                resErr.LatitudReferencia = targetLat;
+                resErr.LongitudReferencia = targetLon;
+                return resErr;
             }
         }
 
@@ -326,7 +350,10 @@ public class SuscripcionService(
                 MateriaCodigo = materiaCodigo,
                 HoraLlegada = detalleExistente.HoraLlegada ?? now,
                 MinutosDesdeInicio = detalleExistente.MinutosDesdeInicio ?? minutosDesdeInicio,
-                NuevaDeviceCookie = nuevaCookieDispositivo
+                NuevaDeviceCookie = nuevaCookieDispositivo,
+                DistanciaCalculadaMetros = distanciaCalculada,
+                RadioPermitidoMetros = radioPermitidoEfectivo,
+                ModoValidacionAplicado = request.Modo
             };
         }
 
@@ -381,7 +408,20 @@ public class SuscripcionService(
             Timestamp = now
         };
         await _eventBus.PublishEventAsync(eventoAsistencia, ct);
-        await _notificationService.NotifyAttendanceRecordedAsync(lista.Id, totalPresentes, estudiante.NombreCompleto, estudiante.Codigo, ct);
+        await _notificationService.NotifyAttendanceRecordedAsync(
+            lista.Id,
+            totalPresentes,
+            estudiante.NombreCompleto,
+            estudiante.Codigo,
+            request.Latitud,
+            request.Longitud,
+            request.PrecisionGpsMetros,
+            distanciaCalculada,
+            request.LatitudReferencia,
+            request.LongitudReferencia,
+            radioPermitidoEfectivo,
+            request.Modo,
+            ct);
 
         _logger.LogInformation("Asistencia registrada con éxito: {Estudiante} ({Codigo}) para Sesión {ListaId} a las {Hora}.",
             estudiante.NombreCompleto, estudiante.Codigo, lista.Id, now);
@@ -397,7 +437,15 @@ public class SuscripcionService(
             MateriaCodigo = materiaCodigo,
             HoraLlegada = now,
             MinutosDesdeInicio = minutosDesdeInicio,
-            NuevaDeviceCookie = nuevaCookieDispositivo
+            NuevaDeviceCookie = nuevaCookieDispositivo,
+            DistanciaCalculadaMetros = distanciaCalculada,
+            RadioPermitidoMetros = radioPermitidoEfectivo,
+            ModoValidacionAplicado = request.Modo,
+            LatitudEstudiante = request.Latitud,
+            LongitudEstudiante = request.Longitud,
+            PrecisionGpsMetros = request.PrecisionGpsMetros,
+            LatitudReferencia = request.LatitudReferencia,
+            LongitudReferencia = request.LongitudReferencia
         };
     }
 

@@ -10,6 +10,8 @@ using SLAC.Core.Estudiantes.Entities;
 using SLAC.Core.Estudiantes.Repositories;
 using SLAC.Core.Security;
 using SLAC.Features.Attendance.Services;
+using SLAC.Core.Institucional.Repositories;
+using SLAC.Core.Session;
 
 namespace SLAC.Features.Attendance.Hubs;
 
@@ -110,7 +112,7 @@ public static class AttendanceStudentEndpoints
                         return Results.Content(formHtml, "text/html");
                     }
 
-                    var errHtml = AttendanceStudentView.RenderErrorView("No se pudo registrar asistencia", scanRes.MensajeError ?? "Código QR inválido o expirado.");
+                    var errHtml = AttendanceStudentView.RenderErrorView("No se pudo registrar asistencia", scanRes.MensajeError ?? "Código QR inválido o expirado.", scanRes);
                     return Results.Content(errHtml, "text/html");
                 }
 
@@ -204,7 +206,7 @@ public static class AttendanceStudentEndpoints
                 return Results.Content(formHtml, "text/html");
             }
 
-            var errHtml = AttendanceStudentView.RenderErrorView("No se pudo registrar asistencia", scanRes.MensajeError ?? "Código QR inválido o expirado.");
+            var errHtml = AttendanceStudentView.RenderErrorView("No se pudo registrar asistencia", scanRes.MensajeError ?? "Código QR inválido o expirado.", scanRes);
             return Results.Content(errHtml, "text/html");
         }).DisableAntiforgery();
 
@@ -387,6 +389,83 @@ public static class AttendanceStudentEndpoints
             }
 
             return Results.Json(new { estado = "aprobada", recargar = true });
+        }).DisableAntiforgery();
+
+        // GET /docente/calibrar/{sesionId:guid} (Calibración móvil de alta precisión satelital para el docente)
+        endpoints.MapGet("/docente/calibrar/{sesionId:guid}", async (
+            Guid sesionId,
+            IListaAsistenciaRepository listaRepo,
+            IMateriaRepository materiaRepo,
+            IEspacioRepository espacioRepo,
+            CancellationToken ct) =>
+        {
+            var lista = await listaRepo.ObtenerPorIdAsync(sesionId, ct);
+            if (lista == null)
+            {
+                var notFoundHtml = AttendanceStudentView.RenderErrorView("Sesión No Encontrada", "No existe una sesión de asistencia activa con este identificador.");
+                return Results.Content(notFoundHtml, "text/html");
+            }
+
+            var materia = await materiaRepo.ObtenerPorIdAsync(lista.MateriaId, ct);
+            var espacio = lista.EspacioId != Guid.Empty ? await espacioRepo.GetByIdAsync(lista.EspacioId, ct) : null;
+
+            var html = AttendanceStudentView.RenderDocenteCalibrationView(
+                sesionId,
+                materia?.Nombre ?? "Materia",
+                materia?.Codigo ?? "",
+                materia?.Grupo ?? "",
+                espacio?.Nombre ?? "Aula Asignada",
+                espacio?.Latitud,
+                espacio?.Longitud);
+
+            return Results.Content(html, "text/html");
+        });
+
+        // POST /docente/calibrar/{sesionId:guid} (Guarda las coordenadas satelitales obtenidas por el celular del docente)
+        endpoints.MapPost("/docente/calibrar/{sesionId:guid}", async (
+            Guid sesionId,
+            IFormCollection form,
+            IListaAsistenciaRepository listaRepo,
+            IMateriaRepository materiaRepo,
+            IEspacioRepository espacioRepo,
+            ISessionCacheRepository sessionCache,
+            CancellationToken ct) =>
+        {
+            var lista = await listaRepo.ObtenerPorIdAsync(sesionId, ct);
+            if (lista == null)
+            {
+                var notFoundHtml = AttendanceStudentView.RenderErrorView("Sesión No Encontrada", "No existe una sesión de asistencia activa con este identificador.");
+                return Results.Content(notFoundHtml, "text/html");
+            }
+
+            double? lat = double.TryParse(form["lat"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var latVal) ? latVal : null;
+            double? lon = double.TryParse(form["lon"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lonVal) ? lonVal : null;
+            double? acc = double.TryParse(form["acc"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var accVal) ? accVal : null;
+
+            if (!lat.HasValue || !lon.HasValue)
+            {
+                var errHtml = AttendanceStudentView.RenderErrorView("Datos Inválidos", "No se recibieron coordenadas GPS válidas desde el celular.");
+                return Results.Content(errHtml, "text/html");
+            }
+
+            var materia = await materiaRepo.ObtenerPorIdAsync(lista.MateriaId, ct);
+            var espacio = lista.EspacioId != Guid.Empty ? await espacioRepo.GetByIdAsync(lista.EspacioId, ct) : null;
+
+            if (espacio != null)
+            {
+                espacio.Latitud = lat.Value;
+                espacio.Longitud = lon.Value;
+                await espacioRepo.UpdateAsync(espacio, ct);
+            }
+
+            var successHtml = AttendanceStudentView.RenderDocenteCalibrationSuccessView(
+                materia?.Nombre ?? "Materia",
+                espacio?.Nombre ?? "Aula",
+                lat.Value,
+                lon.Value,
+                acc ?? 10);
+
+            return Results.Content(successHtml, "text/html");
         }).DisableAntiforgery();
 
         return endpoints;

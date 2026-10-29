@@ -34,7 +34,7 @@ public class MateriaDbModel : BaseModel
     public string HoraInicio { get; set; } = "08:00:00";
 
     [Column("dias")]
-    public string Dias { get; set; } = "L,M,V";
+    public string Dias { get; set; } = "L,M,X,J,V";
 
     [Column("estado")]
     public string Estado { get; set; } = "activa";
