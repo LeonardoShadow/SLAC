@@ -123,7 +123,8 @@ public class TokenService(IKeyManager keyManager) : ITokenService
             }
 
             // 2. Validar rotación dinámica (15 segundos) con tolerancia
-            if (validarRotacion)
+            // Si RotacionIndex < 0 (p. ej. -1), corresponde a un "QR Único / Estático" que permanece válido durante toda la clase sin rotación
+            if (validarRotacion && payload.RotacionIndex >= 0)
             {
                 var segundosTranscurridos = Math.Max(0, ahoraUnix - payload.InicioVigenciaUnix);
                 var indiceEsperado = (int)(segundosTranscurridos / 15);

@@ -6,8 +6,8 @@
 <MudDialog>
     <TitleContent>
         <div class="d-flex align-center gap-2">
-            <MudIcon Icon="@(Materia.Id == Guid.Empty ? Icons.Material.Filled.AddCircle : Icons.Material.Filled.Edit)" Color="Color.Primary" />
-            <MudText Typo="Typo.h6">@(Materia.Id == Guid.Empty ? "Nueva Materia" : "Editar Materia")</MudText>
+            <MudIcon Icon="@(EsNuevo ? Icons.Material.Filled.AddCircle : Icons.Material.Filled.Edit)" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">@(EsNuevo ? "Nueva Materia" : "Editar Materia")</MudText>
         </div>
     </TitleContent>
     <DialogContent>
@@ -62,9 +62,9 @@
                                Required="true"
                                Variant="Variant.Outlined"
                                Margin="Margin.Dense"
-                               ReadOnly="@(!EsAdmin)"
-                               Disabled="@(!EsAdmin)"
-                               HelperText="@(EsAdmin ? "Horario institucional de inicio" : "🔒 Solo el Administrador puede cambiar la hora de clase.")" />
+                               ReadOnly="@(!EsAdmin && !EsNuevo)"
+                               Disabled="@(!EsAdmin && !EsNuevo)"
+                               HelperText="@(EsAdmin || EsNuevo ? "Horario institucional de inicio" : "🔒 Solo el Administrador puede cambiar la hora de clase una vez creada.")" />
             </MudItem>
             <MudItem xs="12" sm="6">
                 <MudSelect T="string" @bind-Value="Materia.Estado" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense">
@@ -75,11 +75,8 @@
 
             <MudItem xs="12">
                 <MudText Typo="Typo.caption" Class="d-block mb-1">
-                    <b>Días de clase (Lunes a Viernes):</b>
-                    @if (!EsAdmin)
-                    {
-                        <span class="text-danger ml-2">🔒 (Solo el Administrador puede modificar los días de clase)</span>
-                    }
+                    <b>Días de clase (Lunes a Sábado):</b>
+                    <span class="text-muted ml-2">Selecciona los días en que se impartirá la materia.</span>
                 </MudText>
                 <div class="d-flex gap-2 flex-wrap">
                     @foreach (var dia in _diasDisponibles)
@@ -88,8 +85,8 @@
                         <MudChip T="string"
                                  Color="@(seleccionado ? Color.Primary : Color.Default)"
                                  Variant="@(seleccionado ? Variant.Filled : Variant.Outlined)"
-                                 Disabled="@(!EsAdmin)"
-                                 OnClick="@(() => { if (EsAdmin) ToggleDia(dia.Sigla); })">
+                                 OnClick="@(() => ToggleDia(dia.Sigla))"
+                                 Style="cursor: pointer; font-weight: 600;">
                             @dia.Nombre (@dia.Sigla)
                         </MudChip>
                     }
@@ -122,6 +119,9 @@
     [Parameter]
     public bool EsAdmin { get; set; } = false;
 
+    [Parameter]
+    public bool EsNuevo { get; set; } = false;
+
     private TimeSpan? _horaInicio;
     private HashSet<string> _diasSeleccionados = [];
     private string? _errorMessage;
@@ -133,20 +133,36 @@
         new("M", "Martes"),
         new("X", "Miércoles"),
         new("J", "Jueves"),
-        new("V", "Viernes")
+        new("V", "Viernes"),
+        new("S", "Sábado")
     ];
 
     protected override void OnInitialized()
     {
         _horaInicio = Materia.HoraInicio;
-        var diasExistentes = Materia.ObtenerListaDias();
-        if (diasExistentes.Length > 0)
+        if (EsNuevo)
         {
-            _diasSeleccionados = new HashSet<string>(diasExistentes);
+            _diasSeleccionados = ["L", "M", "X", "J", "V"]; // Por defecto: Lunes a Viernes activos, Sábado inactivo
+            Materia.Dias = "L,M,X,J,V";
         }
         else
         {
-            _diasSeleccionados = ["L", "M", "V"]; // Selección por defecto
+            var diasExistentes = Materia.ObtenerListaDias();
+            if (diasExistentes.Length > 0)
+            {
+                if (diasExistentes.Length == 3 && diasExistentes.Contains("L") && diasExistentes.Contains("M") && diasExistentes.Contains("V"))
+                {
+                    _diasSeleccionados = ["L", "M", "X", "J", "V"];
+                }
+                else
+                {
+                    _diasSeleccionados = new HashSet<string>(diasExistentes);
+                }
+            }
+            else
+            {
+                _diasSeleccionados = ["L", "M", "X", "J", "V"];
+            }
         }
     }
 
@@ -166,15 +182,12 @@
     {
         _errorMessage = null;
 
-        if (EsAdmin && _horaInicio.HasValue)
+        if ((EsAdmin || EsNuevo) && _horaInicio.HasValue)
         {
             Materia.HoraInicio = _horaInicio.Value;
         }
 
-        if (EsAdmin)
-        {
-            Materia.EstablecerDias(_diasSeleccionados);
-        }
+        Materia.EstablecerDias(_diasSeleccionados);
 
         var (valida, error) = Materia.ValidarReglasNegocio();
         if (!valida)

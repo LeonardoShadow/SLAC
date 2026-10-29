@@ -13,6 +13,11 @@ public class SupabaseMateriaRepository(Client supabaseClient, ILogger<SupabaseMa
     private readonly ILogger<SupabaseMateriaRepository> _logger = logger;
     private static readonly ConcurrentDictionary<Guid, Materia> _fallbackStore = new();
 
+    private bool IsDummyClient =>
+        _supabaseClient.Postgrest?.BaseUrl != null &&
+        (_supabaseClient.Postgrest.BaseUrl.Contains("placeholder", StringComparison.OrdinalIgnoreCase) ||
+         _supabaseClient.Postgrest.BaseUrl.Contains("fake", StringComparison.OrdinalIgnoreCase));
+
     public async Task<IReadOnlyList<Materia>> ListarPorDocenteAsync(Guid docenteId, CancellationToken ct = default)
     {
         try
@@ -114,7 +119,11 @@ public class SupabaseMateriaRepository(Client supabaseClient, ILogger<SupabaseMa
             materia.Id = Guid.NewGuid();
         }
 
-        _fallbackStore[materia.Id] = materia;
+        if (IsDummyClient)
+        {
+            _fallbackStore[materia.Id] = materia;
+            return materia;
+        }
 
         try
         {
@@ -137,10 +146,14 @@ public class SupabaseMateriaRepository(Client supabaseClient, ILogger<SupabaseMa
             await _supabaseClient
                 .From<MateriaDbModel>()
                 .Upsert(model, cancellationToken: ct);
+
+            _fallbackStore[materia.Id] = materia;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error guardando materia en Supabase. Se mantiene en almacén local.");
+            _logger.LogError(ex, "Error crítico guardando materia en Supabase. Operación abortada para prevenir pérdida en memoria volátil.");
+            _fallbackStore.TryRemove(materia.Id, out _);
+            throw new InvalidOperationException("No se pudo conectar con la base de datos Supabase para guardar la materia. Verifica que el proyecto esté activo y no en reposo.", ex);
         }
 
         return materia;
@@ -148,9 +161,13 @@ public class SupabaseMateriaRepository(Client supabaseClient, ILogger<SupabaseMa
 
     public async Task<bool> ArchivarAsync(Guid id, CancellationToken ct = default)
     {
-        if (_fallbackStore.TryGetValue(id, out var m))
+        if (IsDummyClient)
         {
-            m.Estado = "archivada";
+            if (_fallbackStore.TryGetValue(id, out var m))
+            {
+                m.Estado = "archivada";
+            }
+            return true;
         }
 
         try
@@ -161,12 +178,17 @@ public class SupabaseMateriaRepository(Client supabaseClient, ILogger<SupabaseMa
                 .Set(x => x.Estado, "archivada")
                 .Update(cancellationToken: ct);
 
+            if (_fallbackStore.TryGetValue(id, out var m))
+            {
+                m.Estado = "archivada";
+            }
+
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error archivando materia {Id} en Supabase. Se actualizó en almacén local.", id);
-            return _fallbackStore.ContainsKey(id);
+            _logger.LogError(ex, "Error archivando materia {Id} en Supabase.", id);
+            throw new InvalidOperationException("No se pudo archivar la materia en la base de datos Supabase.", ex);
         }
     }
 

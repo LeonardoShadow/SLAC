@@ -3,12 +3,12 @@ namespace SLAC.Core.Docentes.Entities;
 /// <summary>
 /// Representa una materia académica publicada en SLAC.
 /// Cumple estrictamente con la regla de negocio RN-01:
-/// - Días de clase válidos exclusivamente de Lunes a Viernes (L, M, X, J, V).
+/// - Días de clase válidos de Lunes a Sábado (L, M, X, J, V, S).
 /// - Un único horario de inicio predefinido (no fraccionado).
 /// </summary>
 public class Materia
 {
-    public static readonly string[] DiasValidos = ["L", "M", "X", "J", "V"];
+    public static readonly string[] DiasValidos = ["L", "M", "X", "J", "V", "S"];
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid InstitucionId { get; set; }
@@ -19,7 +19,7 @@ public class Materia
     public string Grupo { get; set; } = string.Empty;
     public Guid EspacioId { get; set; }
     public TimeSpan HoraInicio { get; set; }
-    public string Dias { get; set; } = "L,M,V";
+    public string Dias { get; set; } = "L,M,X,J,V";
     public string Estado { get; set; } = "activa"; // 'activa', 'archivada'
     public DateTimeOffset CreadoEn { get; set; } = DateTimeOffset.UtcNow;
 
@@ -63,7 +63,7 @@ public class Materia
         {
             if (!DiasValidos.Contains(dia))
             {
-                return (false, $"El día '{dia}' no es permitido por la regla RN-01. Solo se admiten días de lunes a viernes (L, M, X, J, V).");
+                return (false, $"El día '{dia}' no es permitido por la regla RN-01. Solo se admiten días de lunes a sábado (L, M, X, J, V, S).");
             }
         }
 
@@ -100,6 +100,7 @@ public class Materia
             "X" => "Miércoles",
             "J" => "Jueves",
             "V" => "Viernes",
+            "S" => "Sábado",
             _ => s
         });
         return string.Join(", ", nombres);

@@ -1,7 +1,9 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @using SLAC.Features.Attendance.Services
+@using SLAC.Infrastructure.Data
 @inject IUserSessionService SessionService
+@inject IDatabaseHealthService DbHealthService
 @inject NavigationManager Navigation
 
 <MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" />
@@ -126,6 +128,17 @@ OnClick="@(() => _isDarkMode = !_isDarkMode)" />
 </MudDrawer>
 
 <MudMainContent Class="pt-16 px-4 pb-8">
+    @if (!_dbHealthy)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Square="true" Class="mb-4">
+            <div class="d-flex align-center justify-space-between flex-wrap gap-2">
+                <span>⚠️ <b>ALERTA DE BASE DE DATOS:</b> Supabase se encuentra fuera de línea o en reposo. Reanuda el proyecto en Supabase para evitar pérdidas de datos.</span>
+                <MudButton Variant="Variant.Outlined" Color="Color.Inherit" Size="Size.Small" OnClick="ReintentarConexionBdAsync">
+                    Reintentar Conexión
+                </MudButton>
+            </div>
+        </MudAlert>
+    }
     <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
         @Body
     </MudContainer>
@@ -135,6 +148,7 @@ OnClick="@(() => _isDarkMode = !_isDarkMode)" />
 @code {
     private bool _drawerOpen = true;
     private bool _isDarkMode = false;
+    private bool _dbHealthy = true;
 
     private readonly MudTheme _theme = new()
     {
@@ -157,9 +171,16 @@ OnClick="@(() => _isDarkMode = !_isDarkMode)" />
         }
     };
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         SessionService.OnChange += OnSessionChanged;
+        _dbHealthy = await DbHealthService.VerificarSaludAsync();
+    }
+
+    private async Task ReintentarConexionBdAsync()
+    {
+        _dbHealthy = await DbHealthService.VerificarSaludAsync(forzar: true);
+        await InvokeAsync(StateHasChanged);
     }
 
     private void OnSessionChanged()

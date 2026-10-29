@@ -13,6 +13,11 @@ public class SupabaseEspacioRepository(Client supabaseClient, ILogger<SupabaseEs
     private readonly ILogger<SupabaseEspacioRepository> _logger = logger;
     private static readonly ConcurrentDictionary<Guid, Espacio> _fallbackStore = new();
 
+    private bool IsDummyClient =>
+        _supabaseClient.Postgrest?.BaseUrl != null &&
+        (_supabaseClient.Postgrest.BaseUrl.Contains("placeholder", StringComparison.OrdinalIgnoreCase) ||
+         _supabaseClient.Postgrest.BaseUrl.Contains("fake", StringComparison.OrdinalIgnoreCase));
+
     public async Task<List<Espacio>> GetByInstitucionAsync(Guid institucionId, CancellationToken cancellationToken = default)
     {
         try
@@ -81,6 +86,13 @@ public class SupabaseEspacioRepository(Client supabaseClient, ILogger<SupabaseEs
 
     public async Task<Espacio> CreateAsync(Espacio espacio, CancellationToken cancellationToken = default)
     {
+        if (IsDummyClient)
+        {
+            if (espacio.Id == Guid.Empty) espacio.Id = Guid.NewGuid();
+            _fallbackStore[espacio.Id] = espacio;
+            return espacio;
+        }
+
         try
         {
             var dbModel = new EspacioDbModel
@@ -98,19 +110,24 @@ public class SupabaseEspacioRepository(Client supabaseClient, ILogger<SupabaseEs
 
             await _supabaseClient.From<EspacioDbModel>().Insert(dbModel, null, cancellationToken);
             espacio.Id = dbModel.Id;
+            _fallbackStore[espacio.Id] = espacio;
+            return espacio;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error al insertar espacio en Supabase. Guardando localmente.");
-            if (espacio.Id == Guid.Empty) espacio.Id = Guid.NewGuid();
+            _logger.LogError(ex, "Error al insertar espacio en Supabase. Operación abortada.");
+            throw new InvalidOperationException("No se pudo guardar el aula/espacio en Supabase. La base de datos no está disponible.", ex);
         }
-
-        _fallbackStore[espacio.Id] = espacio;
-        return espacio;
     }
 
     public async Task<Espacio> UpdateAsync(Espacio espacio, CancellationToken cancellationToken = default)
     {
+        if (IsDummyClient)
+        {
+            _fallbackStore[espacio.Id] = espacio;
+            return espacio;
+        }
+
         try
         {
             var dbModel = new EspacioDbModel
@@ -127,18 +144,24 @@ public class SupabaseEspacioRepository(Client supabaseClient, ILogger<SupabaseEs
             };
 
             await _supabaseClient.From<EspacioDbModel>().Update(dbModel, null, cancellationToken);
+            _fallbackStore[espacio.Id] = espacio;
+            return espacio;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error al actualizar espacio en Supabase. Actualizando localmente.");
+            _logger.LogError(ex, "Error al actualizar espacio {Id} en Supabase.", espacio.Id);
+            throw new InvalidOperationException("No se pudo actualizar el aula/espacio en Supabase. La base de datos no está disponible.", ex);
         }
-
-        _fallbackStore[espacio.Id] = espacio;
-        return espacio;
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        if (IsDummyClient)
+        {
+            _fallbackStore.TryRemove(id, out _);
+            return;
+        }
+
         try
         {
             await _supabaseClient.From<EspacioDbModel>().Where(x => x.Id == id).Delete(null, cancellationToken);

@@ -8,7 +8,7 @@ namespace SLAC.Tests;
 public class DocenteMateriaTests
 {
     [Fact]
-    public void Materia_ConDiasLunesAViernes_EsValida()
+    public void Materia_ConDiasLunesASabado_EsValida()
     {
         // Arrange
         var materia = new Materia
@@ -20,7 +20,7 @@ public class DocenteMateriaTests
             DocenteId = Guid.NewGuid(),
             EspacioId = Guid.NewGuid(),
             HoraInicio = new TimeSpan(8, 0, 0),
-            Dias = "L,M,V"
+            Dias = "L,M,X,J,V,S"
         };
 
         // Act
@@ -29,13 +29,48 @@ public class DocenteMateriaTests
         // Assert
         Assert.True(esValida);
         Assert.Null(error);
-        Assert.Equal("Lunes, Martes, Viernes", materia.ObtenerDiasLegibles());
+        Assert.Equal("Lunes, Martes, Miércoles, Jueves, Viernes, Sábado", materia.ObtenerDiasLegibles());
+    }
+
+    [Fact]
+    public void Materia_SoloSabado_EsValida()
+    {
+        // Arrange
+        var materia = new Materia
+        {
+            Codigo = "TALLER-01",
+            Nombre = "Taller de Grado",
+            Grupo = "S1",
+            PeriodoId = Guid.NewGuid(),
+            DocenteId = Guid.NewGuid(),
+            EspacioId = Guid.NewGuid(),
+            HoraInicio = new TimeSpan(8, 0, 0),
+            Dias = "S"
+        };
+
+        // Act
+        var (esValida, error) = materia.ValidarReglasNegocio();
+
+        // Assert
+        Assert.True(esValida);
+        Assert.Null(error);
+        Assert.Equal("Sábado", materia.ObtenerDiasLegibles());
+    }
+
+    [Fact]
+    public void Materia_PredeterminadoDias_TieneLunesAViernes()
+    {
+        // Arrange & Act
+        var materia = new Materia();
+
+        // Assert
+        Assert.Equal("L,M,X,J,V", materia.Dias);
+        Assert.Contains("S", Materia.DiasValidos);
     }
 
     [Theory]
-    [InlineData("S")] // Sábado
-    [InlineData("D")] // Domingo
-    [InlineData("L,M,S")] // Fin de semana mezclado
+    [InlineData("D")] // Domingo no lectivo
+    [InlineData("L,M,D")] // Domingo mezclado
     [InlineData("XYZ")] // Sigla inválida
     public void Materia_ConDiasFinDeSemanaOInvalidos_ViolaRN01(string diasInvalidos)
     {

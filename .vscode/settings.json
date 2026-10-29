@@ -1,1 +1,17 @@
-{}
+{
+    "dotnet.defaultSolution": "SLAC.sln",
+    "omnisharp.defaultLaunchSolution": "SLAC.sln",
+    "omnisharp.useModernNet": true,
+    "csharp.suppressDotnetRestoreNotification": true,
+    "code-runner.runInTerminal": true,
+    "code-runner.clearPreviousOutput": true,
+    "code-runner.saveFileBeforeRun": true,
+    "code-runner.executorMap": {
+        "csharp": "dotnet run --project $workspaceRoot/SLAC/SLAC.csproj",
+        "razor": "dotnet run --project $workspaceRoot/SLAC/SLAC.csproj"
+    },
+    "csharp-dev-tools.solutionViewer.selectedWorkspaceSolutions": [
+        "SLAC.sln",
+        "SLAC.slnx"
+    ]
+}

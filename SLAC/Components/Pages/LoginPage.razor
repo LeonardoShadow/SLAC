@@ -438,20 +438,6 @@
             }
 
             var docentes = (await DocenteRepo.ListarPorInstitucionAsync(_institucionId)).ToList();
-            if (docentes.Count == 0 && _institucionId == Guid.Parse("11111111-1111-1111-1111-111111111111"))
-            {
-                var docDemo = new SLAC.Core.Docentes.Entities.Docente
-                {
-                    InstitucionId = _institucionId,
-                    UserId = Guid.Parse("55555555-5555-5555-5555-555555555555"),
-                    Nombres = "Jimmy",
-                    Apellidos = "Requena",
-                    Correo = "sc.jimmy.requena.l@upds.edu.bo",
-                    Codigo = "87438"
-                };
-                await DocenteRepo.GuardarAsync(docDemo);
-                docentes.Add(docDemo);
-            }
 
             var inputUser = input.Split('@')[0].Trim().ToLowerInvariant();
 

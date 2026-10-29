@@ -35,6 +35,9 @@
                 document.exitFullscreen();
             }
         };
+        window.slacOpenCleanProjector = (url) => {
+            window.open(url, 'slac_proyector', 'width=1024,height=768,menubar=no,toolbar=no,location=no,status=no,resizable=yes');
+        };
         window.slacGetDocenteLocation = () => {
             return new Promise((resolve, reject) => {
                 if (!navigator.geolocation) {
