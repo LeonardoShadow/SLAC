@@ -1,6 +1,7 @@
 using System.Text;
 using ClosedXML.Excel;
 using Microsoft.Extensions.Logging;
+using SLAC.Core.Attendance.Entities;
 using SLAC.Core.Attendance.Repositories;
 using SLAC.Core.Attendance.Services;
 using SLAC.Core.Docentes.Repositories;
@@ -68,24 +69,33 @@ public class ReporteAsistenciaService(
         {
             var detalles = await _detalleRepo.ListarPorListaAsync(lista.Id, ct);
 
-            // Conciliar e insertar faltas automáticamente si la sesión está Cerrada y hay alumnos inscritos ausentes
+            // Consulta de solo lectura (CQS - REF-07): no ejecutar mutaciones en BD durante lectura de reportes.
+            var faltas = detalles.Where(d => d.Estado == "Falta").ToList();
+
+            // Si la sesión está cerrada y hay estudiantes inscritos que no registraron presencia,
+            // proyectarlos en memoria para el reporte sin disparar escrituras transaccionales secundarias.
             if (lista.Estado == "Cerrada" && estudiantesSuscritosIds.Count > 0)
             {
                 var presentesIds = new HashSet<Guid>(detalles.Where(d => d.Estado == "Presente").Select(d => d.EstudianteId));
-                var faltasExistentes = new HashSet<Guid>(detalles.Where(d => d.Estado == "Falta").Select(d => d.EstudianteId));
+                var faltasExistentes = new HashSet<Guid>(faltas.Select(d => d.EstudianteId));
                 var ausentesPendientes = estudiantesSuscritosIds
                     .Where(id => !presentesIds.Contains(id) && !faltasExistentes.Contains(id))
                     .ToList();
 
-                if (ausentesPendientes.Count > 0)
+                foreach (var ausenteId in ausentesPendientes)
                 {
-                    await _detalleRepo.RegistrarFaltasIdempotenteAsync(lista.Id, lista.InstitucionId, ausentesPendientes, ct);
-                    detalles = await _detalleRepo.ListarPorListaAsync(lista.Id, ct);
-                    await _listaRepo.ActualizarTotalesAsync(lista.Id, estudiantesSuscritosIds.Count, presentesIds.Count, faltasExistentes.Count + ausentesPendientes.Count, ct);
+                    faltas.Add(new AsistenciaDetalle
+                    {
+                        Id = Guid.NewGuid(),
+                        ListaId = lista.Id,
+                        InstitucionId = lista.InstitucionId,
+                        EstudianteId = ausenteId,
+                        Estado = "Falta",
+                        Origen = "Ausente",
+                        CreadoEn = DateTimeOffset.UtcNow
+                    });
                 }
             }
-
-            var faltas = detalles.Where(d => d.Estado == "Falta");
 
             foreach (var falta in faltas)
             {
@@ -119,6 +129,32 @@ public class ReporteAsistenciaService(
 
         _logger.LogInformation("Reporte de faltas generado para materia {MateriaId}: {Count} inasistencias encontradas.", materiaId, result.Count);
         return [.. result.OrderByDescending(r => r.Fecha).ThenBy(r => r.NombreEstudiante)];
+    }
+
+    /// <summary>
+    /// Comando explícito para conciliar y persistir inasistencias en la base de datos (CQS - REF-07).
+    /// </summary>
+    public async Task<int> ConciliarInasistenciasAsync(Guid listaId, CancellationToken ct = default)
+    {
+        var lista = await _listaRepo.ObtenerPorIdAsync(listaId, ct);
+        if (lista == null || lista.Estado != "Cerrada" || _suscripcionRepo == null) return 0;
+
+        var estudiantesSuscritosIds = await _suscripcionRepo.ListarEstudiantesIdsPorMateriaAsync(lista.MateriaId, ct);
+        if (estudiantesSuscritosIds.Count == 0) return 0;
+
+        var detalles = await _detalleRepo.ListarPorListaAsync(lista.Id, ct);
+        var presentesIds = new HashSet<Guid>(detalles.Where(d => d.Estado == "Presente").Select(d => d.EstudianteId));
+        var faltasExistentes = new HashSet<Guid>(detalles.Where(d => d.Estado == "Falta").Select(d => d.EstudianteId));
+        var ausentesPendientes = estudiantesSuscritosIds
+            .Where(id => !presentesIds.Contains(id) && !faltasExistentes.Contains(id))
+            .ToList();
+
+        if (ausentesPendientes.Count == 0) return 0;
+
+        var insertados = await _detalleRepo.RegistrarFaltasIdempotenteAsync(lista.Id, lista.InstitucionId, ausentesPendientes, ct);
+        await _listaRepo.ActualizarTotalesAsync(lista.Id, estudiantesSuscritosIds.Count, presentesIds.Count, faltasExistentes.Count + insertados, ct);
+        _logger.LogInformation("Conciliadas {Total} inasistencias en base de datos para sesión {ListaId}", insertados, listaId);
+        return insertados;
     }
 
     public async Task<byte[]> GenerarExcelFaltasAsync(

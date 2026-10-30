@@ -99,6 +99,7 @@ public class SupabaseDocenteRepository(Client supabaseClient, ILogger<SupabaseDo
                 Apellidos = docente.Apellidos,
                 Correo = docente.Correo,
                 Codigo = docente.Codigo,
+                PasswordHash = docente.PasswordHash,
                 CreadoEn = docente.CreadoEn.UtcDateTime
             };
 
@@ -123,6 +124,7 @@ public class SupabaseDocenteRepository(Client supabaseClient, ILogger<SupabaseDo
         Apellidos = m.Apellidos,
         Correo = m.Correo,
         Codigo = m.Codigo ?? string.Empty,
+        PasswordHash = m.PasswordHash ?? string.Empty,
         CreadoEn = m.CreadoEn
     };
 }

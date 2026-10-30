@@ -14,7 +14,8 @@ public static class SupabaseServiceRegistration
         services.AddHttpClient<DatabaseHealthService>();
         services.AddScoped<IDatabaseHealthService, DatabaseHealthService>();
 
-        services.AddScoped<Supabase.Client>(provider =>
+        // REF-01: Supabase.Client como Singleton sin bloqueo sincrónico en resolución de dependencias
+        services.AddSingleton<Supabase.Client>(provider =>
         {
             var options = provider.GetRequiredService<IOptions<SlacSupabaseOptions>>().Value;
 
@@ -30,10 +31,11 @@ public static class SupabaseServiceRegistration
                 AutoConnectRealtime = false
             };
 
-            var client = new Supabase.Client(options.Url, options.Key, supabaseOptions);
-            client.InitializeAsync().GetAwaiter().GetResult();
-            return client;
+            return new Supabase.Client(options.Url, options.Key, supabaseOptions);
         });
+
+        // Inicialización asincrónica sin bloqueo de hilos (IHostedService)
+        services.AddHostedService<SupabaseInitializerHostedService>();
 
         return services;
     }

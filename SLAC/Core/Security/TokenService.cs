@@ -1,7 +1,7 @@
+using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.IdentityModel.Tokens;
 using SLAC.Core.Security.Models;
 
 namespace SLAC.Core.Security;
@@ -75,7 +75,7 @@ public class TokenService(IKeyManager keyManager) : ITokenService
 
         try
         {
-            var headerJson = Encoding.UTF8.GetString(Base64UrlEncoder.DecodeBytes(parts[0]));
+            var headerJson = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(parts[0]));
             var header = JsonSerializer.Deserialize<TokenHeader>(headerJson);
             if (header == null || header.Alg != "ES256" || string.IsNullOrWhiteSpace(header.Kid))
             {
@@ -91,7 +91,7 @@ public class TokenService(IKeyManager keyManager) : ITokenService
             }
 
             var dataToSign = Encoding.UTF8.GetBytes($"{parts[0]}.{parts[1]}");
-            var signature = Base64UrlEncoder.DecodeBytes(parts[2]);
+            var signature = Base64Url.DecodeFromChars(parts[2]);
 
             if (!verificationKey.VerifyData(dataToSign, signature, HashAlgorithmName.SHA256))
             {
@@ -99,7 +99,7 @@ public class TokenService(IKeyManager keyManager) : ITokenService
                 return false;
             }
 
-            var payloadJson = Encoding.UTF8.GetString(Base64UrlEncoder.DecodeBytes(parts[1]));
+            var payloadJson = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(parts[1]));
             var payload = JsonSerializer.Deserialize<SessionQrToken>(payloadJson);
             if (payload == null)
             {
@@ -197,7 +197,7 @@ public class TokenService(IKeyManager keyManager) : ITokenService
 
         try
         {
-            var headerJson = Encoding.UTF8.GetString(Base64UrlEncoder.DecodeBytes(parts[0]));
+            var headerJson = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(parts[0]));
             var header = JsonSerializer.Deserialize<TokenHeader>(headerJson);
             if (header == null || header.Alg != "ES256" || string.IsNullOrWhiteSpace(header.Kid))
             {
@@ -213,7 +213,7 @@ public class TokenService(IKeyManager keyManager) : ITokenService
             }
 
             var dataToSign = Encoding.UTF8.GetBytes($"{parts[0]}.{parts[1]}");
-            var signature = Base64UrlEncoder.DecodeBytes(parts[2]);
+            var signature = Base64Url.DecodeFromChars(parts[2]);
 
             if (!verificationKey.VerifyData(dataToSign, signature, HashAlgorithmName.SHA256))
             {
@@ -221,7 +221,7 @@ public class TokenService(IKeyManager keyManager) : ITokenService
                 return false;
             }
 
-            var payloadJson = Encoding.UTF8.GetString(Base64UrlEncoder.DecodeBytes(parts[1]));
+            var payloadJson = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(parts[1]));
             var payload = JsonSerializer.Deserialize<DeviceCredentialToken>(payloadJson);
             if (payload == null)
             {
@@ -244,12 +244,12 @@ public class TokenService(IKeyManager keyManager) : ITokenService
         var headerJson = JsonSerializer.Serialize(header);
         var payloadJson = JsonSerializer.Serialize(payload);
 
-        var encodedHeader = Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes(headerJson));
-        var encodedPayload = Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes(payloadJson));
+        var encodedHeader = Base64Url.EncodeToString(Encoding.UTF8.GetBytes(headerJson));
+        var encodedPayload = Base64Url.EncodeToString(Encoding.UTF8.GetBytes(payloadJson));
 
         var dataToSign = Encoding.UTF8.GetBytes($"{encodedHeader}.{encodedPayload}");
         var signature = key.SignData(dataToSign, HashAlgorithmName.SHA256);
-        var encodedSignature = Base64UrlEncoder.Encode(signature);
+        var encodedSignature = Base64Url.EncodeToString(signature);
 
         return $"{encodedHeader}.{encodedPayload}.{encodedSignature}";
     }

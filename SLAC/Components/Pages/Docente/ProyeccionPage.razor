@@ -32,6 +32,7 @@
 @inject IRevinculacionRepository RevinculacionRepo
 @inject ICorreccionAsistenciaService CorreccionService
 @inject IDialogService DialogService
+@inject ILogger<ProyeccionPage> Logger
 
 <PageTitle>SLAC - Proyección de Asistencia en Sala</PageTitle>
 
@@ -1862,8 +1863,9 @@
         }
         catch (Exception ex)
         {
-            _calibracionMensaje = "⚠️ No se pudo obtener el GPS: " + ex.Message;
-            Snackbar.Add("No se pudo obtener la posición del docente: " + ex.Message, Severity.Warning);
+            Logger.LogError(ex, "Error al calibrar GPS de proyección");
+            _calibracionMensaje = "⚠️ No se pudo obtener la posición del GPS.";
+            Snackbar.Add("No se pudo obtener la posición del docente. Verifique los permisos de geolocalización.", Severity.Warning);
         }
         finally
         {
@@ -2226,7 +2228,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al iniciar la proyección: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al iniciar la proyección");
+            Snackbar.Add("No fue posible inicializar la sesión de proyección.", Severity.Error);
         }
         finally
         {
@@ -2270,7 +2273,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al reiniciar: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al reiniciar asistencia para pruebas");
+            Snackbar.Add("No se pudo reiniciar la asistencia.", Severity.Error);
         }
         finally
         {
@@ -2307,7 +2311,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al abrir la sesión: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al abrir la sesión");
+            Snackbar.Add("No fue posible abrir la sesión de asistencia.", Severity.Error);
         }
         finally
         {
@@ -2422,7 +2427,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Conexión en tiempo real degradada: {ex.Message}", Severity.Warning);
+            Logger.LogWarning(ex, "Conexión SignalR degradada en proyección");
+            Snackbar.Add("Conexión en tiempo real degradada. Se intentará reconectar automáticamente.", Severity.Warning);
         }
     }
 
@@ -2533,7 +2539,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al rotar código QR: {ex.Message}", Severity.Warning);
+            Logger.LogWarning(ex, "Error al rotar código QR");
+            Snackbar.Add("No se pudo rotar el código QR en este ciclo.", Severity.Warning);
         }
     }
 

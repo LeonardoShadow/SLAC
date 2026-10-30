@@ -188,15 +188,27 @@ public class RevinculacionService(
         };
         await _auditoriaRepo.RegistrarEventoAsync(auditoria, ct);
 
-        // 4. Notificar vía SignalR que la revinculación fue aprobada
+        // 4. Notificar vía SignalR que la revinculación fue aprobada exclusivamente a la sala de clase correspondiente (REF-08)
         try
         {
-            await _hubContext.Clients.All
-                .SendAsync("RevinculacionAprobada", solicitud.EstudianteId.ToString(), cancellationToken: ct);
+            var sesionHoy = await _listaRepo.ObtenerPorMateriaYFechaAsync(solicitud.MateriaId, DateOnly.FromDateTime(DateTime.UtcNow), ct);
+            if (sesionHoy != null)
+            {
+                var groupName = AttendanceHub.GetGroupName(sesionHoy.Id.ToString());
+                await _hubContext.Clients.Group(groupName)
+                    .SendAsync("RevinculacionAprobada", solicitud.EstudianteId.ToString(), cancellationToken: ct);
+            }
+            else
+            {
+                // Si no hay sesión hoy, notificar al grupo de la materia para no emitir broadcast global descontrolado
+                var materiaGroupName = $"materia_{solicitud.MateriaId}";
+                await _hubContext.Clients.Group(materiaGroupName)
+                    .SendAsync("RevinculacionAprobada", solicitud.EstudianteId.ToString(), cancellationToken: ct);
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error emitiendo evento SignalR RevinculacionAprobada.");
+            _logger.LogWarning(ex, "Error emitiendo evento SignalR RevinculacionAprobada para materia {MateriaId}.", solicitud.MateriaId);
         }
 
         _logger.LogInformation("Revinculación {Id} autorizada exitosamente por {Docente}", solicitudId, actorDocente);

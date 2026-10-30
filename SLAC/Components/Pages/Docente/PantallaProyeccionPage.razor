@@ -4,7 +4,6 @@
 @rendermode InteractiveServer
 @layout EmptyLayout
 @implements IAsyncDisposable
-@using Microsoft.AspNetCore.SignalR.Client
 @using SLAC.Core.Attendance.Entities
 @using SLAC.Core.Attendance.Repositories
 @using SLAC.Core.Security
@@ -15,6 +14,7 @@
 @inject ITokenService TokenService
 @inject IQrCodeGeneratorService QrService
 @inject ISessionCacheRepository SessionCache
+@inject ISessionEventBus EventBus
 @inject NavigationManager Navigation
 
 <PageTitle>SLAC - Pantalla de Proyección Limpia</PageTitle>
@@ -256,7 +256,6 @@
     private bool _sesionCerrada = false;
     private Materia? _materia;
     private ListaAsistencia? _sesionHoy;
-    private HubConnection? _hubConnection;
     private PeriodicTimer? _rotationTimer;
     private CancellationTokenSource _cts = new();
 
@@ -287,8 +286,8 @@
                 return;
             }
 
-            // Conectar a SignalR para sincronización con la consola del docente
-            await IniciarSignalRAsync();
+            // Suscribir directamente al bus de eventos de sesión en proceso (REF-09: erradicación de loopback SignalR)
+            await IniciarSuscripcionEventosAsync();
 
             // Cargar estado inicial de la sesión
             await CargarEstadoSesionAsync();
@@ -318,46 +317,35 @@
         await GenerarQrActualAsync();
     }
 
-    private async Task IniciarSignalRAsync()
+    private async Task IniciarSuscripcionEventosAsync()
     {
-        var hubUrl = Navigation.ToAbsoluteUri("/hubs/attendance");
-        _hubConnection = new HubConnectionBuilder()
-            .WithUrl(hubUrl)
-            .WithAutomaticReconnect()
-            .Build();
-
-        _hubConnection.On<Guid, string, int>("OnQrRotated", async (sesionId, token, rotacion) =>
-        {
-            if (_sesionHoy != null && sesionId == _sesionHoy.Id)
-            {
-                _rotacionIndex = rotacion;
-                _qrEstaticoUnico = rotacion == -1;
-                _segundosRestantesRotacion = 15;
-                await GenerarQrActualAsync();
-                await InvokeAsync(StateHasChanged);
-            }
-        });
-
-        _hubConnection.On<Guid>("OnSessionClosed", async (sesionId) =>
-        {
-            if (_sesionHoy != null && sesionId == _sesionHoy.Id)
-            {
-                _sesionCerrada = true;
-                await InvokeAsync(StateHasChanged);
-            }
-        });
+        if (_sesionHoy == null) return;
 
         try
         {
-            await _hubConnection.StartAsync();
-            if (_sesionHoy != null)
+            await EventBus.SubscribeToSessionEventsAsync(_sesionHoy.Id, async (evento) =>
             {
-                await _hubConnection.SendAsync("JoinClassroomSession", _sesionHoy.Id.ToString());
-            }
+                if (_sesionHoy != null && evento.SesionId == _sesionHoy.Id)
+                {
+                    if (evento.TipoEvento == "qr_rotado")
+                    {
+                        _rotacionIndex = evento.RotacionIndex ?? 0;
+                        _qrEstaticoUnico = evento.RotacionIndex == -1;
+                        _segundosRestantesRotacion = 15;
+                        await GenerarQrActualAsync();
+                        await InvokeAsync(StateHasChanged);
+                    }
+                    else if (evento.TipoEvento == "sesion_cerrada")
+                    {
+                        _sesionCerrada = true;
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+            }, _cts.Token);
         }
-        catch
+        catch (Exception)
         {
-            // Fallback si SignalR está en reconexión
+            // Resiliencia en caso de que el bus esté en reconexión
         }
     }
 
@@ -405,9 +393,16 @@
         _cts.Dispose();
         _rotationTimer?.Dispose();
 
-        if (_hubConnection is not null)
+        if (_sesionHoy != null)
         {
-            await _hubConnection.DisposeAsync();
+            try
+            {
+                await EventBus.UnsubscribeFromSessionEventsAsync(_sesionHoy.Id);
+            }
+            catch
+            {
+                // Ignorar excepciones al desuscribir en cierre
+            }
         }
     }
 }

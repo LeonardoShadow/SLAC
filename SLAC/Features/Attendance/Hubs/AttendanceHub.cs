@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
@@ -6,8 +7,10 @@ namespace SLAC.Features.Attendance.Hubs;
 
 /// <summary>
 /// Hub de SignalR para la pantalla de proyección del aula (Docente).
+/// Protegido con [Authorize] para evitar la exposición pública de tokens QR y PII de estudiantes (VULN-09).
 /// Recibe eventos en tiempo real disparados vía Redis Pub/Sub (SRS 4.1 y 4.7).
 /// </summary>
+[Authorize]
 public class AttendanceHub(ILogger<AttendanceHub> logger) : Hub
 {
     private readonly ILogger<AttendanceHub> _logger = logger;
@@ -39,7 +42,7 @@ public static class AttendanceHubExtensions
 {
     public static WebApplication MapAttendanceStudentEndpoints(this WebApplication app)
     {
-        AttendanceStudentEndpoints.MapAttendanceStudentEndpoints(app);
+        // Minimal APIs de flujo estudiante (mantenidas en AttendanceStudentEndpoints)
         return app;
     }
 }

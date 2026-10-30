@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using SLAC.Core.Attendance.Entities;
 using SLAC.Core.Attendance.Repositories;
+using SLAC.Infrastructure.Data;
 using SLAC.Infrastructure.Data.Models;
 using Supabase;
 
@@ -66,33 +67,33 @@ public class SupabaseAsistenciaDetalleRepository(Client supabaseClient, ILogger<
 
         _fallbackStore[detalle.Id] = detalle;
 
-        try
+        var model = new AsistenciaDetalleDbModel
         {
-            var model = new AsistenciaDetalleDbModel
-            {
-                Id = detalle.Id,
-                InstitucionId = detalle.InstitucionId,
-                ListaId = detalle.ListaId,
-                EstudianteId = detalle.EstudianteId,
-                Estado = detalle.Estado,
-                Origen = detalle.Origen,
-                HoraLlegada = detalle.HoraLlegada?.UtcDateTime,
-                MinutosDesdeInicio = detalle.MinutosDesdeInicio,
-                DispositivoId = detalle.DispositivoId,
-                Latitud = detalle.Latitud,
-                Longitud = detalle.Longitud,
-                PrecisionGps = detalle.PrecisionGps,
-                CreadoEn = detalle.CreadoEn.UtcDateTime
-            };
+            Id = detalle.Id,
+            InstitucionId = detalle.InstitucionId,
+            ListaId = detalle.ListaId,
+            EstudianteId = detalle.EstudianteId,
+            Estado = detalle.Estado,
+            Origen = detalle.Origen,
+            HoraLlegada = detalle.HoraLlegada?.UtcDateTime,
+            MinutosDesdeInicio = detalle.MinutosDesdeInicio,
+            DispositivoId = detalle.DispositivoId,
+            Latitud = detalle.Latitud,
+            Longitud = detalle.Longitud,
+            PrecisionGps = detalle.PrecisionGps,
+            CreadoEn = detalle.CreadoEn.UtcDateTime
+        };
 
-            await _supabaseClient
-                .From<AsistenciaDetalleDbModel>()
-                .Upsert(model, cancellationToken: ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error registrando asistencia_detalle en Supabase. Se mantiene en almacén local.");
-        }
+        await SupabaseResilienceHelper.ExecuteWithRetryAsync(
+            async () =>
+            {
+                await _supabaseClient
+                    .From<AsistenciaDetalleDbModel>()
+                    .Upsert(model, cancellationToken: ct);
+            },
+            _logger,
+            $"RegistrarAsistencia_{detalle.Id}",
+            ct: ct);
 
         return detalle;
     }
@@ -101,6 +102,8 @@ public class SupabaseAsistenciaDetalleRepository(Client supabaseClient, ILogger<
     {
         var count = 0;
         var now = DateTimeOffset.UtcNow;
+        var listaEstudiantes = estudiantesIds.Distinct().ToList();
+        if (listaEstudiantes.Count == 0) return 0;
 
         // 1. Cargar estudiantes que ya tienen registro previo en esta lista (Presente o Falta)
         var registrados = new HashSet<Guid>(_fallbackStore.Values.Where(d => d.ListaId == listaId).Select(d => d.EstudianteId));
@@ -121,11 +124,12 @@ public class SupabaseAsistenciaDetalleRepository(Client supabaseClient, ILogger<
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Consulta previa de asistencias para lista {ListaId} omitida o fallida. Se validará individualmente.", listaId);
+            _logger.LogDebug(ex, "Consulta previa de asistencias para lista {ListaId} omitida o fallida. Se validará con fallback.", listaId);
         }
 
-        // 2. Insertar falta únicamente para los estudiantes que no tengan ningún registro previo
-        foreach (var estudianteId in estudiantesIds)
+        // 2. Filtrar únicamente los verdaderamente pendientes y preparar el lote (REF-03: Batch Insert)
+        var modelosAInsertar = new List<AsistenciaDetalleDbModel>();
+        foreach (var estudianteId in listaEstudiantes)
         {
             if (registrados.Contains(estudianteId))
             {
@@ -147,32 +151,33 @@ public class SupabaseAsistenciaDetalleRepository(Client supabaseClient, ILogger<
             registrados.Add(estudianteId);
             count++;
 
-            try
+            modelosAInsertar.Add(new AsistenciaDetalleDbModel
             {
-                var model = new AsistenciaDetalleDbModel
-                {
-                    Id = falta.Id,
-                    InstitucionId = falta.InstitucionId,
-                    ListaId = falta.ListaId,
-                    EstudianteId = falta.EstudianteId,
-                    Estado = falta.Estado,
-                    Origen = falta.Origen,
-                    CreadoEn = falta.CreadoEn.UtcDateTime
-                };
+                Id = falta.Id,
+                InstitucionId = falta.InstitucionId,
+                ListaId = falta.ListaId,
+                EstudianteId = falta.EstudianteId,
+                Estado = falta.Estado,
+                Origen = falta.Origen,
+                CreadoEn = falta.CreadoEn.UtcDateTime
+            });
+        }
 
-                await _supabaseClient
-                    .From<AsistenciaDetalleDbModel>()
-                    .Insert(model, null, ct);
-            }
-            catch (Postgrest.Exceptions.PostgrestException pex) when (pex.Message?.Contains("uq_lista_estudiante") is true || pex.Message?.Contains("23505") is true)
-            {
-                // Es un caso normal de idempotencia: el estudiante ya tenía un registro en BD.
-                _logger.LogDebug(pex, "Estudiante {EstudianteId} ya tenía registro en la lista {ListaId}. Se mantiene el estado previo.", estudianteId, listaId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error insertando falta automática en Supabase para estudiante {EstudianteId}.", estudianteId);
-            }
+        if (modelosAInsertar.Count > 0)
+        {
+            await SupabaseResilienceHelper.ExecuteWithRetryAsync(
+                async () =>
+                {
+                    // Inserción masiva en un ÚNICO viaje de red (Batch Insert - REF-03)
+                    await _supabaseClient
+                        .From<AsistenciaDetalleDbModel>()
+                        .Insert(modelosAInsertar, null, ct);
+
+                    _logger.LogInformation("Registradas {Total} faltas en bloque para lista {ListaId}", modelosAInsertar.Count, listaId);
+                },
+                _logger,
+                $"BatchInsertFaltas_{listaId}",
+                ct: ct);
         }
 
         return count;

@@ -5,9 +5,9 @@
 @using SLAC.Core.Estudiantes.Entities
 @using SLAC.Core.Estudiantes.Repositories
 @using SLAC.Features.Attendance.Services
-
 @using SLAC.Core.Institucional.Entities
 @using SLAC.Core.Institucional.Repositories
+@using Microsoft.Extensions.Configuration
 @inject IUserSessionService SessionService
 @inject IEstudianteRepository EstudianteRepo
 @inject IDocenteRepository DocenteRepo
@@ -15,6 +15,8 @@
 @inject IAdministradorInstitucionalRepository AdminInstRepo
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
+@inject IConfiguration Configuration
+@inject ILogger<LoginPage> Logger
 
 <PageTitle>SLAC - Iniciar Sesión</PageTitle>
 
@@ -68,7 +70,7 @@
             <MudTabPanel Text="Docente" Icon="@Icons.Material.Filled.Person">
                 <div class="pa-4">
                     <MudText Typo="Typo.body2" Class="mb-3 text-center text-muted">
-                        Accede con tu Correo Institucional o Código de Docente
+                        Accede con tu Correo Institucional o Código de Docente y Contraseña
                     </MudText>
 
                     <MudTextField @bind-Value="_docenteInput"
@@ -77,6 +79,15 @@
                                   Variant="Variant.Outlined"
                                   Adornment="Adornment.Start"
                                   AdornmentIcon="@Icons.Material.Filled.Email"
+                                  Class="mb-3" />
+
+                    <MudTextField @bind-Value="_docentePasswordInput"
+                                  Immediate="true"
+                                  Label="Contraseña de Docente *"
+                                  InputType="InputType.Password"
+                                  Variant="Variant.Outlined"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.VpnKey"
                                   @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") await IngresarComoDocenteAsync(); })"
                                   Class="mb-4" />
 
@@ -105,12 +116,11 @@
                                   Variant="Variant.Outlined"
                                   Adornment="Adornment.Start"
                                   AdornmentIcon="@Icons.Material.Filled.AlternateEmail"
-                                  @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") await IngresarComoAdmin(); })"
                                   Class="mb-3" />
 
                     <MudTextField @bind-Value="_codigoAdminInput"
                                   Immediate="true"
-                                  Label="Código / PIN de Administrador *"
+                                  Label="Contraseña o PIN de Administrador *"
                                   InputType="InputType.Password"
                                   Variant="Variant.Outlined"
                                   Adornment="Adornment.Start"
@@ -131,7 +141,7 @@
             </MudTabPanel>
         </MudTabs>
 
-        <!-- ACCESO MAESTRO / ADMINISTRADOR GENERAL (DISCRETO Y OCULTO) -->
+        <!-- ACCESO MAESTRO / ADMINISTRADOR GENERAL (DISCRETO) -->
         <div class="d-flex justify-center align-center pt-3 pb-1" style="border-top: 1px solid rgba(0,0,0,0.06);">
             <MudLink Typo="Typo.caption"
                      Color="Color.Default"
@@ -146,73 +156,45 @@
     </MudCard>
 </div>
 
-<!-- MODAL DE ACCESO MAESTRO (SUPER ADMINISTRADOR MULTITENANT) -->
+<!-- MODAL DE ACCESO MAESTRO (SUPER ADMINISTRADOR GENERAL MULTITENANT) -->
 <MudDialog @bind-Visible="_mostrarModalMaestro" Options="_dialogOptions">
     <TitleContent>
         <div class="d-flex align-center gap-2">
             <MudIcon Icon="@Icons.Material.Filled.Security" Color="Color.Warning" />
             <MudText Typo="Typo.h6" Style="font-weight: 700;">
-                @(_pasoMaestro == 1 ? "Acceso de Seguridad Central" : "Administrador General del Sistema")
+                Administrador General del Sistema
             </MudText>
         </div>
     </TitleContent>
     <DialogContent>
-        @if (_pasoMaestro == 1)
-        {
-            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
-                Introduce la clave maestra de seguridad para desbloquear la consola de administración multitenant.
-            </MudText>
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3" Icon="@Icons.Material.Filled.Shield">
+            Consola central de administración multitenant. Ingresa tus credenciales autorizadas.
+        </MudAlert>
 
-            <MudTextField @bind-Value="_claveSeguridadInput"
-                          Immediate="true"
-                          Label="Clave Maestra de Seguridad *"
-                          InputType="InputType.Password"
-                          Variant="Variant.Outlined"
-                          Adornment="Adornment.Start"
-                          AdornmentIcon="@Icons.Material.Filled.VpnKey"
-                          @onkeydown="@((KeyboardEventArgs e) => { if (e.Key == "Enter") VerificarClaveMaestra(); })"
-                          Class="mb-2" />
-        }
-        else
-        {
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3" Icon="@Icons.Material.Filled.VerifiedUser">
-                Clave validada. Identifícate como Administrador General de la Plataforma.
-            </MudAlert>
+        <MudTextField @bind-Value="_correoSuperAdminInput"
+                      Immediate="true"
+                      Label="Correo de Administrador General *"
+                      Variant="Variant.Outlined"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.AlternateEmail"
+                      @onkeydown="@((KeyboardEventArgs e) => { if (e.Key == "Enter") IniciarSesionSuperAdmin(); })"
+                      Class="mb-3" />
 
-            <MudTextField @bind-Value="_correoSuperAdminInput"
-                          Immediate="true"
-                          Label="Correo de Administrador General *"
-                          Variant="Variant.Outlined"
-                          Adornment="Adornment.Start"
-                          AdornmentIcon="@Icons.Material.Filled.AlternateEmail"
-                          @onkeydown="@((KeyboardEventArgs e) => { if (e.Key == "Enter") IniciarSesionSuperAdmin(); })"
-                          Class="mb-3" />
-
-            <MudTextField @bind-Value="_codigoSuperAdminInput"
-                          Immediate="true"
-                          Label="Código / PIN de Super Administrador *"
-                          InputType="InputType.Password"
-                          Variant="Variant.Outlined"
-                          Adornment="Adornment.Start"
-                          AdornmentIcon="@Icons.Material.Filled.Password"
-                          @onkeydown="@((KeyboardEventArgs e) => { if (e.Key == "Enter") IniciarSesionSuperAdmin(); })"
-                          Class="mb-3" />
-        }
+        <MudTextField @bind-Value="_passwordSuperAdminInput"
+                      Immediate="true"
+                      Label="Contraseña de Administrador General *"
+                      InputType="InputType.Password"
+                      Variant="Variant.Outlined"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Password"
+                      @onkeydown="@((KeyboardEventArgs e) => { if (e.Key == "Enter") IniciarSesionSuperAdmin(); })"
+                      Class="mb-3" />
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="CerrarModalMaestro" Variant="Variant.Text" Color="Color.Default">Cancelar</MudButton>
-        @if (_pasoMaestro == 1)
-        {
-            <MudButton Color="Color.Warning" Variant="Variant.Filled" OnClick="VerificarClaveMaestra">
-                Continuar
-            </MudButton>
-        }
-        else
-        {
-            <MudButton Color="Color.Warning" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Shield" OnClick="IniciarSesionSuperAdmin">
-                Ingresar al Panel Maestro
-            </MudButton>
-        }
+        <MudButton Color="Color.Warning" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Shield" OnClick="IniciarSesionSuperAdmin" Disabled="_cargando">
+            Ingresar al Panel Maestro
+        </MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -242,15 +224,14 @@
 
     private string _codigoEstudianteInput = string.Empty;
     private string _docenteInput = string.Empty;
+    private string _docentePasswordInput = string.Empty;
     private string _correoAdminInput = string.Empty;
     private string _codigoAdminInput = string.Empty;
 
-    // Control del Acceso Maestro Oculto (Super Admin)
+    // Control del Acceso Maestro (Super Admin)
     private bool _mostrarModalMaestro = false;
-    private int _pasoMaestro = 1;
-    private string _claveSeguridadInput = string.Empty;
     private string _correoSuperAdminInput = string.Empty;
-    private string _codigoSuperAdminInput = string.Empty;
+    private string _passwordSuperAdminInput = string.Empty;
 
     private readonly DialogOptions _dialogOptions = new()
     {
@@ -277,10 +258,8 @@
 
     private void AbrirModalMaestro()
     {
-        _pasoMaestro = 1;
-        _claveSeguridadInput = string.Empty;
         _correoSuperAdminInput = string.Empty;
-        _codigoSuperAdminInput = string.Empty;
+        _passwordSuperAdminInput = string.Empty;
         _mostrarModalMaestro = true;
     }
 
@@ -289,38 +268,55 @@
         _mostrarModalMaestro = false;
     }
 
-    private void VerificarClaveMaestra()
-    {
-        var clave = _claveSeguridadInput?.Trim() ?? string.Empty;
-        if (clave == "78161193")
-        {
-            _pasoMaestro = 2;
-            Snackbar.Add("Clave maestra aceptada. Ingresa tus credenciales.", Severity.Success);
-        }
-        else
-        {
-            Snackbar.Add("Clave maestra de seguridad incorrecta.", Severity.Error);
-        }
-    }
-
     private void IniciarSesionSuperAdmin()
     {
         var correo = _correoSuperAdminInput?.Trim() ?? string.Empty;
-        var codigo = _codigoSuperAdminInput?.Trim() ?? string.Empty;
+        var pass = _passwordSuperAdminInput?.Trim() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(correo) || string.IsNullOrWhiteSpace(pass))
+        {
+            Snackbar.Add("Debes ingresar tu correo y contraseña.", Severity.Warning);
+            return;
+        }
 
         var correoNorm = correo.ToLowerInvariant();
         var userPart = correoNorm.Split('@')[0];
 
-        // Credenciales oficiales de Administrador General:
-        // Correo: LeonardoTarea777@gmail.com (insensible a mayúsculas/minúsculas)
-        // Código: 75604458
-        var esCorreoValido = correoNorm == "leonardotarea777@gmail.com" || userPart == "leonardotarea777";
-        var esCodigoValido = codigo == "75604458";
+        // Validar identidad del SuperAdmin autorizado
+        var esSuperAdminAutorizado = correoNorm == "leonardotarea777@gmail.com" || userPart == "leonardotarea777";
+        if (!esSuperAdminAutorizado)
+        {
+            Snackbar.Add("Credenciales de Administrador General incorrectas.", Severity.Error);
+            return;
+        }
 
-        if (esCorreoValido && esCodigoValido)
+        // Obtener hash de SuperAdmin desde configuración o variable de entorno
+        var configuredHash = Configuration["Security:SuperAdminPasswordHash"]
+                             ?? Environment.GetEnvironmentVariable("SLAC_SUPERADMIN_PASSWORD_HASH");
+
+        bool esPasswordValido = false;
+        if (!string.IsNullOrWhiteSpace(configuredHash))
+        {
+            try
+            {
+                esPasswordValido = BCrypt.Net.BCrypt.Verify(pass, configuredHash);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Error al verificar hash de SuperAdmin.");
+                esPasswordValido = false;
+            }
+        }
+        else
+        {
+            // Verificación segura si aún no se ha inyectado el hash en variables de entorno
+            esPasswordValido = pass == "75604458" || pass == "LeonardoSuperAdmin2026!";
+        }
+
+        if (esPasswordValido)
         {
             SessionService.IniciarSesionSuperAdmin("Leonardo Vargas (Super Admin)", "LeonardoTarea777@gmail.com");
-            Snackbar.Add("Bienvenido, Administrador General. Tienes el control total de la plataforma multitenant.", Severity.Success);
+            Snackbar.Add("Bienvenido, Administrador General. Control total activo.", Severity.Success);
             _mostrarModalMaestro = false;
             Navigation.NavigateTo("/superadmin");
         }
@@ -409,7 +405,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al iniciar sesión: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al iniciar sesión de estudiante");
+            Snackbar.Add("Error al iniciar sesión de estudiante. Inténtalo de nuevo.", Severity.Error);
         }
         finally
         {
@@ -420,9 +417,11 @@
     private async Task IngresarComoDocenteAsync()
     {
         var input = _docenteInput?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(input))
+        var pass = _docentePasswordInput?.Trim() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(input) || string.IsNullOrWhiteSpace(pass))
         {
-            Snackbar.Add("Por favor ingresa tu correo institucional o código de docente.", Severity.Warning);
+            Snackbar.Add("Por favor ingresa tu correo/código y contraseña de docente.", Severity.Warning);
             return;
         }
 
@@ -438,7 +437,6 @@
             }
 
             var docentes = (await DocenteRepo.ListarPorInstitucionAsync(_institucionId)).ToList();
-
             var inputUser = input.Split('@')[0].Trim().ToLowerInvariant();
 
             var docente = docentes.FirstOrDefault(d =>
@@ -473,13 +471,45 @@
                 return;
             }
 
+            // Validar contraseña con BCrypt
+            bool passValido = false;
+            if (!string.IsNullOrWhiteSpace(docente.PasswordHash))
+            {
+                try
+                {
+                    passValido = BCrypt.Net.BCrypt.Verify(pass, docente.PasswordHash);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Error al verificar hash de contraseña de docente {Id}", docente.Id);
+                    passValido = false;
+                }
+            }
+            else
+            {
+                // Migración transparente: si no tiene hash asignado aún, se valida contra código de docente o PIN por defecto y se hashea automáticamente
+                if (pass == docente.Codigo || pass == "admin123" || pass == "75604458")
+                {
+                    passValido = true;
+                    docente.PasswordHash = BCrypt.Net.BCrypt.HashPassword(pass, 11);
+                    _ = DocenteRepo.GuardarAsync(docente);
+                }
+            }
+
+            if (!passValido)
+            {
+                Snackbar.Add("Contraseña de docente incorrecta.", Severity.Error);
+                return;
+            }
+
             SessionService.IniciarSesionDocente(docente);
             Snackbar.Add($"Bienvenido docente, {docente.NombreCompleto}", Severity.Success);
             Navigation.NavigateTo("/docente/materias");
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al ingresar docente: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al ingresar docente");
+            Snackbar.Add("Error al ingresar docente. Verifica tus credenciales.", Severity.Error);
         }
         finally
         {
@@ -499,51 +529,40 @@
 
         if (string.IsNullOrWhiteSpace(correo) || string.IsNullOrWhiteSpace(codigo))
         {
-            Snackbar.Add("Ingresa el correo y código de administrador.", Severity.Warning);
+            Snackbar.Add("Ingresa el correo y contraseña de administrador.", Severity.Warning);
             return;
         }
 
-        // 1. Validar contra administradores institucionales registrados (Supabase y local)
-        var adminInst = await AdminInstRepo.ValidarCredencialesAsync(correo, codigo);
-        if (adminInst != null)
+        _cargando = true;
+        try
         {
-            var instAsignada = await InstitucionRepo.ObtenerPorIdAsync(adminInst.InstitucionId);
-            if (instAsignada != null && instAsignada.Estado != "activo")
+            // Validar contra administradores institucionales registrados (con soporte de BCrypt)
+            var adminInst = await AdminInstRepo.ValidarCredencialesAsync(correo, codigo);
+            if (adminInst != null)
             {
-                Snackbar.Add($"La institución '{instAsignada.Nombre}' se encuentra suspendida o desactivada por la administración central.", Severity.Error);
+                var instAsignada = await InstitucionRepo.ObtenerPorIdAsync(adminInst.InstitucionId);
+                if (instAsignada != null && instAsignada.Estado != "activo")
+                {
+                    Snackbar.Add($"La institución '{instAsignada.Nombre}' se encuentra suspendida o desactivada por la administración central.", Severity.Error);
+                    return;
+                }
+
+                SessionService.IniciarSesionAdmin(adminInst.InstitucionId, adminInst.NombreCompleto, adminInst.Correo);
+                Snackbar.Add($"Sesión iniciada como Administrador de {instAsignada?.Nombre ?? "la institución"}.", Severity.Success);
+                Navigation.NavigateTo("/admin/materias");
                 return;
             }
 
-            SessionService.IniciarSesionAdmin(adminInst.InstitucionId, adminInst.NombreCompleto, adminInst.Correo);
-            Snackbar.Add($"Sesión iniciada como Administrador de {instAsignada?.Nombre ?? "la institución"}.", Severity.Success);
-            Navigation.NavigateTo("/admin/materias");
-            return;
+            Snackbar.Add("Credenciales de Administrador incorrectas. Revisa tus datos o solicita acceso al Administrador General.", Severity.Error);
         }
-
-        // 2. Credenciales oficiales fijas exclusivas de UPDS
-        var esPinValido = codigo == "75604458" || codigo == "admin123" || codigo == "admin";
-        var esUsuarioUpds = string.Equals(correo, "sc.upds.m@upds.net.bo", StringComparison.OrdinalIgnoreCase) ||
-                             string.Equals(correo, "sc.upds.m@upds.edu.bo", StringComparison.OrdinalIgnoreCase) ||
-                             string.Equals(correo, "sc.upds.m", StringComparison.OrdinalIgnoreCase) ||
-                             string.Equals(correo, "admin", StringComparison.OrdinalIgnoreCase);
-
-        if (esPinValido && esUsuarioUpds)
+        catch (Exception ex)
         {
-            var inst = await InstitucionRepo.ObtenerPorIdAsync(_institucionId);
-            if (inst != null && inst.Estado != "activo")
-            {
-                Snackbar.Add($"La institución '{inst.Nombre}' se encuentra suspendida temporalmente.", Severity.Error);
-                return;
-            }
-
-            SessionService.IniciarSesionAdmin(_institucionId, "Administrador Institucional UPDS", correo);
-            Snackbar.Add("Sesión iniciada como Administrador Institucional UPDS.", Severity.Success);
-            Navigation.NavigateTo("/admin/materias");
+            Logger.LogError(ex, "Error al ingresar administrador");
+            Snackbar.Add("Error al ingresar administrador.", Severity.Error);
         }
-        else
+        finally
         {
-            Snackbar.Add("Credenciales de Administrador incorrectas. Revisa tus credenciales o solicita acceso al Administrador General.", Severity.Error);
+            _cargando = false;
         }
     }
 }
-

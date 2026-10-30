@@ -12,8 +12,8 @@ public class RedisSessionEventBus : ISessionEventBus
     private readonly RedisConnectionProvider _connectionProvider;
     private readonly ILogger<RedisSessionEventBus> _logger;
 
-    // Suscriptores en memoria para pruebas locales o fallback sin Redis activo
-    private static readonly ConcurrentDictionary<Guid, List<Func<AttendanceEventMessage, Task>>> _inMemorySubscribers = new();
+    // REF-05: Suscriptores en memoria thread-safe mediante ConcurrentBag y ConcurrentDictionary
+    private static readonly ConcurrentDictionary<Guid, ConcurrentBag<Func<AttendanceEventMessage, Task>>> _inMemorySubscribers = new();
 
     public RedisSessionEventBus(
         RedisConnectionProvider connectionProvider,
@@ -45,10 +45,10 @@ public class RedisSessionEventBus : ISessionEventBus
             }
         }
 
-        // Fallback local en memoria
+        // Fallback local en memoria thread-safe
         if (_inMemorySubscribers.TryGetValue(message.SesionId, out var handlers))
         {
-            foreach (var handler in handlers)
+            foreach (var handler in handlers.ToArray())
             {
                 try
                 {
@@ -90,10 +90,9 @@ public class RedisSessionEventBus : ISessionEventBus
             }
         }
 
-        _inMemorySubscribers.AddOrUpdate(
-            sesionId, 
-            new List<Func<AttendanceEventMessage, Task>> { handler },
-            (_, list) => { list.Add(handler); return list; });
+        // Registro thread-safe sin condiciones de carrera
+        var bag = _inMemorySubscribers.GetOrAdd(sesionId, _ => new ConcurrentBag<Func<AttendanceEventMessage, Task>>());
+        bag.Add(handler);
     }
 
     public async Task UnsubscribeFromSessionEventsAsync(Guid sesionId, CancellationToken cancellationToken = default)

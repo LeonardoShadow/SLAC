@@ -27,6 +27,9 @@ public class DocenteDbModel : BaseModel
     [Column("codigo")]
     public string Codigo { get; set; } = string.Empty;
 
+    [Column("password_hash")]
+    public string PasswordHash { get; set; } = string.Empty;
+
     [Column("creado_en")]
     public DateTime CreadoEn { get; set; } = DateTime.UtcNow;
 }

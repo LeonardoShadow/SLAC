@@ -122,11 +122,10 @@ public class SuscripcionService(
                 : null;
 
             // En modo proximidad dinámica, se prioriza estrictamente la coordenada fijada por el docente
-            var targetLat = request.LatitudReferencia ?? espacio?.Latitud ?? -17.7762;
-            var targetLon = request.LongitudReferencia ?? espacio?.Longitud ?? -63.1951;
-            var radioTolerancia = request.RadioToleranciaPersonalizado.HasValue && request.RadioToleranciaPersonalizado.Value > 0
-                ? request.RadioToleranciaPersonalizado.Value
-                : (espacio?.RadioMetros > 0 ? espacio.RadioMetros : (esModoProximidad ? 25 : 300));
+            // VULN-07: Prioridad de autoridad del servidor. Coordenadas fijadas exclusivamente por el Espacio institucional
+            double targetLat = (espacio?.Latitud != 0 && espacio?.Latitud != null) ? espacio.Latitud.Value : -17.7762;
+            double targetLon = (espacio?.Longitud != 0 && espacio?.Longitud != null) ? espacio.Longitud.Value : -63.1951;
+            var radioTolerancia = (espacio?.RadioMetros > 0) ? espacio.RadioMetros : (esModoProximidad ? 25 : 300);
 
             var distancia = CalcularDistanciaMetros(request.Latitud.Value, request.Longitud.Value, targetLat, targetLon);
             distanciaCalculada = distancia;
@@ -215,21 +214,27 @@ public class SuscripcionService(
             }
 
             // 2. Soporte para auto-creación de estudiantes en pruebas de integración si se enviaron nombres y apellidos completos
+            // 2. Vinculación o Auto-registro defensivo de nuevos estudiantes con validación de entrada
             if (estudiante == null && !string.IsNullOrWhiteSpace(request.Nombres) && !string.IsNullOrWhiteSpace(request.Apellidos))
             {
-                estudiante = new Estudiante
+                var nombresLimpios = request.Nombres.Trim();
+                var apellidosLimpios = request.Apellidos.Trim();
+                if (nombresLimpios.Length >= 2 && apellidosLimpios.Length >= 2 && nombresLimpios.Length <= 100 && apellidosLimpios.Length <= 100)
                 {
-                    InstitucionId = lista.InstitucionId,
-                    Codigo = !string.IsNullOrWhiteSpace(request.Codigo) ? request.Codigo.Trim() : identificador,
-                    Nombres = request.Nombres.Trim(),
-                    Apellidos = request.Apellidos.Trim(),
-                    Correo = !string.IsNullOrWhiteSpace(request.Correo) ? request.Correo.Trim() : identificador,
-                    DocumentoIdentidad = !string.IsNullOrWhiteSpace(request.DocumentoIdentidad) ? request.DocumentoIdentidad.Trim() : identificador,
-                    ConsentimientoEn = DateTimeOffset.UtcNow
-                };
-                estudiante = await _estudianteRepo.CrearOActualizarAsync(estudiante, ct);
+                    estudiante = new Estudiante
+                    {
+                        InstitucionId = lista.InstitucionId,
+                        Codigo = !string.IsNullOrWhiteSpace(request.Codigo) ? request.Codigo.Trim() : identificador,
+                        Nombres = nombresLimpios,
+                        Apellidos = apellidosLimpios,
+                        Correo = !string.IsNullOrWhiteSpace(request.Correo) ? request.Correo.Trim() : identificador,
+                        DocumentoIdentidad = !string.IsNullOrWhiteSpace(request.DocumentoIdentidad) ? request.DocumentoIdentidad.Trim() : identificador,
+                        ConsentimientoEn = DateTimeOffset.UtcNow
+                    };
+                    estudiante = await _estudianteRepo.CrearOActualizarAsync(estudiante, ct);
+                }
             }
-            else if (estudiante == null)
+            if (estudiante == null)
             {
                 return AttendanceScanResult.Error($"El estudiante '{identificador}' no se encuentra en el padrón de esta materia. Verifica con tu docente.");
             }

@@ -12,6 +12,7 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
+@inject ILogger<ReportesPage> Logger
 
 <PageTitle>SLAC - Reporte de Inasistencias (Docente)</PageTitle>
 
@@ -289,7 +290,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error cargando materias: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error cargando materias para reportes");
+            Snackbar.Add("No fue posible cargar las materias. Inténtelo más tarde.", Severity.Error);
         }
         finally
         {
@@ -318,7 +320,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error consultando reporte: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error consultando reporte de faltas");
+            Snackbar.Add("No fue posible consultar el reporte de inasistencias.", Severity.Error);
         }
         finally
         {
@@ -353,7 +356,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al exportar a Excel: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al exportar reporte a Excel");
+            Snackbar.Add("No fue posible generar el archivo Excel.", Severity.Error);
         }
     }
 
@@ -374,7 +378,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al exportar a CSV: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al exportar reporte a CSV");
+            Snackbar.Add("No fue posible generar el archivo CSV.", Severity.Error);
         }
     }
 

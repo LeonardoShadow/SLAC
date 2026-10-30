@@ -19,6 +19,7 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
+@inject ILogger<MateriasAdminPage> Logger
 
 <PageTitle>SLAC - Gestión Académica de Materias (Administración)</PageTitle>
 
@@ -202,7 +203,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al cargar materias: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al cargar materias");
+            Snackbar.Add("No fue posible cargar el listado de materias. Inténtelo más tarde.", Severity.Error);
         }
         finally
         {

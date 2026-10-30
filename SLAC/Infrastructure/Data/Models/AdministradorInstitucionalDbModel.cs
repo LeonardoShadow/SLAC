@@ -21,6 +21,9 @@ public class AdministradorInstitucionalDbModel : BaseModel
     [Column("codigo_pin")]
     public string CodigoPin { get; set; } = string.Empty;
 
+    [Column("password_hash")]
+    public string PasswordHash { get; set; } = string.Empty;
+
     [Column("activo")]
     public bool Activo { get; set; } = true;
 

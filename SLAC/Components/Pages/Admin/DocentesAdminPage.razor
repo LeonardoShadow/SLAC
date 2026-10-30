@@ -11,6 +11,7 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
+@inject ILogger<DocentesAdminPage> Logger
 
 <PageTitle>SLAC - Gestión de Docentes (Administración)</PageTitle>
 
@@ -152,7 +153,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al cargar docentes: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al cargar docentes");
+            Snackbar.Add("No fue posible cargar el listado de docentes. Inténtelo más tarde.", Severity.Error);
         }
         finally
         {

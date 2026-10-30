@@ -9,14 +9,6 @@ namespace SLAC.Core.Security;
 /// </summary>
 public class KeyManager : IKeyManager, IDisposable
 {
-    private const string DefaultMasterPem = """
-    -----BEGIN EC PRIVATE KEY-----
-    MHcCAQEEIGiTeL+tSZK8p3AO32Quu8TH8zcKOAiFgZKkaVaZJdBIoAoGCCqGSM49
-    AwEHoUQDQgAErr+KPTwEk5SCtRp2Oug/uYstceOGjVJC2chdV4E9hS3OLBTne13b
-    dkWqOJ+w6dZrWzOnszSMUDGScnphEuSwUw==
-    -----END EC PRIVATE KEY-----
-    """;
-
     private readonly ConcurrentDictionary<string, ECDsa> _keyStore = new();
     private readonly string _activeKid;
     private readonly ECDsa _activeKey;
@@ -24,12 +16,19 @@ public class KeyManager : IKeyManager, IDisposable
     public KeyManager(Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
     {
         _activeKid = "slac-master-k1";
-        var pem = configuration?["Security:SigningKeyPem"]
-                  ?? Environment.GetEnvironmentVariable("SLAC_SIGNING_KEY_PEM");
+
+        // Coalescencia defensiva: Si la configuración provee una cadena vacía o sólo espacios (ej. appsettings.json),
+        // se recurre a la variable de entorno 'SLAC_SIGNING_KEY_PEM'.
+        var pem = configuration?["Security:SigningKeyPem"];
+        if (string.IsNullOrWhiteSpace(pem))
+        {
+            pem = Environment.GetEnvironmentVariable("SLAC_SIGNING_KEY_PEM");
+        }
 
         if (string.IsNullOrWhiteSpace(pem))
         {
-            pem = DefaultMasterPem;
+            throw new InvalidOperationException(
+                "[SLAC] CRÍTICO: No se encontró la clave de firma ECDSA. Configure la variable de entorno 'SLAC_SIGNING_KEY_PEM' o 'Security:SigningKeyPem' en la configuración del servidor. La aplicación no puede iniciarse sin una clave criptográfica segura.");
         }
 
         try
@@ -37,9 +36,22 @@ public class KeyManager : IKeyManager, IDisposable
             _activeKey = ECDsa.Create();
             _activeKey.ImportFromPem(pem);
         }
-        catch
+        catch (Exception ex)
         {
-            _activeKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            throw new InvalidOperationException(
+                $"[SLAC] CRÍTICO: La clave PEM proporcionada no es válida o está corrupta: {ex.Message}", ex);
+        }
+
+        // Validación Fail-Fast: Asegura que la clave importada contiene componentes privados válidos para firma (no es sólo una clave pública)
+        try
+        {
+            Span<byte> dummyData = stackalloc byte[1];
+            _ = _activeKey.SignData(dummyData, HashAlgorithmName.SHA256);
+        }
+        catch (CryptographicException ex)
+        {
+            throw new InvalidOperationException(
+                $"[SLAC] CRÍTICO: La clave PEM proporcionada no contiene una clave privada válida para firma criptográfica (posible clave pública): {ex.Message}", ex);
         }
 
         _keyStore.TryAdd(_activeKid, _activeKey);
@@ -47,8 +59,12 @@ public class KeyManager : IKeyManager, IDisposable
 
     public KeyManager(string kid, ECDsa key)
     {
+        if (string.IsNullOrWhiteSpace(kid))
+        {
+            throw new ArgumentException("El identificador de clave (kid) no puede ser nulo ni vacío.", nameof(kid));
+        }
         _activeKid = kid;
-        _activeKey = key;
+        _activeKey = key ?? throw new ArgumentNullException(nameof(key));
         _keyStore.TryAdd(_activeKid, _activeKey);
     }
 
@@ -58,8 +74,13 @@ public class KeyManager : IKeyManager, IDisposable
         return _activeKey;
     }
 
-    public ECDsa? GetVerificationKey(string kid)
+    public ECDsa? GetVerificationKey(string? kid)
     {
+        if (string.IsNullOrWhiteSpace(kid))
+        {
+            return null;
+        }
+
         if (_keyStore.TryGetValue(kid, out var key))
         {
             return key;
@@ -76,6 +97,11 @@ public class KeyManager : IKeyManager, IDisposable
 
     public void RegisterLegacyKey(string kid, ECDsa key)
     {
+        if (string.IsNullOrWhiteSpace(kid))
+        {
+            throw new ArgumentException("El identificador de clave (kid) no puede ser nulo ni vacío.", nameof(kid));
+        }
+        ArgumentNullException.ThrowIfNull(key);
         _keyStore.TryAdd(kid, key);
     }
 

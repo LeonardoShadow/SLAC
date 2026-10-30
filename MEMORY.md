@@ -43,8 +43,9 @@
   - Alerta visual roja destacada en `MainLayout.razor` cuando la base de datos se encuentra fuera de línea o en reposo, con botón "Reintentar Conexión".
 
 ### E. Criptografía y Persistencia de Dispositivos (`KeyManager.cs`)
-- Clave maestra fija ECDSA P-256 (`DefaultMasterPem` en `KeyManager.cs` y `appsettings.json` con kid `slac-master-k1`).
-- **Garantía:** Los teléfonos móviles vinculados conservan su cookie `slac_device_cred` válida indefinidamente a través de nuevos despliegues del archivo `slac_publish.zip`.
+- Clave ECDSA P-256 configurada de forma segura mediante variable de entorno `SLAC_SIGNING_KEY_PEM` o configuración `Security:SigningKeyPem` (kid `slac-master-k1`).
+- **Fail-Fast:** Se eliminó la clave hardcodeada `DefaultMasterPem` de `KeyManager.cs` y `appsettings.json`. Si la clave no está configurada o es inválida, el sistema arroja una `InvalidOperationException` inmediata para impedir el arranque en un estado inseguro.
+- **Revinculación:** La rotación de clave invalida credenciales emitidas previamente, requiriendo que los dispositivos de estudiantes se revinculen de forma transparente y segura.
 
 ---
 
@@ -59,5 +60,5 @@ Cuando retomes la sesión o abras el proyecto:
 1. **Contexto Inmediato:** Este archivo `MEMORY.md`, junto con `AGENTS.md`, `DATABASE.md` y `credenciales.txt`, contiene todo el estado del sistema.
 2. **Base de Datos y Configuración:**
    - Supabase URL y llaves están en `SLAC/appsettings.json` y el esquema completo en `DATABASE.md`.
-   - La clave criptográfica maestra (`slac-master-k1`) NO debe cambiarse nunca para preservar las cookies en los celulares de los estudiantes.
+   - La clave criptográfica de firma ECDSA se suministra mediante la variable de entorno `SLAC_SIGNING_KEY_PEM` o `Security:SigningKeyPem`. `KeyManager` opera bajo Fail-Fast estricto.
 3. **Pruebas y Estado:** Todos los 48 tests unitarios pasan al 100% (`dotnet test SLAC.Tests/SLAC.Tests.csproj`).

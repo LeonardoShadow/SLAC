@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using SLAC.Core.Attendance.Entities;
 using SLAC.Core.Attendance.Repositories;
+using SLAC.Infrastructure.Data;
 using SLAC.Infrastructure.Data.Models;
 using Supabase;
 
@@ -90,35 +91,35 @@ public class SupabaseListaAsistenciaRepository(Client supabaseClient, ILogger<Su
         lista.ActualizadoEn = DateTimeOffset.UtcNow;
         _fallbackStore[lista.Id] = lista;
 
-        try
+        var model = new ListaAsistenciaDbModel
         {
-            var model = new ListaAsistenciaDbModel
-            {
-                Id = lista.Id,
-                InstitucionId = lista.InstitucionId,
-                MateriaId = lista.MateriaId,
-                DocenteId = lista.DocenteId,
-                EspacioId = lista.EspacioId,
-                Fecha = lista.Fecha.ToString("yyyy-MM-dd"),
-                HoraInicio = lista.HoraInicio.ToString(@"hh\:mm\:ss"),
-                HoraCierre = lista.HoraCierre?.ToString(@"hh\:mm\:ss"),
-                Estado = lista.Estado,
-                UrlDetalle = lista.UrlDetalle,
-                TotalSuscritos = lista.TotalSuscritos,
-                TotalPresentes = lista.TotalPresentes,
-                TotalFaltas = lista.TotalFaltas,
-                CreadoEn = lista.CreadoEn.UtcDateTime,
-                ActualizadoEn = lista.ActualizadoEn.UtcDateTime
-            };
+            Id = lista.Id,
+            InstitucionId = lista.InstitucionId,
+            MateriaId = lista.MateriaId,
+            DocenteId = lista.DocenteId,
+            EspacioId = lista.EspacioId,
+            Fecha = lista.Fecha.ToString("yyyy-MM-dd"),
+            HoraInicio = lista.HoraInicio.ToString(@"hh\:mm\:ss"),
+            HoraCierre = lista.HoraCierre?.ToString(@"hh\:mm\:ss"),
+            Estado = lista.Estado,
+            UrlDetalle = lista.UrlDetalle,
+            TotalSuscritos = lista.TotalSuscritos,
+            TotalPresentes = lista.TotalPresentes,
+            TotalFaltas = lista.TotalFaltas,
+            CreadoEn = lista.CreadoEn.UtcDateTime,
+            ActualizadoEn = lista.ActualizadoEn.UtcDateTime
+        };
 
-            await _supabaseClient
-                .From<ListaAsistenciaDbModel>()
-                .Upsert(model, cancellationToken: ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error guardando lista_asistencia en Supabase. Se mantiene en almacén local.");
-        }
+        await SupabaseResilienceHelper.ExecuteWithRetryAsync(
+            async () =>
+            {
+                await _supabaseClient
+                    .From<ListaAsistenciaDbModel>()
+                    .Upsert(model, cancellationToken: ct);
+            },
+            _logger,
+            $"CrearOActualizarLista_{lista.Id}",
+            ct: ct);
 
         return lista;
     }
@@ -132,25 +133,25 @@ public class SupabaseListaAsistenciaRepository(Client supabaseClient, ILogger<Su
             l.ActualizadoEn = DateTimeOffset.UtcNow;
         }
 
-        try
-        {
-            var query = _supabaseClient
-                .From<ListaAsistenciaDbModel>()
-                .Where(x => x.Id == id)
-                .Set(x => x.Estado, nuevoEstado)
-                .Set(x => x.ActualizadoEn, DateTime.UtcNow);
-
-            if (horaCierre.HasValue)
+        await SupabaseResilienceHelper.ExecuteWithRetryAsync(
+            async () =>
             {
-                query = query.Set(x => x.HoraCierre!, horaCierre.Value.ToString(@"hh\:mm\:ss"));
-            }
+                var query = _supabaseClient
+                    .From<ListaAsistenciaDbModel>()
+                    .Where(x => x.Id == id)
+                    .Set(x => x.Estado, nuevoEstado)
+                    .Set(x => x.ActualizadoEn, DateTime.UtcNow);
 
-            await query.Update(cancellationToken: ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error actualizando estado de lista_asistencia {Id} en Supabase.", id);
-        }
+                if (horaCierre.HasValue)
+                {
+                    query = query.Set(x => x.HoraCierre!, horaCierre.Value.ToString(@"hh\:mm\:ss"));
+                }
+
+                await query.Update(cancellationToken: ct);
+            },
+            _logger,
+            $"ActualizarEstadoLista_{id}",
+            ct: ct);
     }
 
     public async Task ActualizarTotalesAsync(Guid id, int totalSuscritos, int totalPresentes, int totalFaltas, CancellationToken ct = default)
@@ -163,21 +164,21 @@ public class SupabaseListaAsistenciaRepository(Client supabaseClient, ILogger<Su
             l.ActualizadoEn = DateTimeOffset.UtcNow;
         }
 
-        try
-        {
-            await _supabaseClient
-                .From<ListaAsistenciaDbModel>()
-                .Where(x => x.Id == id)
-                .Set(x => x.TotalSuscritos, totalSuscritos)
-                .Set(x => x.TotalPresentes, totalPresentes)
-                .Set(x => x.TotalFaltas, totalFaltas)
-                .Set(x => x.ActualizadoEn, DateTime.UtcNow)
-                .Update(cancellationToken: ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error actualizando totales de lista_asistencia {Id} en Supabase.", id);
-        }
+        await SupabaseResilienceHelper.ExecuteWithRetryAsync(
+            async () =>
+            {
+                await _supabaseClient
+                    .From<ListaAsistenciaDbModel>()
+                    .Where(x => x.Id == id)
+                    .Set(x => x.TotalSuscritos, totalSuscritos)
+                    .Set(x => x.TotalPresentes, totalPresentes)
+                    .Set(x => x.TotalFaltas, totalFaltas)
+                    .Set(x => x.ActualizadoEn, DateTime.UtcNow)
+                    .Update(cancellationToken: ct);
+            },
+            _logger,
+            $"ActualizarTotalesLista_{id}",
+            ct: ct);
     }
 
     private static ListaAsistencia MapToEntity(ListaAsistenciaDbModel m)

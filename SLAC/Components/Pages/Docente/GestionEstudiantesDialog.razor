@@ -13,6 +13,7 @@
 @inject IDispositivoRepository DispositivoRepo
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
+@inject ILogger<GestionEstudiantesDialog> Logger
 
 <MudDialog>
     <TitleContent>
@@ -397,7 +398,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error cargando el padrón: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error cargando el padrón de estudiantes");
+            Snackbar.Add("No fue posible cargar el padrón de estudiantes.", Severity.Error);
         }
         finally
         {
@@ -442,7 +444,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al generar plantilla: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al generar plantilla Excel de estudiantes");
+            Snackbar.Add("No fue posible generar la plantilla de estudiantes.", Severity.Error);
         }
     }
 
@@ -664,7 +667,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al leer el archivo: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al leer el archivo Excel de nómina");
+            Snackbar.Add("No fue posible leer o procesar el archivo. Verifique el formato.", Severity.Error);
         }
     }
 
@@ -787,7 +791,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error durante la importación: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error durante la importación de estudiantes");
+            Snackbar.Add("Ocurrió un error al importar los estudiantes a la materia.", Severity.Error);
         }
         finally
         {
@@ -854,7 +859,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al inscribir: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al inscribir estudiante manual");
+            Snackbar.Add("No se pudo inscribir al estudiante.", Severity.Error);
         }
         finally
         {
@@ -876,7 +882,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al desvincular dispositivo: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al desvincular dispositivo de estudiante");
+            Snackbar.Add("No fue posible desvincular el dispositivo.", Severity.Error);
         }
     }
 
@@ -891,7 +898,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al eliminar estudiante: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al eliminar estudiante");
+            Snackbar.Add("No se pudo eliminar al estudiante.", Severity.Error);
         }
     }
 
@@ -947,7 +955,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al actualizar: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al actualizar estudiante");
+            Snackbar.Add("No se pudo actualizar los datos del estudiante.", Severity.Error);
         }
         finally
         {

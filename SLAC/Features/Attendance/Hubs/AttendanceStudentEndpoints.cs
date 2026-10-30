@@ -21,8 +21,10 @@ public static class AttendanceStudentEndpoints
 
     public static IEndpointRouteBuilder MapAttendanceStudentEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        var group = endpoints.MapGroup("").RequireRateLimiting("PublicScanPolicy");
+
         // GET /a/{sesionId}?t={token} (Paso 31: Validación de entrada y detección de dispositivo)
-        endpoints.MapGet("/a/{sesionId:guid}", async (
+        group.MapGet("/a/{sesionId:guid}", async (
             Guid sesionId,
             [FromQuery(Name = "t")] string? t,
             [FromQuery(Name = "modo")] string? modo,
@@ -135,7 +137,7 @@ public static class AttendanceStudentEndpoints
         });
 
         // POST /a/{sesionId}/confirmar-gps (Verificación automática de coordenadas para dispositivos ya vinculados)
-        endpoints.MapPost("/a/{sesionId:guid}/confirmar-gps", async (
+        group.MapPost("/a/{sesionId:guid}/confirmar-gps", async (
             Guid sesionId,
             IFormCollection form,
             HttpContext httpContext,
@@ -211,7 +213,7 @@ public static class AttendanceStudentEndpoints
         }).DisableAntiforgery();
 
         // POST /a/{sesionId} (Pasos 32 y 33: Procesamiento del formulario y emisión de cookie)
-        endpoints.MapPost("/a/{sesionId:guid}", async (
+        group.MapPost("/a/{sesionId:guid}", async (
             Guid sesionId,
             IFormCollection form,
             HttpContext httpContext,
@@ -315,7 +317,7 @@ public static class AttendanceStudentEndpoints
         }).DisableAntiforgery(); // Enlace público estático para escaneo QR móvil
 
         // GET /a/revinculacion-status/{solicitudId:guid} (Polling móvil de autorización de revinculación RN-05)
-        endpoints.MapGet("/a/revinculacion-status/{solicitudId:guid}", async (
+        group.MapGet("/a/revinculacion-status/{solicitudId:guid}", async (
             Guid solicitudId,
             HttpContext httpContext,
             IRevinculacionRepository revinculacionRepo,
@@ -392,7 +394,7 @@ public static class AttendanceStudentEndpoints
         }).DisableAntiforgery();
 
         // GET /docente/calibrar/{sesionId:guid} (Calibración móvil de alta precisión satelital para el docente)
-        endpoints.MapGet("/docente/calibrar/{sesionId:guid}", async (
+        group.MapGet("/docente/calibrar/{sesionId:guid}", async (
             Guid sesionId,
             IListaAsistenciaRepository listaRepo,
             IMateriaRepository materiaRepo,
@@ -400,9 +402,9 @@ public static class AttendanceStudentEndpoints
             CancellationToken ct) =>
         {
             var lista = await listaRepo.ObtenerPorIdAsync(sesionId, ct);
-            if (lista == null)
+            if (lista == null || lista.Estado == "Cerrada" || lista.Estado == "Suspendida")
             {
-                var notFoundHtml = AttendanceStudentView.RenderErrorView("Sesión No Encontrada", "No existe una sesión de asistencia activa con este identificador.");
+                var notFoundHtml = AttendanceStudentView.RenderErrorView("Sesión No Válida", "La sesión no existe o no se encuentra activa para calibración.");
                 return Results.Content(notFoundHtml, "text/html");
             }
 
@@ -422,7 +424,7 @@ public static class AttendanceStudentEndpoints
         });
 
         // POST /docente/calibrar/{sesionId:guid} (Guarda las coordenadas satelitales obtenidas por el celular del docente)
-        endpoints.MapPost("/docente/calibrar/{sesionId:guid}", async (
+        group.MapPost("/docente/calibrar/{sesionId:guid}", async (
             Guid sesionId,
             IFormCollection form,
             IListaAsistenciaRepository listaRepo,
@@ -477,8 +479,8 @@ public static class AttendanceStudentEndpoints
         {
             Path = "/",
             HttpOnly = true,
-            Secure = httpContext.Request.IsHttps,
-            SameSite = SameSiteMode.Lax,
+            Secure = true, // VULN-11: Transmisión incondicional sobre HTTPS seguro
+            SameSite = SameSiteMode.Strict,
             Expires = DateTimeOffset.UtcNow.AddYears(1)
         });
     }

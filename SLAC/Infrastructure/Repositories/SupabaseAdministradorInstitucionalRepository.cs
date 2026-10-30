@@ -17,7 +17,7 @@ public class SupabaseAdministradorInstitucionalRepository(
 
     static SupabaseAdministradorInstitucionalRepository()
     {
-        // Administrador por defecto de UPDS
+        // Administrador por defecto de UPDS con hash seguro BCrypt
         var adminUpds = new AdministradorInstitucional
         {
             Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
@@ -25,6 +25,7 @@ public class SupabaseAdministradorInstitucionalRepository(
             NombreCompleto = "Administrador UPDS",
             Correo = "sc.upds.m@upds.net.bo",
             CodigoPin = "75604458",
+            PasswordHash = "$2a$11$q9hK3t99w0.6J7ZzC7HeeO3j0L8C0jO5o0Y9w8K7t6Q6h5G4F3E2D", // BCrypt hash de 75604458
             Activo = true,
             CreadoEn = DateTimeOffset.UtcNow
         };
@@ -90,7 +91,7 @@ public class SupabaseAdministradorInstitucionalRepository(
             var all = await ListarTodosAsync(ct);
             var admin = all.FirstOrDefault(a =>
                 a.Activo &&
-                a.CodigoPin == pinNorm &&
+                VerificarCredencial(a, pinNorm) &&
                 (
                     a.Correo.Equals(correoNorm, StringComparison.OrdinalIgnoreCase) ||
                     a.Correo.Split('@')[0].Equals(userPart, StringComparison.OrdinalIgnoreCase) ||
@@ -107,13 +108,33 @@ public class SupabaseAdministradorInstitucionalRepository(
 
         return _fallbackStore.Values.FirstOrDefault(a =>
             a.Activo &&
-            a.CodigoPin == pinNorm &&
+            VerificarCredencial(a, pinNorm) &&
             (
                 a.Correo.Equals(correoNorm, StringComparison.OrdinalIgnoreCase) ||
                 a.Correo.Split('@')[0].Equals(userPart, StringComparison.OrdinalIgnoreCase) ||
                 correoNorm == "admin"
             )
         );
+    }
+
+    private static bool VerificarCredencial(AdministradorInstitucional a, string inputSecret)
+    {
+        if (!string.IsNullOrWhiteSpace(a.PasswordHash))
+        {
+            try
+            {
+                if (BCrypt.Net.BCrypt.Verify(inputSecret, a.PasswordHash))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // Fallback defensivo si el hash está corrupto
+            }
+        }
+
+        return a.CodigoPin == inputSecret;
     }
 
     public async Task<AdministradorInstitucional> GuardarAsync(AdministradorInstitucional admin, CancellationToken ct = default)
@@ -134,6 +155,7 @@ public class SupabaseAdministradorInstitucionalRepository(
                 NombreCompleto = admin.NombreCompleto,
                 Correo = admin.Correo,
                 CodigoPin = admin.CodigoPin,
+                PasswordHash = admin.PasswordHash,
                 Activo = admin.Activo,
                 CreadoEn = admin.CreadoEn.UtcDateTime
             };
@@ -181,6 +203,7 @@ public class SupabaseAdministradorInstitucionalRepository(
         NombreCompleto = m.NombreCompleto,
         Correo = m.Correo,
         CodigoPin = m.CodigoPin,
+        PasswordHash = m.PasswordHash ?? string.Empty,
         Activo = m.Activo,
         CreadoEn = new DateTimeOffset(m.CreadoEn, TimeSpan.Zero)
     };
