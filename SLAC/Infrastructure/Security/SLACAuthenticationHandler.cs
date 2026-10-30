@@ -34,18 +34,22 @@ public class SLACAuthenticationHandler(
 
         // 3. Conexiones internas de circuito Blazor Server en loopback local
         var remoteIp = Context.Connection.RemoteIpAddress;
-        if (remoteIp != null && IPAddress.IsLoopback(remoteIp))
+        if (remoteIp != null)
         {
-            var claims = new[]
+            var ipToCheck = remoteIp.IsIPv4MappedToIPv6 ? remoteIp.MapToIPv4() : remoteIp;
+            if (IPAddress.IsLoopback(ipToCheck))
             {
-                new Claim(ClaimTypes.NameIdentifier, "internal-loopback-circuit"),
-                new Claim(ClaimTypes.Name, "Internal Classroom Projection"),
-                new Claim(ClaimTypes.Role, "Docente"),
-                new Claim("CircuitType", "ServerLoopback")
-            };
-            var identity = new ClaimsIdentity(claims, Scheme.Name);
-            var principal = new ClaimsPrincipal(identity);
-            return AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name));
+                var claims = new[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, "internal-loopback-circuit"),
+                    new Claim(ClaimTypes.Name, "Internal Classroom Projection"),
+                    new Claim(ClaimTypes.Role, "Docente"),
+                    new Claim("CircuitType", "ServerLoopback")
+                };
+                var identity = new ClaimsIdentity(claims, Scheme.Name);
+                var principal = new ClaimsPrincipal(identity);
+                return AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name));
+            }
         }
 
         // 4. Conexiones externas sin credenciales válidas quedan no autenticadas

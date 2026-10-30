@@ -2326,7 +2326,17 @@
         try
         {
             _hubConnection = new HubConnectionBuilder()
-                .WithUrl(Navigation.ToAbsoluteUri("/hubs/attendance"))
+                .WithUrl(Navigation.ToAbsoluteUri("/hubs/attendance"), options =>
+                {
+                    options.HttpMessageHandlerFactory = handler =>
+                    {
+                        if (handler is System.Net.Http.HttpClientHandler clientHandler)
+                        {
+                            clientHandler.ServerCertificateCustomValidationCallback = System.Net.Http.HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+                        }
+                        return handler;
+                    };
+                })
                 .WithAutomaticReconnect()
                 .Build();
 
