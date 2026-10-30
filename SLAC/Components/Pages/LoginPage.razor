@@ -487,8 +487,8 @@
             }
             else
             {
-                // Migración transparente: si no tiene hash asignado aún, se valida contra código de docente o PIN por defecto y se hashea automáticamente
-                if (pass == docente.Codigo || pass == "admin123" || pass == "75604458")
+                // Migración transparente: si no tiene hash asignado aún, se valida contra código de docente o PIN institucional y se hashea automáticamente
+                if (pass == docente.Codigo || pass == "75604458")
                 {
                     passValido = true;
                     docente.PasswordHash = BCrypt.Net.BCrypt.HashPassword(pass, 11);
