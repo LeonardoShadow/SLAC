@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Quartz;
 using SLAC.Core.Attendance.Entities;
 using SLAC.Core.Attendance.Repositories;
+using SLAC.Core.Attendance.Services;
 using SLAC.Core.Security;
 using SLAC.Core.Security.Models;
 using SLAC.Core.Session;
@@ -354,6 +355,24 @@ public class AttendanceSchedulerTests
             _store.Remove(sesionId);
             return Task.CompletedTask;
         }
+
+        public Task<bool> TryAcquireProjectionLockAsync(Guid sesionId, string leaseId, TimeSpan ttl, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<bool> TryAcquireProjectionLockAsync(Guid sesionId, string leaseId, TimeSpan ttl, bool force, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<bool> RefreshProjectionLockAsync(Guid sesionId, string leaseId, TimeSpan ttl, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task ReleaseProjectionLockAsync(Guid sesionId, string leaseId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<AttendanceClaimResult> TryClaimAttendanceAsync(Guid sesionId, Guid estudianteId, string? deviceHash, string? presenceCodeSubmitted, bool validatePresenceCode = true, CancellationToken cancellationToken = default)
+            => Task.FromResult(AttendanceClaimResult.Ok(1));
+
+        public Task RollbackAttendanceClaimAsync(Guid sesionId, Guid estudianteId, string? deviceHash, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     private sealed class FakeSessionEventBus : ISessionEventBus

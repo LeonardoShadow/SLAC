@@ -59,6 +59,11 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddSingleton<IKeyManager, KeyManager>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
+// Configuración Geodésica y Geocercas Multi-Campus (Milestone 1 - GPS Alpha)
+builder.Services.Configure<CampusGeofenceConfig>(
+    builder.Configuration.GetSection(CampusGeofenceConfig.SectionName));
+builder.Services.AddSingleton<IGeoCalculoService, VincentyGeodesicService>();
+
 // Abstracción Temporal y Multi-Tenancy (REF-10)
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<SLAC.Core.Institucional.Services.IInstitutionalTimeProvider, SLAC.Infrastructure.Services.InstitutionalTimeProvider>();

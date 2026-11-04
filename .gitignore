@@ -378,3 +378,5 @@ scratch_tester.cs
 slac_publish.zip
 *.bak
 .agents/
+
+publish.zip

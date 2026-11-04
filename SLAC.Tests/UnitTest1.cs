@@ -1,4 +1,4 @@
-﻿namespace SLAC.Tests;
+namespace SLAC.Tests;
 
 public class UnitTest1
 {

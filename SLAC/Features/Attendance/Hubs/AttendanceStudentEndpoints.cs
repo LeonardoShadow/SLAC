@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using SLAC.Core.Attendance.Entities;
 using SLAC.Core.Attendance.Repositories;
 using SLAC.Core.Attendance.Services;
@@ -21,10 +23,8 @@ public static class AttendanceStudentEndpoints
 
     public static IEndpointRouteBuilder MapAttendanceStudentEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("").RequireRateLimiting("PublicScanPolicy");
-
         // GET /a/{sesionId}?t={token} (Paso 31: Validación de entrada y detección de dispositivo)
-        group.MapGet("/a/{sesionId:guid}", async (
+        endpoints.MapGet("/a/{sesionId:guid}", async (
             Guid sesionId,
             [FromQuery(Name = "t")] string? t,
             [FromQuery(Name = "modo")] string? modo,
@@ -36,6 +36,7 @@ public static class AttendanceStudentEndpoints
             ITokenService tokenService,
             IListaAsistenciaRepository listaRepo,
             IMateriaRepository materiaRepo,
+            ISessionCacheRepository sessionCache,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(t))
@@ -123,61 +124,144 @@ public static class AttendanceStudentEndpoints
                 return Results.Content(regWifiHtml, "text/html");
             }
 
-            // MODO GPS OBLIGATORIO:
+            // MODO GPS OBLIGATORIO O GPS ALPHA:
+            var sessionState = await sessionCache.GetActiveSessionAsync(sesionId, ct);
+            var modoEfectivo = !string.IsNullOrWhiteSpace(modo) ? modo : (sessionState?.ModoValidacionActivo ?? "gps_alpha");
+
             // Si el alumno ya cuenta con credencial de dispositivo, validar presencia física por GPS en aula
             if (!string.IsNullOrWhiteSpace(deviceCookie))
             {
-                var gpsView = AttendanceStudentView.RenderGpsAutoVerifyView(sesionId, t, materiaNombre, materiaCodigo, r, clat, clon);
+                var gpsView = AttendanceStudentView.RenderGpsAutoVerifyView(sesionId, t, materiaNombre, materiaCodigo, r, clat, clon, modo: modoEfectivo);
                 return Results.Content(gpsView, "text/html");
             }
 
             // Primer escaneo (Sin cookie de dispositivo): Mostrar formulario de vinculación con GPS
-            var regHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, materiaNombre, materiaCodigo, modo: "gps", radioTolerancia: r, latReferencia: clat, lonReferencia: clon);
+            var regHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, materiaNombre, materiaCodigo, modo: modoEfectivo, radioTolerancia: r, latReferencia: clat, lonReferencia: clon);
             return Results.Content(regHtml, "text/html");
-        });
+        }).RequireRateLimiting("PublicScanPolicy");
 
         // POST /a/{sesionId}/confirmar-gps (Verificación automática de coordenadas para dispositivos ya vinculados)
-        group.MapPost("/a/{sesionId:guid}/confirmar-gps", async (
+        endpoints.MapPost("/a/{sesionId:guid}/confirmar-gps", async (
             Guid sesionId,
-            IFormCollection form,
             HttpContext httpContext,
             ISuscripcionService suscripcionService,
             CancellationToken ct) =>
         {
-            var t = form["t"].ToString().Trim();
-            var deviceCookie = httpContext.Request.Cookies[CookieDeviceName];
-            var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+            AttendanceScanRequest scanReq;
+            bool isJsonRequest = httpContext.Request.HasJsonContentType();
 
-            if (string.IsNullOrWhiteSpace(t))
+            if (isJsonRequest)
             {
-                var html = AttendanceStudentView.RenderErrorView("Solicitud Inválida", "Falta el token de sesión QR.");
-                return Results.Content(html, "text/html");
+                var body = await httpContext.Request.ReadFromJsonAsync<AttendanceScanRequest>(cancellationToken: ct);
+                if (body == null)
+                {
+                    return Results.BadRequest(new { error = "El payload JSON de telemetría es nulo o inválido." });
+                }
+                scanReq = body;
+                scanReq.SesionId = sesionId;
+                if (string.IsNullOrWhiteSpace(scanReq.DeviceToken))
+                {
+                    scanReq.DeviceToken = httpContext.Request.Cookies[CookieDeviceName];
+                }
+                if (string.IsNullOrWhiteSpace(scanReq.UserAgent))
+                {
+                    scanReq.UserAgent = httpContext.Request.Headers.UserAgent.ToString();
+                }
+            }
+            else
+            {
+                var form = await httpContext.Request.ReadFormAsync(ct);
+                var t = form["t"].ToString().Trim();
+                if (string.IsNullOrWhiteSpace(t))
+                {
+                    var html = AttendanceStudentView.RenderErrorView("Solicitud Inválida", "Falta el token de sesión QR.");
+                    return Results.Content(html, "text/html");
+                }
+
+                var deviceCookie = httpContext.Request.Cookies[CookieDeviceName];
+                var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+
+                var presenceCode = form["dynamicPresenceCode"].ToString().Trim();
+                if (string.IsNullOrWhiteSpace(presenceCode)) presenceCode = form["code"].ToString().Trim();
+                if (string.IsNullOrWhiteSpace(presenceCode)) presenceCode = form["pin"].ToString().Trim();
+
+                List<RawGpsTelemetrySample>? samples = null;
+                var samplesRaw = form["samples"].ToString().Trim();
+                if (string.IsNullOrWhiteSpace(samplesRaw)) samplesRaw = form["samplesJson"].ToString().Trim();
+                if (!string.IsNullOrWhiteSpace(samplesRaw))
+                {
+                    try
+                    {
+                        samples = System.Text.Json.JsonSerializer.Deserialize<List<RawGpsTelemetrySample>>(
+                            samplesRaw,
+                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    }
+                    catch (Exception ex)
+                    {
+                        var logger = httpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger(typeof(AttendanceStudentEndpoints));
+                        logger?.LogWarning(ex, "Fallo al deserializar telemetrÃ­a GPS cruda en endpoint confirmar-gps: {RawPayload}", samplesRaw);
+                    }
+                }
+
+                double? latitud = double.TryParse(form["lat"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var latVal) ? latVal : null;
+                double? longitud = double.TryParse(form["lon"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lonVal) ? lonVal : null;
+                double? precision = double.TryParse(form["acc"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var accVal) ? accVal : null;
+                int? radioPersonalizado = int.TryParse(form["r"].ToString(), out var rVal) ? rVal : null;
+                double? clat = double.TryParse(form["clat"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var clatVal) ? clatVal : null;
+                double? clon = double.TryParse(form["clon"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var clonVal) ? clonVal : null;
+
+                var modo = form["modo"].ToString().Trim();
+
+                scanReq = new AttendanceScanRequest
+                {
+                    SesionId = sesionId,
+                    QrToken = t,
+                    DynamicPresenceCode = !string.IsNullOrWhiteSpace(presenceCode) ? presenceCode : null,
+                    DeviceToken = deviceCookie,
+                    UserAgent = userAgent,
+                    Latitud = latitud,
+                    Longitud = longitud,
+                    PrecisionGpsMetros = precision,
+                    RadioToleranciaPersonalizado = radioPersonalizado,
+                    LatitudReferencia = clat,
+                    LongitudReferencia = clon,
+                    Modo = !string.IsNullOrWhiteSpace(modo) ? modo : "gps_alpha",
+                    Samples = samples
+                };
             }
 
-            double? latitud = double.TryParse(form["lat"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var latVal) ? latVal : null;
-            double? longitud = double.TryParse(form["lon"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lonVal) ? lonVal : null;
-            double? precision = double.TryParse(form["acc"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var accVal) ? accVal : null;
-            int? radioPersonalizado = int.TryParse(form["r"].ToString(), out var rVal) ? rVal : null;
-            double? clat = double.TryParse(form["clat"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var clatVal) ? clatVal : null;
-            double? clon = double.TryParse(form["clon"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var clonVal) ? clonVal : null;
-
-            var modo = form["modo"].ToString().Trim();
-            var scanReq = new AttendanceScanRequest
+            // 1. Certificación telemétrica en Servidor con GeoTelemetryValidator (Zero-Trust)
+            if (string.Equals(scanReq.Modo, "gps_alpha", StringComparison.OrdinalIgnoreCase) ||
+                (scanReq.Samples != null && scanReq.Samples.Count > 0))
             {
-                SesionId = sesionId,
-                QrToken = t,
-                DeviceToken = deviceCookie,
-                UserAgent = userAgent,
-                Latitud = latitud,
-                Longitud = longitud,
-                PrecisionGpsMetros = precision,
-                RadioToleranciaPersonalizado = radioPersonalizado,
-                LatitudReferencia = clat,
-                LongitudReferencia = clon,
-                Modo = !string.IsNullOrWhiteSpace(modo) ? modo : "gps"
-            };
+                var validation = GeoTelemetryValidator.ValidateAndDeriveLocation(
+                    scanReq.Samples,
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    scanReq.Latitud,
+                    scanReq.Longitud);
+
+                if (!validation.IsValid)
+                {
+                    var motivoRechazo = validation.RejectReason ?? "Telemetría no superó los controles de seguridad.";
+                    if (isJsonRequest || httpContext.Request.Headers.Accept.ToString().Contains("application/json"))
+                    {
+                        return Results.BadRequest(new { error = motivoRechazo, code = "TELEMETRY_REJECTED" });
+                    }
+                    return Results.Content(AttendanceStudentView.RenderErrorView("Telemetría Satelital Rechazada", motivoRechazo), "text/html");
+                }
+
+                scanReq.Latitud = validation.CertifiedLat;
+                scanReq.Longitud = validation.CertifiedLon;
+                scanReq.PrecisionGpsMetros = validation.CertifiedAcc;
+            }
 
             var scanRes = await suscripcionService.ProcesarEscaneoAsync(scanReq, ct);
+
+            if (isJsonRequest || httpContext.Request.Headers.Accept.ToString().Contains("application/json"))
+            {
+                if (scanRes.Exito) return Results.Ok(scanRes);
+                return Results.BadRequest(scanRes);
+            }
 
             if (scanRes.Exito)
             {
@@ -204,16 +288,19 @@ public static class AttendanceStudentEndpoints
 
             if (scanRes.RequiereRegistro)
             {
-                var formHtml = AttendanceStudentView.RenderRegistrationView(sesionId, t, scanRes.MateriaNombre ?? "Clase", scanRes.MateriaCodigo ?? "", modo: "gps", radioTolerancia: radioPersonalizado, latReferencia: clat, lonReferencia: clon);
+                var formHtml = AttendanceStudentView.RenderRegistrationView(
+                    sesionId, scanReq.QrToken, scanRes.MateriaNombre ?? "Clase", scanRes.MateriaCodigo ?? "",
+                    modo: scanReq.Modo, radioTolerancia: scanReq.RadioToleranciaPersonalizado,
+                    latReferencia: scanReq.LatitudReferencia, lonReferencia: scanReq.LongitudReferencia);
                 return Results.Content(formHtml, "text/html");
             }
 
             var errHtml = AttendanceStudentView.RenderErrorView("No se pudo registrar asistencia", scanRes.MensajeError ?? "Código QR inválido o expirado.", scanRes);
             return Results.Content(errHtml, "text/html");
-        }).DisableAntiforgery();
+        }).RequireRateLimiting("PublicScanPolicy").DisableAntiforgery();
 
         // POST /a/{sesionId} (Pasos 32 y 33: Procesamiento del formulario y emisión de cookie)
-        group.MapPost("/a/{sesionId:guid}", async (
+        endpoints.MapPost("/a/{sesionId:guid}", async (
             Guid sesionId,
             IFormCollection form,
             HttpContext httpContext,
@@ -253,6 +340,28 @@ public static class AttendanceStudentEndpoints
                 return Results.Content(html, "text/html");
             }
 
+            var presenceCode = form["dynamicPresenceCode"].ToString().Trim();
+            if (string.IsNullOrWhiteSpace(presenceCode)) presenceCode = form["code"].ToString().Trim();
+            if (string.IsNullOrWhiteSpace(presenceCode)) presenceCode = form["pin"].ToString().Trim();
+
+            List<RawGpsTelemetrySample>? samples = null;
+            var samplesRaw = form["samples"].ToString().Trim();
+            if (string.IsNullOrWhiteSpace(samplesRaw)) samplesRaw = form["samplesJson"].ToString().Trim();
+            if (!string.IsNullOrWhiteSpace(samplesRaw))
+            {
+                try
+                {
+                    samples = System.Text.Json.JsonSerializer.Deserialize<List<RawGpsTelemetrySample>>(
+                        samplesRaw,
+                        new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                }
+                catch (Exception ex)
+                {
+                    var logger = httpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger(typeof(AttendanceStudentEndpoints));
+                    logger?.LogWarning(ex, "Fallo al deserializar telemetrÃ­a GPS cruda en endpoint de registro: {RawPayload}", samplesRaw);
+                }
+            }
+
             var scanReq = new AttendanceScanRequest
             {
                 SesionId = sesionId,
@@ -272,8 +381,38 @@ public static class AttendanceStudentEndpoints
                 PrecisionGpsMetros = precision,
                 RadioToleranciaPersonalizado = radioPersonalizado,
                 LatitudReferencia = clat,
-                LongitudReferencia = clon
+                LongitudReferencia = clon,
+                DynamicPresenceCode = !string.IsNullOrWhiteSpace(presenceCode) ? presenceCode : null,
+                Samples = samples
             };
+
+            // Certificación telemétrica en Servidor con GeoTelemetryValidator (Zero-Trust)
+            if (string.Equals(scanReq.Modo, "gps_alpha", StringComparison.OrdinalIgnoreCase) ||
+                (scanReq.Samples != null && scanReq.Samples.Count > 0))
+            {
+                var validation = GeoTelemetryValidator.ValidateAndDeriveLocation(
+                    scanReq.Samples,
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    scanReq.Latitud,
+                    scanReq.Longitud);
+
+                if (!validation.IsValid)
+                {
+                    var motivoRechazo = validation.RejectReason ?? "Telemetría no superó los controles de seguridad.";
+                    var errValHtml = AttendanceStudentView.RenderRegistrationView(
+                        sesionId, t, "Clase", "",
+                        errorMensaje: $"Rechazo telemétrico Zero-Trust: {motivoRechazo}",
+                        modo: modo,
+                        radioTolerancia: radioPersonalizado,
+                        latReferencia: clat,
+                        lonReferencia: clon);
+                    return Results.Content(errValHtml, "text/html");
+                }
+
+                scanReq.Latitud = validation.CertifiedLat;
+                scanReq.Longitud = validation.CertifiedLon;
+                scanReq.PrecisionGpsMetros = validation.CertifiedAcc;
+            }
 
             var scanRes = await suscripcionService.ProcesarEscaneoAsync(scanReq, ct);
 
@@ -314,10 +453,10 @@ public static class AttendanceStudentEndpoints
                 lonReferencia: clon);
 
             return Results.Content(formRetryHtml, "text/html");
-        }).DisableAntiforgery(); // Enlace público estático para escaneo QR móvil
+        }).RequireRateLimiting("PublicScanPolicy").DisableAntiforgery(); // Enlace público estático para escaneo QR móvil
 
         // GET /a/revinculacion-status/{solicitudId:guid} (Polling móvil de autorización de revinculación RN-05)
-        group.MapGet("/a/revinculacion-status/{solicitudId:guid}", async (
+        endpoints.MapGet("/a/revinculacion-status/{solicitudId:guid}", async (
             Guid solicitudId,
             HttpContext httpContext,
             IRevinculacionRepository revinculacionRepo,
@@ -391,14 +530,14 @@ public static class AttendanceStudentEndpoints
             }
 
             return Results.Json(new { estado = "aprobada", recargar = true });
-        }).DisableAntiforgery();
+        }).RequireRateLimiting("PublicScanPolicy").DisableAntiforgery();
 
         // GET /docente/calibrar/{sesionId:guid} (Calibración móvil de alta precisión satelital para el docente)
-        group.MapGet("/docente/calibrar/{sesionId:guid}", async (
+        endpoints.MapGet("/docente/calibrar/{sesionId:guid}", async (
             Guid sesionId,
-            IListaAsistenciaRepository listaRepo,
-            IMateriaRepository materiaRepo,
-            IEspacioRepository espacioRepo,
+            [FromServices] IListaAsistenciaRepository listaRepo,
+            [FromServices] IMateriaRepository materiaRepo,
+            [FromServices] IEspacioRepository espacioRepo,
             CancellationToken ct) =>
         {
             var lista = await listaRepo.ObtenerPorIdAsync(sesionId, ct);
@@ -421,16 +560,16 @@ public static class AttendanceStudentEndpoints
                 espacio?.Longitud);
 
             return Results.Content(html, "text/html");
-        });
+        }).RequireRateLimiting("PublicScanPolicy");
 
         // POST /docente/calibrar/{sesionId:guid} (Guarda las coordenadas satelitales obtenidas por el celular del docente)
-        group.MapPost("/docente/calibrar/{sesionId:guid}", async (
+        endpoints.MapPost("/docente/calibrar/{sesionId:guid}", async (
             Guid sesionId,
             IFormCollection form,
-            IListaAsistenciaRepository listaRepo,
-            IMateriaRepository materiaRepo,
-            IEspacioRepository espacioRepo,
-            ISessionCacheRepository sessionCache,
+            [FromServices] IListaAsistenciaRepository listaRepo,
+            [FromServices] IMateriaRepository materiaRepo,
+            [FromServices] IEspacioRepository espacioRepo,
+            [FromServices] ISessionCacheRepository sessionCache,
             CancellationToken ct) =>
         {
             var lista = await listaRepo.ObtenerPorIdAsync(sesionId, ct);
@@ -468,7 +607,7 @@ public static class AttendanceStudentEndpoints
                 acc ?? 10);
 
             return Results.Content(successHtml, "text/html");
-        }).DisableAntiforgery();
+        }).RequireRateLimiting("PublicScanPolicy").DisableAntiforgery();
 
         return endpoints;
     }
