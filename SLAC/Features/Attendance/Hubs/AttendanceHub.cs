@@ -37,12 +37,3 @@ public class AttendanceHub(ILogger<AttendanceHub> logger) : Hub
 
     public static string GetGroupName(string sesionId) => $"classroom_session_{sesionId}";
 }
-
-public static class AttendanceHubExtensions
-{
-    public static WebApplication MapAttendanceStudentEndpoints(this WebApplication app)
-    {
-        // Minimal APIs de flujo estudiante (mantenidas en AttendanceStudentEndpoints)
-        return app;
-    }
-}

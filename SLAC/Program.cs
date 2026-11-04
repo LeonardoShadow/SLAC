@@ -105,7 +105,7 @@ app.MapStaticAssets();
 app.MapHub<AttendanceHub>("/hubs/attendance");
 
 // Flujo Estudiante SSR Estático Puro (Pasos 31, 32 y 33)
-app.MapAttendanceStudentEndpoints();
+AttendanceStudentEndpoints.MapAttendanceStudentEndpoints(app);
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
