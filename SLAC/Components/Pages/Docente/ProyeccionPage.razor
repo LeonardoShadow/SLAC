@@ -450,21 +450,7 @@
 
 
 
-                    @if (_modoValidacion == "gps_alpha")
-
-                    {
-
-                        <div class="presence-challenge-box">
-
-                            <span class="presence-challenge-label">CÓDIGO DE PRESENCIA EN SALA</span>
-
-                            <div class="presence-challenge-pin">@_codigoPresenciaActual</div>
-
-                            <span class="presence-challenge-sub">Ingresa este código de 3 dígitos en tu celular</span>
-
-                        </div>
-
-                    }
+                    <!-- Reto visual 3 digitos eliminado para flujo escanear y listo -->
 
 
 
@@ -656,21 +642,7 @@
 
                             </MudChip>
 
-                            <MudChip T="string"
-
-                                     Size="Size.Small"
-
-                                     Variant="@(_modoValidacion == "wifi" ? Variant.Filled : Variant.Outlined)"
-
-                                     Color="Color.Success"
-
-                                     Icon="@Icons.Material.Filled.Wifi"
-
-                                     OnClick="@(() => AlternarModoValidacionAsync("wifi"))">
-
-                                📶 Solo Wi-Fi
-
-                            </MudChip>
+                            
 
                             <MudChip T="string"
 
@@ -1892,21 +1864,7 @@
 
 
 
-                @if (_modoValidacion == "gps_alpha")
-
-                {
-
-                    <div class="presence-challenge-box fs-presence-box">
-
-                        <span class="presence-challenge-label">CÓDIGO DE PRESENCIA EN SALA</span>
-
-                        <div class="presence-challenge-pin">@_codigoPresenciaActual</div>
-
-                        <span class="presence-challenge-sub">Ingresa este código de 3 dígitos en tu celular</span>
-
-                    </div>
-
-                }
+                <!-- Reto visual 3 digitos eliminado para flujo escanear y listo -->
 
 
 

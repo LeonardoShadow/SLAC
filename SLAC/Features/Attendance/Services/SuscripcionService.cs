@@ -399,7 +399,7 @@ public class SuscripcionService(
             estudiante.Id,
             deviceHash,
             request.DynamicPresenceCode,
-            validatePresenceCode: esModoGpsAlpha,
+            validatePresenceCode: false,
             cancellationToken: ct);
 
         if (!claimResult.IsSuccess)

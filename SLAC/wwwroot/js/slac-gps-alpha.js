@@ -18,13 +18,13 @@
 
     // Constantes de calibración y geodésica local (Santa Cruz de la Sierra)
     var CONFIG = Object.freeze({
-        WARMUP_DISCARD: 3,
+        WARMUP_DISCARD: 0,
         DEFAULT_TIMEOUT_MS: 18000,
         DEFAULT_MAX_SAMPLES: 15,
-        MIN_REQUIRED_SAMPLES: 3,
+        MIN_REQUIRED_SAMPLES: 1,
         STUDENT_MAX_SAMPLES: 5,
         STUDENT_TIMEOUT_MS: 8000,
-        V_MAX_PEDESTRIAN: 2.5,          // Velocidad peatonal máxima en reposo (m/s)
+        V_MAX_PEDESTRIAN: 15.0,          // Velocidad peatonal máxima en reposo (m/s)
         STOCHASTIC_SIGMA_FACTOR: 2.0,   // Coeficiente Rayleigh 2-sigma (95.4% de confianza)
         DESKTOP_ACCURACY_THRESHOLD: 100.0, // Margen de error en metros para clasificar como PC cableada / GeoIP
         DEFAULT_FALLBACK_ACC: 15.0,     // Precisión asumida si el hardware devuelve <= 0 o no-numérico

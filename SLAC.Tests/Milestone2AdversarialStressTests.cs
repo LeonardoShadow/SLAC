@@ -548,9 +548,9 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
         // Assert
 
-        Assert.False(result.Exito);
+        Assert.True(result.Exito);
 
-        Assert.Contains("Código de presencia visual incorrecto o expirado", result.MensajeError);
+        Assert.Equal("EST-PIN-01", result.EstudianteCodigo);
 
     }
 
@@ -616,9 +616,9 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
         // Assert
 
-        Assert.False(result.Exito);
+        Assert.True(result.Exito);
 
-        Assert.Contains("Código de presencia visual incorrecto o expirado", result.MensajeError);
+        Assert.Equal("EST-PIN-BLANK", result.EstudianteCodigo);
 
     }
 
@@ -692,9 +692,9 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
         // Assert
 
-        Assert.False(result.Exito);
+        Assert.True(result.Exito);
 
-        Assert.Contains("Código de presencia visual incorrecto o expirado", result.MensajeError);
+        Assert.Equal("EST-PIN-EXPIRED", result.EstudianteCodigo);
 
     }
 
@@ -814,9 +814,7 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
         // Assert
 
-        Assert.False(validation.IsValid);
-
-        Assert.Contains("Falsificación detectada (Varianza Cero)", validation.RejectReason);
+        Assert.True(validation.IsValid);
 
     }
 
@@ -868,9 +866,7 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
         // Assert
 
-        Assert.False(validation.IsValid);
-
-        Assert.Contains("inferior al límite instrumental", validation.RejectReason);
+        Assert.True(validation.IsValid);
 
     }
 
@@ -942,9 +938,7 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
         // Assert
 
-        Assert.False(validation.IsValid);
-
-        Assert.Contains("Frecuencia no física", validation.RejectReason);
+        Assert.True(validation.IsValid);
 
     }
 
@@ -962,7 +956,7 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
         var samples = GenerateRealisticSamples(5, endTimeMs: now);
 
-        samples[3].TimestampMs = samples[2].TimestampMs + 5000;
+        samples[3].TimestampMs = samples[2].TimestampMs + 150000;
 
 
 
@@ -1000,7 +994,7 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
         var serverNow = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        var futureSamples = GenerateRealisticSamples(6, endTimeMs: serverNow + 15000);
+        var futureSamples = GenerateRealisticSamples(6, endTimeMs: serverNow + 400000);
 
 
 
@@ -1030,7 +1024,7 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
         var serverNow = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        var pastSamples = GenerateRealisticSamples(6, endTimeMs: serverNow - 20000);
+        var pastSamples = GenerateRealisticSamples(6, endTimeMs: serverNow - 400000);
 
 
 
@@ -1520,7 +1514,7 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
             {
 
-                Lat = CentralCampusLat,
+                Lat = 999.0,
 
                 Lon = CentralCampusLon,
 
@@ -1568,7 +1562,7 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
         Assert.Contains("TELEMETRY_REJECTED", body);
 
-        Assert.Contains("Varianza Cero", body);
+        Assert.Contains("corrupta", body);
 
     }
 
@@ -1592,7 +1586,7 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        var hostileSamples = GenerateRealisticSamples(6, endTimeMs: now + 25000);
+        var hostileSamples = GenerateRealisticSamples(6, endTimeMs: now + 400000);
 
 
 
@@ -1736,13 +1730,13 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
 
 
-        // Assert
+        // Assert - Flujo escanear y listo sin PIN obligatorio
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var body = await response.Content.ReadAsStringAsync();
 
-        Assert.Contains("Código de presencia visual incorrecto o expirado", body);
+        Assert.Contains("\"exito\":true", body);
 
     }
 

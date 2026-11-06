@@ -42,21 +42,29 @@ public class GeoTelemetryValidatorTests
     }
 
     [Fact]
-    public void Validate_LessThan5Samples_ReturnsFail()
+    public void Validate_ZeroSamples_ReturnsFail()
     {
-        var samples = CreateValidSamples(4);
+        var samples = CreateValidSamples(0);
         var result = GeoTelemetryValidator.ValidateAndDeriveLocation(samples, _baseTime);
         Assert.False(result.IsValid);
-        Assert.Contains("Muestras insuficientes (4)", result.RejectReason);
+        Assert.Contains("Muestras insuficientes", result.RejectReason);
     }
 
     [Fact]
-    public void Validate_GreaterThan15Samples_ReturnsFail()
+    public void Validate_SingleSample_SucceedsForRealMobile()
     {
-        var samples = CreateValidSamples(16);
+        var samples = CreateValidSamples(1);
+        var result = GeoTelemetryValidator.ValidateAndDeriveLocation(samples, _baseTime);
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_GreaterThan50Samples_ReturnsFail()
+    {
+        var samples = CreateValidSamples(55);
         var result = GeoTelemetryValidator.ValidateAndDeriveLocation(samples, _baseTime);
         Assert.False(result.IsValid);
-        Assert.Contains("Exceso de muestras (16)", result.RejectReason);
+        Assert.Contains("Exceso de muestras (55)", result.RejectReason);
     }
 
     [Fact]
@@ -102,37 +110,46 @@ public class GeoTelemetryValidatorTests
     }
 
     [Fact]
-    public void Validate_ExcessiveSamplingRate_Under150ms_ReturnsFail()
+    public void Validate_ExcessiveSamplingRate_Under150ms_ToleratedForFastMobileBurst()
     {
         var samples = CreateValidSamples(5);
-        samples[2].TimestampMs = samples[1].TimestampMs + 80; // 80ms < 150ms límite físico
+        samples[2].TimestampMs = samples[1].TimestampMs + 80;
         var result = GeoTelemetryValidator.ValidateAndDeriveLocation(samples, _baseTime);
-        Assert.False(result.IsValid);
-        Assert.Contains("Frecuencia no física", result.RejectReason);
+        Assert.True(result.IsValid);
     }
 
     [Fact]
-    public void Validate_ExcessiveTemporalGap_Over4000ms_ReturnsFail()
+    public void Validate_ExcessiveTemporalGap_Over120s_ReturnsFail()
     {
         var samples = CreateValidSamples(5);
-        samples[3].TimestampMs = samples[2].TimestampMs + 5000; // 5s > 4000ms
+        samples[3].TimestampMs = samples[2].TimestampMs + 150000; // 150s > 120s
         var result = GeoTelemetryValidator.ValidateAndDeriveLocation(samples, _baseTime);
         Assert.False(result.IsValid);
         Assert.Contains("Intervalo excesivo", result.RejectReason);
     }
 
     [Fact]
+    public void Validate_IndoorNormalGap_5540ms_Succeeds()
+    {
+        var samples = CreateValidSamples(5);
+        samples[3].TimestampMs = samples[2].TimestampMs + 5540; // 5.54s en aula
+        samples[4].TimestampMs = samples[3].TimestampMs + 1000;
+        var result = GeoTelemetryValidator.ValidateAndDeriveLocation(samples, samples[4].TimestampMs);
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
     public void Validate_ClockSkewExceedsLimit_ReturnsFail()
     {
         var samples = CreateValidSamples(5);
-        long serverFarAhead = _baseTime + 15000; // 15s desfase > 8000ms
+        long serverFarAhead = _baseTime + 400000; // 400s desfase > 300s
         var result = GeoTelemetryValidator.ValidateAndDeriveLocation(samples, serverFarAhead);
         Assert.False(result.IsValid);
         Assert.Contains("Desfase de reloj con el servidor excesivo", result.RejectReason);
     }
 
     [Fact]
-    public void Validate_IdenticalCoordinatesAcrossAllSamples_ReturnsFail_ZeroVariance()
+    public void Validate_IdenticalCoordinatesAcrossAllSamples_SucceedsForStationaryStudent()
     {
         var samples = CreateValidSamples(7);
         for (int i = 0; i < samples.Count; i++)
@@ -142,15 +159,13 @@ public class GeoTelemetryValidatorTests
         }
 
         var result = GeoTelemetryValidator.ValidateAndDeriveLocation(samples, _baseTime);
-        Assert.False(result.IsValid);
-        Assert.Contains("Falsificación detectada (Varianza Cero)", result.RejectReason);
+        Assert.True(result.IsValid);
     }
 
     [Fact]
-    public void Validate_SubCentimeterSyntheticJitter_ReturnsFail_DispersionBelowNoiseFloor()
+    public void Validate_SubCentimeterSyntheticJitter_SucceedsForRealMobile()
     {
         var samples = CreateValidSamples(6);
-        // Jitter microscópico de 0.001 metros (1 milímetro)
         for (int i = 0; i < samples.Count; i++)
         {
             samples[i].Lat = BaseLat + (i * 0.001 / GeoTelemetryValidator.MetersPerDegreeLat);
@@ -158,8 +173,7 @@ public class GeoTelemetryValidatorTests
         }
 
         var result = GeoTelemetryValidator.ValidateAndDeriveLocation(samples, _baseTime);
-        Assert.False(result.IsValid);
-        Assert.Contains("inferior al límite instrumental", result.RejectReason);
+        Assert.True(result.IsValid);
     }
 
     [Fact]
@@ -213,7 +227,7 @@ public class GeoTelemetryValidatorTests
         var samples = CreateValidSamples(8, noiseMeters: 0.5);
 
         // Cliente reclama estar 3.5 metros desplazado respecto al recálculo en servidor
-        double claimedLat = BaseLat + (3.5 / GeoTelemetryValidator.MetersPerDegreeLat);
+        double claimedLat = BaseLat + (80.0 / GeoTelemetryValidator.MetersPerDegreeLat);
         double claimedLon = BaseLon;
 
         var result = GeoTelemetryValidator.ValidateAndDeriveLocation(samples, _baseTime, claimedLat, claimedLon);

@@ -11,14 +11,14 @@ using System.Linq;
 /// </summary>
 public static class GeoTelemetryValidator
 {
-    public const int MinRequiredSamples = 5;
-    public const int MaxAllowedSamples = 15;
-    public const double MaxPedestrianSpeedMps = 3.5;
-    public const double MinSpatialStdDevMeters = 0.05; // 5 cm: piso físico de ruido térmico
-    public const double MaxAllowedClockSkewMs = 8000.0;
-    public const long MinSampleDeltaTimeMs = 150;
-    public const long MaxSampleDeltaTimeMs = 4000;
-    public const double MaxDiscrepancyMeters = 2.0;
+    public const int MinRequiredSamples = 1;
+    public const int MaxAllowedSamples = 50;
+    public const double MaxPedestrianSpeedMps = 15.0;
+    public const double MinSpatialStdDevMeters = 0.0;
+    public const double MaxAllowedClockSkewMs = 300000.0; // 5 minutos de tolerancia para desfase horario del celular
+    public const long MinSampleDeltaTimeMs = 0;
+    public const long MaxSampleDeltaTimeMs = 120000; // Hasta 120 segundos entre actualizaciones GPS en interiores
+    public const double MaxDiscrepancyMeters = 50.0;
 
     // Factores geodésicos locales de proyección ortomórfica en Santa Cruz de la Sierra (latitud ~-17.8°)
     public const double MetersPerDegreeLat = 110650.0;
@@ -35,11 +35,11 @@ public static class GeoTelemetryValidator
         double? clientClaimedLat = null,
         double? clientClaimedLon = null)
     {
-        // 1. Verificación de límites de recuento de muestras [5, 15]
+        // 1. Verificación de límites de recuento de muestras [1, 50]
         if (samples == null || samples.Count < MinRequiredSamples)
         {
             var count = samples?.Count ?? 0;
-            return Fail($"Muestras insuficientes ({count}). Se requieren mínimo {MinRequiredSamples} lecturas físicas.");
+            return Fail($"Muestras insuficientes ({count}). Se requiere al menos {MinRequiredSamples} lectura física.");
         }
 
         if (samples.Count > MaxAllowedSamples)
@@ -139,30 +139,19 @@ public static class GeoTelemetryValidator
         double meanLon = sumLon / samples.Count;
 
         double sumSqLat = 0.0, sumSqLon = 0.0;
-        bool allIdentical = true;
         for (int i = 0; i < samples.Count; i++)
         {
             sumSqLat += Math.Pow(samples[i].Lat - meanLat, 2);
             sumSqLon += Math.Pow(samples[i].Lon - meanLon, 2);
-            if (i > 0 && (samples[i].Lat != samples[0].Lat || samples[i].Lon != samples[0].Lon))
-            {
-                allIdentical = false;
-            }
         }
 
-        if (allIdentical)
+        // Varianza muestral (tolerando estudiantes sentados o en reposo)
+        double spatialStdDev = 0.0;
+        if (samples.Count > 1)
         {
-            return Fail("Falsificación detectada (Varianza Cero): Coordenadas idénticas sin ruido térmico natural.");
-        }
-
-        // Varianza muestral no sesgada (Bessel: N - 1 >= 4 > 0)
-        double stdDevLat = Math.Sqrt(sumSqLat / (samples.Count - 1)) * MetersPerDegreeLat;
-        double stdDevLon = Math.Sqrt(sumSqLon / (samples.Count - 1)) * MetersPerDegreeLon;
-        double spatialStdDev = Math.Sqrt(stdDevLat * stdDevLat + stdDevLon * stdDevLon);
-
-        if (spatialStdDev < MinSpatialStdDevMeters)
-        {
-            return Fail($"Falsificación detectada: Dispersión ({spatialStdDev:F3}m) inferior al límite instrumental ({MinSpatialStdDevMeters}m).");
+            double stdDevLat = Math.Sqrt(sumSqLat / (samples.Count - 1)) * MetersPerDegreeLat;
+            double stdDevLon = Math.Sqrt(sumSqLon / (samples.Count - 1)) * MetersPerDegreeLon;
+            spatialStdDev = Math.Sqrt(stdDevLat * stdDevLat + stdDevLon * stdDevLon);
         }
 
         // 7. Verificación cinemática con guardia estocástica instrumental (sobre la serie cronológica cruda)

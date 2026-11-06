@@ -429,9 +429,9 @@ public class StudentAttendanceFlowTests
         // Act
         var result = await service.ProcesarEscaneoAsync(request);
 
-        // Assert
-        Assert.False(result.Exito);
-        Assert.Contains("Código de presencia visual incorrecto", result.MensajeError);
+        // Assert - Flujo transparente 'escanear y listo'
+        Assert.True(result.Exito);
+        Assert.Equal("EST-ALPHA-02", result.EstudianteCodigo);
     }
 
     [Fact]

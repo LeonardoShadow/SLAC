@@ -31,6 +31,16 @@ public class KeyManager : IKeyManager, IDisposable
                 "[SLAC] CRÍTICO: No se encontró la clave de firma ECDSA. Configure la variable de entorno 'SLAC_SIGNING_KEY_PEM' o 'Security:SigningKeyPem' en la configuración del servidor. La aplicación no puede iniciarse sin una clave criptográfica segura.");
         }
 
+        if (pem.Contains("\\n"))
+        {
+            pem = pem.Replace("\\r\\n", "\n").Replace("\\n", "\n");
+        }
+
+        if (File.Exists(pem))
+        {
+            pem = File.ReadAllText(pem);
+        }
+
         try
         {
             _activeKey = ECDsa.Create();
