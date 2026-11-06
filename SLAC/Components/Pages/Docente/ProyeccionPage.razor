@@ -4909,6 +4909,138 @@
 
 
 
+    private async Task RefrescarAsistentesSilenciosoAsync()
+
+    {
+
+        if (_sesion == null) return;
+
+        try
+
+        {
+
+            var sesionDb = await ListaRepo.ObtenerPorIdAsync(_sesion.Id);
+
+            if (sesionDb != null)
+
+            {
+
+                _totalPresentes = sesionDb.TotalPresentes;
+
+            }
+
+
+
+            var detalles = await DetalleRepo.ListarPorListaAsync(_sesion.Id);
+
+            var presentes = detalles
+
+                .Where(d => d.Estado == "Presente")
+
+                .OrderByDescending(d => d.HoraLlegada ?? DateTimeOffset.MinValue)
+
+                .Take(10)
+
+                .ToList();
+
+
+
+            if (presentes.Count > 0)
+
+            {
+
+                _totalPresentes = Math.Max(_totalPresentes, presentes.Count);
+
+
+
+                var refLat = _latitudPersonalizada ?? _espacio?.Latitud;
+
+                var refLon = _longitudPersonalizada ?? _espacio?.Longitud;
+
+
+
+                var nuevosRegistrados = new List<AsistenteEnVivoModel>();
+
+                foreach (var p in presentes)
+
+                {
+
+                    var est = await EstudianteRepo.ObtenerPorIdAsync(p.EstudianteId);
+
+                    if (est != null)
+
+                    {
+
+                        var horaStr = FormatearHoraLocal(p.HoraLlegada);
+
+                        double? distCalc = null;
+
+                        if (p.Latitud.HasValue && p.Longitud.HasValue && refLat.HasValue && refLon.HasValue)
+
+                        {
+
+                            distCalc = SuscripcionService.CalcularDistanciaMetros(p.Latitud.Value, p.Longitud.Value, refLat.Value, refLon.Value);
+
+                        }
+
+
+
+                        nuevosRegistrados.Add(new AsistenteEnVivoModel
+
+                        {
+
+                            Nombre = est.NombreCompleto,
+
+                            Codigo = est.Codigo,
+
+                            Hora = horaStr,
+
+                            Latitud = p.Latitud,
+
+                            Longitud = p.Longitud,
+
+                            PrecisionMetros = p.PrecisionGps,
+
+                            DistanciaMetros = distCalc,
+
+                            QrLatitud = refLat,
+
+                            QrLongitud = refLon,
+
+                            RadioPermitido = _radioToleranciaMetros,
+
+                            Modo = _modoValidacion
+
+                        });
+
+                    }
+
+                }
+
+
+
+                _ultimosRegistrados.Clear();
+
+                _ultimosRegistrados.AddRange(nuevosRegistrados);
+
+                StateHasChanged();
+
+            }
+
+        }
+
+        catch (Exception ex)
+
+        {
+
+            Logger.LogDebug(ex, "Error en refresco silencioso de asistentes en proyección");
+
+        }
+
+    }
+
+
+
     private async Task ReiniciarAsistenciaParaPruebasAsync()
 
     {
@@ -5308,6 +5440,38 @@
 
 
 
+            _hubConnection.Reconnected += async (connectionId) =>
+
+            {
+
+                if (_sesion != null)
+
+                {
+
+                    try
+
+                    {
+
+                        await _hubConnection.InvokeAsync("JoinClassroomSession", _sesion.Id.ToString());
+
+                        await RefrescarAsistentesSilenciosoAsync();
+
+                    }
+
+                    catch (Exception ex)
+
+                    {
+
+                        Logger.LogDebug(ex, "Error al reunirse a la sesión SignalR tras reconexión");
+
+                    }
+
+                }
+
+            };
+
+
+
             await _hubConnection.StartAsync();
 
 
@@ -5317,6 +5481,36 @@
             {
 
                 await _hubConnection.InvokeAsync("JoinClassroomSession", _sesion.Id.ToString());
+
+
+
+                try
+
+                {
+
+                    await EventBus.SubscribeToSessionEventsAsync(_sesion.Id, async (evento) =>
+
+                    {
+
+                        if (evento.TipoEvento == "asistencia_registrada")
+
+                        {
+
+                            await InvokeAsync(RefrescarAsistentesSilenciosoAsync);
+
+                        }
+
+                    });
+
+                }
+
+                catch (Exception ex)
+
+                {
+
+                    Logger.LogDebug(ex, "Error al suscribirse al EventBus en ProyeccionPage");
+
+                }
 
             }
 
@@ -5491,6 +5685,18 @@
                     {
 
                         await FinalizarSesionAsync();
+
+                    }
+
+
+
+                    // Refresco silencioso de asistentes cada 2 segundos desde BD (triple redundancia)
+
+                    if (_sesion != null && _segundosRestantesSesion % 2 == 0)
+
+                    {
+
+                        await RefrescarAsistentesSilenciosoAsync();
 
                     }
 
@@ -6068,6 +6274,30 @@
         _cts.Dispose();
 
         _timer?.Dispose();
+
+
+
+        if (_sesion != null)
+
+        {
+
+            try
+
+            {
+
+                await EventBus.UnsubscribeFromSessionEventsAsync(_sesion.Id);
+
+            }
+
+            catch (Exception ex)
+
+            {
+
+                Logger.LogDebug(ex, "Error al desuscribirse del EventBus en DisposeAsync");
+
+            }
+
+        }
 
 
 

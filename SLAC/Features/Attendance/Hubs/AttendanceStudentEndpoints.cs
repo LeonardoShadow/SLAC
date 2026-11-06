@@ -178,7 +178,11 @@ public static class AttendanceStudentEndpoints
                     return Results.Content(html, "text/html");
                 }
 
-                var deviceCookie = httpContext.Request.Cookies[CookieDeviceName];
+                var deviceCookie = form["deviceToken"].ToString().Trim();
+                if (string.IsNullOrWhiteSpace(deviceCookie))
+                {
+                    deviceCookie = httpContext.Request.Cookies[CookieDeviceName];
+                }
                 var userAgent = httpContext.Request.Headers.UserAgent.ToString();
 
                 var presenceCode = form["dynamicPresenceCode"].ToString().Trim();

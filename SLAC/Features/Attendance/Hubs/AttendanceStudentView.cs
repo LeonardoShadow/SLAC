@@ -352,6 +352,10 @@ public static class AttendanceStudentView
                         if (devCookie && devCookie.length > 10) {
                             localStorage.setItem("slac_device_token", devCookie);
                         }
+                        const estCodigo = "{{result.EstudianteCodigo}}";
+                        if (estCodigo && estCodigo.length > 0) {
+                            localStorage.setItem("slac_estudiante_identificador", estCodigo);
+                        }
                     } catch(e){}
                 </script>
 
@@ -713,6 +717,38 @@ public static class AttendanceStudentView
 
 
 
+                <div id="autoVerifyNotice" style="display: none; text-align: center; padding: 1rem 0;">
+
+                    <div style="width: 72px; height: 72px; margin: 0 auto 1.25rem; background: rgba(79, 70, 229, 0.2); border: 2px solid #6366f1; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2rem;">
+
+                        🛰️
+
+                    </div>
+
+                    <h2 style="font-size: 1.2rem; font-weight: 800; color: #f8fafc; margin-bottom: 0.35rem;">Dispositivo Reconocido</h2>
+
+                    <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 1.25rem;">Verificando tu presencia física en el aula mediante GPS...</p>
+
+                    <div id="autoGpsBadge" style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 0.75rem; padding: 0.75rem 1rem; font-size: 0.85rem; color: #93c5fd; margin-bottom: 1.25rem;">
+
+                        📡 Conectando con satélites GPS en el aula...
+
+                    </div>
+
+                    <div style="margin-top: 1rem;">
+
+                        <button type="button" onclick="cancelarAutoVerificacion()" style="background: transparent; border: none; color: #64748b; font-size: 0.8rem; text-decoration: underline; cursor: pointer;">
+
+                            ¿Deseas vincular otro estudiante o cambiar de cuenta? Haz clic aquí
+
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+
                 <form method="POST" action="/a/{{sesionId}}" id="regForm" onsubmit="return validarEnvio(this);">
 
                     <input type="hidden" name="t" value="{{tokenSeguro}}" />
@@ -785,16 +821,58 @@ public static class AttendanceStudentView
             <script>
 
                 const esWifi = {{esWifi.ToString().ToLowerInvariant()}};
+                let autoVerificando = false;
+                let autoEnviado = false;
+
                 try {
+                    const savedIdent = localStorage.getItem('slac_estudiante_identificador');
+                    const identInput = document.getElementById('identificador');
+                    if (savedIdent && identInput && !identInput.value) {
+                        identInput.value = savedIdent;
+                    }
+
                     const savedDevToken = localStorage.getItem('slac_device_token');
-                    if (savedDevToken) {
+                    if (savedDevToken && savedDevToken.length > 10) {
+                        autoVerificando = true;
                         const dtInput = document.getElementById('inputDeviceToken');
                         if (dtInput) dtInput.value = savedDevToken;
+
+                        const regForm = document.getElementById('regForm');
+                        const autoNotice = document.getElementById('autoVerifyNotice');
+                        const desc = document.querySelector('.desc');
+                        if (regForm) regForm.style.display = 'none';
+                        if (desc) desc.style.display = 'none';
+                        if (autoNotice) autoNotice.style.display = 'block';
+
+                        if (esWifi) {
+                            setTimeout(() => {
+                                if (!autoEnviado) {
+                                    autoEnviado = true;
+                                    const form = document.getElementById('regForm');
+                                    form.action = '/a/{{sesionId}}/confirmar-gps';
+                                    form.submit();
+                                }
+                            }, 350);
+                        }
                     }
                 } catch(e){}
 
+                function cancelarAutoVerificacion() {
+                    autoVerificando = false;
+                    const regForm = document.getElementById('regForm');
+                    const autoNotice = document.getElementById('autoVerifyNotice');
+                    const desc = document.querySelector('.desc');
+                    if (autoNotice) autoNotice.style.display = 'none';
+                    if (regForm) regForm.style.display = 'block';
+                    if (desc) desc.style.display = 'block';
+                }
+
                 function validarEnvio(form) {
                     if (form.dataset.submitted) return false;
+                    try {
+                        const identVal = document.getElementById('identificador').value;
+                        if (identVal) localStorage.setItem('slac_estudiante_identificador', identVal.trim());
+                    } catch(e){}
                     if (!esWifi && (!document.getElementById('lat').value || document.getElementById('lat').value === '')) {
                         alert('🛰️ Conectando con los sensores satelitales en aula...\nPor favor aguarda unos instantes a que se fije tu posición física antes de pulsar el botón.');
                         return false;
@@ -847,6 +925,16 @@ public static class AttendanceStudentView
                             const sampleInput = document.getElementById('samplesJson');
                             if (sampleInput) {
                                 sampleInput.value = JSON.stringify(sample);
+                            }
+
+                            if (autoVerificando && !autoEnviado) {
+                                autoEnviado = true;
+                                const autoBadge = document.getElementById('autoGpsBadge');
+                                if (autoBadge) autoBadge.innerHTML = '✅ Posición fijada (±' + accB + 'm). Verificando presencia...';
+                                const form = document.getElementById('regForm');
+                                form.action = '/a/{{sesionId}}/confirmar-gps';
+                                form.submit();
+                                return;
                             }
 
                             const refLat = parseFloat(document.querySelector('input[name="clat"]').value);
@@ -1380,6 +1468,7 @@ public static class AttendanceStudentView
                     <input type="hidden" id="acc" name="acc" />
 
                     <input type="hidden" id="samplesJson" name="samples" />
+                    <input type="hidden" id="autoDeviceToken" name="deviceToken" />
 
                 </form>
 
@@ -1410,6 +1499,28 @@ public static class AttendanceStudentView
                 let watchId = null;
 
                 let enviado = false;
+
+                try {
+                    const savedDev = localStorage.getItem('slac_device_token');
+                    if (savedDev) {
+                        const devIn = document.getElementById('autoDeviceToken');
+                        if (devIn) devIn.value = savedDev;
+                    }
+                } catch(e){}
+
+                window.addEventListener('online', () => {
+                    const badge = document.getElementById('statusBadge');
+                    if (badge) badge.innerHTML = '🌐 Red restablecida. Verificando posición GPS...';
+                    if (!enviado) solicitarUbicacion();
+                });
+                window.addEventListener('offline', () => {
+                    const badge = document.getElementById('statusBadge');
+                    if (badge) {
+                        badge.style.background = 'rgba(239, 68, 68, 0.15)';
+                        badge.style.color = '#fca5a5';
+                        badge.innerHTML = '⚠️ Sin conexión a Internet. Conéctate a Wi-Fi o datos móviles.';
+                    }
+                });
 
 
 
