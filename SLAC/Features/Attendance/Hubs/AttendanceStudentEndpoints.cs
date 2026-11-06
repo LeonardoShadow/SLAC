@@ -212,6 +212,21 @@ public static class AttendanceStudentEndpoints
 
                 var modo = form["modo"].ToString().Trim();
 
+                if ((samples == null || samples.Count == 0) && latitud.HasValue && longitud.HasValue)
+                {
+                    samples =
+                    [
+                        new RawGpsTelemetrySample
+                        {
+                            Lat = latitud.Value,
+                            Lon = longitud.Value,
+                            Acc = precision ?? 5.0,
+                            Speed = 0.0,
+                            TimestampMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                        }
+                    ];
+                }
+
                 scanReq = new AttendanceScanRequest
                 {
                     SesionId = sesionId,
@@ -360,6 +375,21 @@ public static class AttendanceStudentEndpoints
                     var logger = httpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger(typeof(AttendanceStudentEndpoints));
                     logger?.LogWarning(ex, "Fallo al deserializar telemetrÃ­a GPS cruda en endpoint de registro: {RawPayload}", samplesRaw);
                 }
+            }
+
+            if ((samples == null || samples.Count == 0) && latitud.HasValue && longitud.HasValue)
+            {
+                samples =
+                [
+                    new RawGpsTelemetrySample
+                    {
+                        Lat = latitud.Value,
+                        Lon = longitud.Value,
+                        Acc = precision ?? 5.0,
+                        Speed = 0.0,
+                        TimestampMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    }
+                ];
             }
 
             var scanReq = new AttendanceScanRequest

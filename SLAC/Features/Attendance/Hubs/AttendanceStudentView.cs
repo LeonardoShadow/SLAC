@@ -704,7 +704,7 @@ public static class AttendanceStudentView
 
 
 
-                <form method="POST" action="/a/{{sesionId}}" id="regForm" onsubmit="if(this.dataset.submitted) return false; this.dataset.submitted = 'true'; document.getElementById('submitBtn').disabled = true; return true;">
+                <form method="POST" action="/a/{{sesionId}}" id="regForm" onsubmit="return validarEnvio(this);">
 
                     <input type="hidden" name="t" value="{{tokenSeguro}}" />
 
@@ -776,6 +776,18 @@ public static class AttendanceStudentView
 
                 const esWifi = {{esWifi.ToString().ToLowerInvariant()}};
 
+                function validarEnvio(form) {
+                    if (form.dataset.submitted) return false;
+                    if (!esWifi && (!document.getElementById('lat').value || document.getElementById('lat').value === '')) {
+                        alert('🛰️ Conectando con los sensores satelitales en aula...\nPor favor aguarda unos instantes a que se fije tu posición física antes de pulsar el botón.');
+                        return false;
+                    }
+                    form.dataset.submitted = 'true';
+                    const btn = document.getElementById('submitBtn');
+                    if (btn) btn.disabled = true;
+                    return true;
+                }
+
                 if (!esWifi) {
 
                     const gpsBox = document.getElementById('gps-status');
@@ -808,7 +820,17 @@ public static class AttendanceStudentView
 
                             document.getElementById('acc').value = accB;
 
-
+                            const sample = [{
+                                lat: latB,
+                                lon: lonB,
+                                acc: accB,
+                                speed: (pos.coords && pos.coords.speed && pos.coords.speed >= 0) ? pos.coords.speed : 0.0,
+                                timestampMs: (pos.timestamp && pos.timestamp > 0) ? pos.timestamp : Date.now()
+                            }];
+                            const sampleInput = document.getElementById('samplesJson');
+                            if (sampleInput) {
+                                sampleInput.value = JSON.stringify(sample);
+                            }
 
                             const refLat = parseFloat(document.querySelector('input[name="clat"]').value);
 
@@ -1376,12 +1398,9 @@ public static class AttendanceStudentView
 
                 function intentarEnviar() {
                     if (enviado) return;
-                    if (!document.getElementById('lat').value && !isGpsAlpha) {
-
-                        alert('Calibrando satélites GPS en aula, aguarda unos instantes...');
-
+                    if (!document.getElementById('lat').value || rawSamples.length === 0) {
+                        alert('🛰️ Conectando con los satélites GPS en aula, aguarda unos instantes a que se fije tu posición física...');
                         return;
-
                     }
 
                     if (!enviado) {
