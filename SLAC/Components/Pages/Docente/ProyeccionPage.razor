@@ -1,4 +1,4 @@
-@page "/proyeccion/{materiaId:guid}"
+﻿@page "/proyeccion/{materiaId:guid}"
 
 @page "/docente/proyeccion/{materiaId:guid}"
 
@@ -1301,11 +1301,14 @@
                                         <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">📍 Coordenada Activa en el Código QR:</span>
 
                                         <span style="font-family: monospace; font-size: 0.95rem; font-weight: 800; color: #34d399;">
-
-                                            @((_latitudPersonalizada ?? _espacio?.Latitud ?? -17.776200).ToString("F6", System.Globalization.CultureInfo.InvariantCulture)), 
-
-                                            @((_longitudPersonalizada ?? _espacio?.Longitud ?? -63.195100).ToString("F6", System.Globalization.CultureInfo.InvariantCulture))
-
+                                            @if (_latitudPersonalizada.HasValue && _longitudPersonalizada.HasValue)
+                                            {
+                                                @($"{_latitudPersonalizada.Value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}, {_longitudPersonalizada.Value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}")
+                                            }
+                                            else
+                                            {
+                                                <span style="color: #38bdf8; font-size: 0.85rem;">🛰️ Detectando GPS dinámico del docente...</span>
+                                            }
                                         </span>
 
                                     </div>
@@ -1398,16 +1401,8 @@
 
                                     </div>
 
-                                    <div class="d-flex gap-1 flex-wrap">
-
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => FijarCoordenadasDirectas(-17.776200, -63.195100, "UPDS Central"))">🎓 UPDS Central</MudChip>
-
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => FijarCoordenadasDirectas(-17.776500, -63.191500, "UAGRM Campus"))">🏛️ UAGRM Campus</MudChip>
-
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => FijarCoordenadasDirectas(-17.788400, -63.181200, "San Juan de Dios"))">🏥 Hosp. San Juan</MudChip>
-
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => FijarCoordenadasDirectas(-17.768100, -63.153900, "Hosp. Japonés"))">🏥 Hosp. Japonés</MudChip>
-
+                                    <div style="font-size: 0.72rem; color: #94a3b8; line-height: 1.4;">
+                                        El sistema calibra la posición GPS del aula automáticamente en cada sesión. Para un punto personalizado, pega tus coordenadas satelitales en el campo de texto superior.
                                     </div>
 
                                 </div>
@@ -4500,6 +4495,28 @@
 
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+
+    {
+
+        if (firstRender && (!_latitudPersonalizada.HasValue || !_longitudPersonalizada.HasValue))
+
+        {
+
+            _ = Task.Run(async () =>
+
+            {
+
+                await Task.Delay(400);
+
+                await InvokeAsync(CalibrarUbicacionDocenteAsync);
+
+            });
+
+        }
+
+    }
+
 
 
     private async Task CargarMateriaYSesionAsync()
@@ -4524,7 +4541,7 @@
 
 
 
-            if (_espacio != null)
+            if (_espacio != null && _espacio.Latitud.HasValue && _espacio.Longitud.HasValue)
 
             {
 
@@ -4534,11 +4551,13 @@
 
             }
 
-            _latitudPersonalizada ??= -17.776200;
+            if (_latitudPersonalizada.HasValue && _longitudPersonalizada.HasValue)
 
-            _longitudPersonalizada ??= -63.195100;
+            {
 
-            _coordenadasPuntoATexto = $"{_latitudPersonalizada.Value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}, {_longitudPersonalizada.Value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}";
+                _coordenadasPuntoATexto = $"{_latitudPersonalizada.Value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}, {_longitudPersonalizada.Value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)}";
+
+            }
 
 
 
@@ -5568,15 +5587,15 @@
 
             modoParam += $"&r={_radioToleranciaMetros}";
 
-            var refLat = _latitudPersonalizada ?? _espacio?.Latitud ?? -17.776200;
+            var refLat = _latitudPersonalizada ?? _espacio?.Latitud;
 
-            var refLon = _longitudPersonalizada ?? _espacio?.Longitud ?? -63.195100;
+            var refLon = _longitudPersonalizada ?? _espacio?.Longitud;
 
-            if (_modoValidacion != "wifi" && _modoValidacion != "gps_alpha")
+            if (_modoValidacion != "wifi" && refLat.HasValue && refLon.HasValue)
 
             {
 
-                modoParam += $"&clat={refLat.ToString(System.Globalization.CultureInfo.InvariantCulture)}&clon={refLon.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+                modoParam += $"&clat={refLat.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}&clon={refLon.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
 
             }
 

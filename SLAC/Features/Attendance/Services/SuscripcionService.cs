@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SLAC.Core.Attendance.Entities;
 using SLAC.Core.Attendance.Repositories;
@@ -134,55 +134,66 @@ public class SuscripcionService(
                 ? await _espacioRepo.GetByIdAsync(lista.EspacioId, ct)
                 : null;
 
-            // Resolución dinámica de campus (eliminación de coordenadas hardcodeadas)
-            var campusCode = sessionState?.CampusCode;
-            if (string.IsNullOrWhiteSpace(campusCode) && espacio?.Latitud != null && espacio.Longitud != null)
+            // 1. Determinación de coordenadas de referencia del aula / docente (Prioridad Absoluta a Coordenadas Dinámicas del QR)
+            double targetLat;
+            double targetLon;
+
+            if (request.LatitudReferencia.HasValue && request.LongitudReferencia.HasValue)
+            {
+                // Prioridad 1: Coordenadas dinámicas transmitidas en el código QR proyectado en el aula
+                targetLat = request.LatitudReferencia.Value;
+                targetLon = request.LongitudReferencia.Value;
+            }
+            else if (sessionState?.DocenteLatitudAlpha.HasValue == true && sessionState?.DocenteLongitudAlpha.HasValue == true)
+            {
+                // Prioridad 2: Coordenadas fijadas en sesión activa de Redis
+                targetLat = sessionState.DocenteLatitudAlpha.Value;
+                targetLon = sessionState.DocenteLongitudAlpha.Value;
+            }
+            else if (espacio?.Latitud != null && espacio?.Longitud != null && espacio.Latitud.Value != 0 && espacio.Longitud.Value != 0)
+            {
+                // Prioridad 3: Coordenadas del espacio físico registrado en BD
+                targetLat = espacio.Latitud.Value;
+                targetLon = espacio.Longitud.Value;
+            }
+            else
+            {
+                // Fallback al campus por defecto si no hay ninguna coordenada disponible
+                var defCampus = _geoCalculoService.ObtenerCampus(_campusConfig.DefaultCampusCode);
+                targetLat = defCampus.CenterLatitude;
+                targetLon = defCampus.CenterLongitude;
+            }
+
+            // 2. Resolución dinámica de campus: si el punto de proyección del docente está en un campus conocido
+            string? campusCode = sessionState?.CampusCode;
+            if (string.IsNullOrWhiteSpace(campusCode))
             {
                 foreach (var (code, def) in _campusConfig.Campuses)
                 {
-                    if (def.ContienePunto(espacio.Latitud.Value, espacio.Longitud.Value))
+                    if (def.ContienePunto(targetLat, targetLon))
                     {
                         campusCode = code;
                         break;
                     }
                 }
             }
-            campusCode ??= _campusConfig.DefaultCampusCode;
-            var campusDef = _geoCalculoService.ObtenerCampus(campusCode);
 
-            // 1. Verificación perimetral del campus (Ray-Casting / BoundingBox)
-            if (!_geoCalculoService.EstaDentroDeCampus(latEst, lonEst, campusCode))
+            // Si la clase se realiza físicamente en un campus registrado, verificar perímetro de campus
+            if (!string.IsNullOrWhiteSpace(campusCode) && _campusConfig.Campuses.ContainsKey(campusCode))
             {
-                var resErr = AttendanceScanResult.Error(
-                    $"Ubicación rechazada: Coordenadas fuera de los límites perimetrales autorizados para {campusDef.Name}.");
-                resErr.DistanciaCalculadaMetros = null;
-                resErr.RadioPermitidoMetros = null;
-                resErr.ModoValidacionAplicado = request.Modo;
-                resErr.LatitudEstudiante = latEst;
-                resErr.LongitudEstudiante = lonEst;
-                resErr.PrecisionGpsMetros = request.PrecisionGpsMetros;
-                return resErr;
-            }
-
-            double targetLat;
-            double targetLon;
-
-            if (esModoGpsAlpha)
-            {
-                targetLat = sessionState?.DocenteLatitudAlpha
-                    ?? ((espacio?.Latitud != 0 && espacio?.Latitud != null) ? espacio.Latitud.Value : campusDef.CenterLatitude);
-                targetLon = sessionState?.DocenteLongitudAlpha
-                    ?? ((espacio?.Longitud != 0 && espacio?.Longitud != null) ? espacio.Longitud.Value : campusDef.CenterLongitude);
-            }
-            else if (esModoProximidad && request.LatitudReferencia.HasValue && request.LongitudReferencia.HasValue)
-            {
-                targetLat = request.LatitudReferencia.Value;
-                targetLon = request.LongitudReferencia.Value;
-            }
-            else
-            {
-                targetLat = (espacio?.Latitud != 0 && espacio?.Latitud != null) ? espacio.Latitud.Value : campusDef.CenterLatitude;
-                targetLon = (espacio?.Longitud != 0 && espacio?.Longitud != null) ? espacio.Longitud.Value : campusDef.CenterLongitude;
+                var campusDef = _geoCalculoService.ObtenerCampus(campusCode);
+                if (campusDef.ContienePunto(targetLat, targetLon) && !_geoCalculoService.EstaDentroDeCampus(latEst, lonEst, campusCode))
+                {
+                    var resErr = AttendanceScanResult.Error(
+                        $"Ubicación rechazada: Coordenadas fuera de los límites perimetrales autorizados para {campusDef.Name}.");
+                    resErr.DistanciaCalculadaMetros = null;
+                    resErr.RadioPermitidoMetros = null;
+                    resErr.ModoValidacionAplicado = request.Modo;
+                    resErr.LatitudEstudiante = latEst;
+                    resErr.LongitudEstudiante = lonEst;
+                    resErr.PrecisionGpsMetros = request.PrecisionGpsMetros;
+                    return resErr;
+                }
             }
 
             // Distancia elipsoidal exacta Vincenty WGS-84
@@ -194,10 +205,11 @@ public class SuscripcionService(
             {
                 var sigmaDocente = sessionState?.DocentePrecisionAlpha ?? 5.0;
                 var sigmaEstudiante = request.PrecisionGpsMetros ?? 5.0;
-                var radioNominal = sessionState?.RadioNominalAulaMetros > 0
+                var radioNominal = request.RadioToleranciaPersonalizado ?? (sessionState?.RadioNominalAulaMetros > 0
                     ? sessionState.RadioNominalAulaMetros
-                    : (espacio?.RadioMetros > 0 ? espacio.RadioMetros : 12);
-                toleranciaTotal = _geoCalculoService.CalcularRadioGeocercaAdaptativa(sigmaDocente, sigmaEstudiante, radioNominal);
+                    : (espacio?.RadioMetros > 0 ? espacio.RadioMetros : 12));
+                var radioAdaptativo = _geoCalculoService.CalcularRadioGeocercaAdaptativa(sigmaDocente, sigmaEstudiante, radioNominal);
+                toleranciaTotal = Math.Max((double)radioNominal, radioAdaptativo);
             }
             else
             {
