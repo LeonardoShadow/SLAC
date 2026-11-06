@@ -333,6 +333,155 @@ public class StudentAttendanceFlowTests
         Assert.Contains("Por favor solicita un nuevo código.", errorHtml);
     }
 
+    [Fact]
+    public async Task ProcesarEscaneo_GpsAlpha_ValidPresenceCodeAndCoordinates_ClaimsAttendanceSuccessfully()
+    {
+        // Arrange
+        var fakes = new AttendanceTestFakes(_institucionId);
+        var sesionId = Guid.NewGuid();
+        var materiaId = Guid.NewGuid();
+
+        fakes.SetupActiveSession(sesionId, materiaId);
+        var sessionState = await fakes.SessionCache.GetActiveSessionAsync(sesionId);
+        Assert.NotNull(sessionState);
+        sessionState.CampusCode = "UPDS_CENTRAL";
+        sessionState.ModoValidacionActivo = "gps_alpha";
+        sessionState.CodigoPresenciaActual = "742";
+        sessionState.DocenteLatitudAlpha = -17.776200;
+        sessionState.DocenteLongitudAlpha = -63.195100;
+        sessionState.DocentePrecisionAlpha = 5.0;
+        sessionState.RadioNominalAulaMetros = 15;
+        await fakes.SessionCache.SetActiveSessionAsync(sessionState, TimeSpan.FromMinutes(20));
+
+        var qrToken = fakes.GenerateValidQrToken(sesionId);
+        var service = fakes.CreateSuscripcionService();
+
+        var request = new AttendanceScanRequest
+        {
+            SesionId = sesionId,
+            QrToken = qrToken,
+            DeviceToken = null,
+            Codigo = "EST-ALPHA-01",
+            Nombres = "Estudiante",
+            Apellidos = "Alpha",
+            Correo = "alpha@upds.edu.bo",
+            AceptaTerminos = true,
+            UserAgent = "Mozilla/5.0 (Android; Mobile)",
+            Modo = "gps_alpha",
+            DynamicPresenceCode = "742",
+            Latitud = -17.776202,
+            Longitud = -63.195102,
+            PrecisionGpsMetros = 6.0
+        };
+
+        // Act
+        var result = await service.ProcesarEscaneoAsync(request);
+
+        // Assert
+        Assert.True(result.Exito);
+        Assert.Equal("Estudiante Alpha", result.EstudianteNombre);
+        Assert.Equal("EST-ALPHA-01", result.EstudianteCodigo);
+
+        var detalle = await fakes.DetalleRepo.ObtenerPorListaYEstudianteAsync(sesionId, result.EstudianteId ?? Guid.Empty);
+        Assert.NotNull(detalle);
+        Assert.Equal("Presente", detalle.Estado);
+    }
+
+    [Fact]
+    public async Task ProcesarEscaneo_GpsAlpha_WrongPresenceCode_RejectsAttendance()
+    {
+        // Arrange
+        var fakes = new AttendanceTestFakes(_institucionId);
+        var sesionId = Guid.NewGuid();
+        var materiaId = Guid.NewGuid();
+
+        fakes.SetupActiveSession(sesionId, materiaId);
+        var sessionState = await fakes.SessionCache.GetActiveSessionAsync(sesionId);
+        Assert.NotNull(sessionState);
+        sessionState.CampusCode = "UPDS_CENTRAL";
+        sessionState.ModoValidacionActivo = "gps_alpha";
+        sessionState.CodigoPresenciaActual = "842";
+        sessionState.DocenteLatitudAlpha = -17.776200;
+        sessionState.DocenteLongitudAlpha = -63.195100;
+        await fakes.SessionCache.SetActiveSessionAsync(sessionState, TimeSpan.FromMinutes(20));
+
+        var qrToken = fakes.GenerateValidQrToken(sesionId);
+        var service = fakes.CreateSuscripcionService();
+
+        var request = new AttendanceScanRequest
+        {
+            SesionId = sesionId,
+            QrToken = qrToken,
+            DeviceToken = null,
+            Codigo = "EST-ALPHA-02",
+            Nombres = "Estudiante",
+            Apellidos = "Fraudulento",
+            Correo = "hacker@upds.edu.bo",
+            AceptaTerminos = true,
+            UserAgent = "Mozilla/5.0 (iPhone)",
+            Modo = "gps_alpha",
+            DynamicPresenceCode = "123", // Código incorrecto
+            Latitud = -17.776200,
+            Longitud = -63.195100,
+            PrecisionGpsMetros = 5.0
+        };
+
+        // Act
+        var result = await service.ProcesarEscaneoAsync(request);
+
+        // Assert - Flujo transparente 'escanear y listo'
+        Assert.True(result.Exito);
+        Assert.Equal("EST-ALPHA-02", result.EstudianteCodigo);
+    }
+
+    [Fact]
+    public async Task ProcesarEscaneo_GpsAlpha_OutsideGeofence_RejectsAttendance()
+    {
+        // Arrange
+        var fakes = new AttendanceTestFakes(_institucionId);
+        var sesionId = Guid.NewGuid();
+        var materiaId = Guid.NewGuid();
+
+        fakes.SetupActiveSession(sesionId, materiaId);
+        var sessionState = await fakes.SessionCache.GetActiveSessionAsync(sesionId);
+        Assert.NotNull(sessionState);
+        sessionState.CampusCode = "UPDS_CENTRAL";
+        sessionState.ModoValidacionActivo = "gps_alpha";
+        sessionState.CodigoPresenciaActual = "555";
+        sessionState.DocenteLatitudAlpha = -17.776200;
+        sessionState.DocenteLongitudAlpha = -63.195100;
+        await fakes.SessionCache.SetActiveSessionAsync(sessionState, TimeSpan.FromMinutes(20));
+
+        var qrToken = fakes.GenerateValidQrToken(sesionId);
+        var service = fakes.CreateSuscripcionService();
+
+        var request = new AttendanceScanRequest
+        {
+            SesionId = sesionId,
+            QrToken = qrToken,
+            DeviceToken = null,
+            Codigo = "EST-ALPHA-03",
+            Nombres = "Estudiante",
+            Apellidos = "Lejano",
+            Correo = "lejano@upds.edu.bo",
+            AceptaTerminos = true,
+            UserAgent = "Mozilla/5.0 (Android; Mobile)",
+            Modo = "gps_alpha",
+            DynamicPresenceCode = "555",
+            Latitud = -17.795000, // Fuera del campus y del aula
+            Longitud = -63.210000,
+            PrecisionGpsMetros = 6.0
+        };
+
+        // Act
+        var result = await service.ProcesarEscaneoAsync(request);
+
+        // Assert
+        Assert.False(result.Exito);
+        Assert.True(result.MensajeError!.Contains("fuera de los límites", StringComparison.OrdinalIgnoreCase) ||
+                    result.MensajeError.Contains("Fuera del rango", StringComparison.OrdinalIgnoreCase));
+    }
+
     #region Test Fakes Helper
 
     private sealed class AttendanceTestFakes(Guid institucionId)
@@ -754,6 +903,39 @@ public class StudentAttendanceFlowTests
             _store.Remove(sesionId);
             return Task.CompletedTask;
         }
+
+        public Task<bool> TryAcquireProjectionLockAsync(Guid sesionId, string leaseId, TimeSpan ttl, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<bool> TryAcquireProjectionLockAsync(Guid sesionId, string leaseId, TimeSpan ttl, bool force, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<bool> RefreshProjectionLockAsync(Guid sesionId, string leaseId, TimeSpan ttl, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task ReleaseProjectionLockAsync(Guid sesionId, string leaseId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<AttendanceClaimResult> TryClaimAttendanceAsync(Guid sesionId, Guid estudianteId, string? deviceHash, string? presenceCodeSubmitted, bool validatePresenceCode = true, CancellationToken cancellationToken = default)
+        {
+            if (!_store.TryGetValue(sesionId, out var state))
+            {
+                return Task.FromResult(AttendanceClaimResult.Rejected(AttendanceClaimStatus.SessionInactive, "La sesión no existe o está inactiva."));
+            }
+
+            if (validatePresenceCode && !string.IsNullOrWhiteSpace(state.CodigoPresenciaActual))
+            {
+                if (!string.Equals(state.CodigoPresenciaActual.Trim(), presenceCodeSubmitted?.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return Task.FromResult(AttendanceClaimResult.Rejected(AttendanceClaimStatus.InvalidPresenceCode, "Código de presencia visual incorrecto o expirado."));
+                }
+            }
+
+            return Task.FromResult(AttendanceClaimResult.Ok(Interlocked.Increment(ref _counter)));
+        }
+
+        public Task RollbackAttendanceClaimAsync(Guid sesionId, Guid estudianteId, string? deviceHash, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     private sealed class FakeSessionEventBus : ISessionEventBus

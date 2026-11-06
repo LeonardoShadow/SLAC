@@ -7,6 +7,7 @@ public class AdministradorInstitucional
     public string NombreCompleto { get; set; } = string.Empty;
     public string Correo { get; set; } = string.Empty;
     public string CodigoPin { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
     public bool Activo { get; set; } = true;
     public DateTimeOffset CreadoEn { get; set; } = DateTimeOffset.UtcNow;
 }

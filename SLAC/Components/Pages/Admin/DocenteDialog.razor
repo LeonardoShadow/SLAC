@@ -43,6 +43,14 @@
                               Variant="Variant.Outlined"
                               Margin="Margin.Dense" />
             </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="_nuevaPassword"
+                              Label="@(string.IsNullOrEmpty(Docente.PasswordHash) ? "Contraseña de Acceso (Opcional - por defecto su Código)" : "Cambiar Contraseña (Dejar vacío para conservar actual)")"
+                              InputType="InputType.Password"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              HelperText="Permite al Administrador asignar o restablecer la clave del docente con encriptación BCrypt." />
+            </MudItem>
         </MudGrid>
     </DialogContent>
     <DialogActions>
@@ -59,6 +67,7 @@
     public Docente Docente { get; set; } = new();
 
     private string? _errorMessage;
+    private string _nuevaPassword = string.Empty;
 
     private void Submit()
     {
@@ -86,6 +95,11 @@
         {
             _errorMessage = "Ingresa un correo institucional válido.";
             return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_nuevaPassword))
+        {
+            Docente.PasswordHash = BCrypt.Net.BCrypt.HashPassword(_nuevaPassword.Trim(), 11);
         }
 
         MudDialog.Close(DialogResult.Ok(Docente));

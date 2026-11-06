@@ -2,6 +2,7 @@
 @using SLAC.Core.Attendance.Services
 @inject ICorreccionAsistenciaService CorreccionService
 @inject ISnackbar Snackbar
+@inject ILogger<SuspensionClaseDialog> Logger
 
 <MudDialog>
     <TitleContent>
@@ -92,7 +93,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al suspender clase de emergencia");
+            Snackbar.Add("No se pudo procesar la suspensión de la sesión.", Severity.Error);
         }
         finally
         {

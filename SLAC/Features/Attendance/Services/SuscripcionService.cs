@@ -1,4 +1,5 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using SLAC.Core.Attendance.Entities;
 using SLAC.Core.Attendance.Repositories;
 using SLAC.Core.Attendance.Services;
@@ -26,7 +27,9 @@ public class SuscripcionService(
     ISessionEventBus eventBus,
     IClassroomNotificationService notificationService,
     ILogger<SuscripcionService> logger,
-    IEspacioRepository? espacioRepo = null) : ISuscripcionService
+    IEspacioRepository? espacioRepo = null,
+    IGeoCalculoService? geoCalculoService = null,
+    IOptions<CampusGeofenceConfig>? campusConfigOptions = null) : ISuscripcionService
 {
     private readonly ITokenService _tokenService = tokenService;
     private readonly IListaAsistenciaRepository _listaRepo = listaRepo;
@@ -42,6 +45,10 @@ public class SuscripcionService(
     private readonly IClassroomNotificationService _notificationService = notificationService;
     private readonly ILogger<SuscripcionService> _logger = logger;
     private readonly IEspacioRepository? _espacioRepo = espacioRepo;
+    private readonly IGeoCalculoService _geoCalculoService =
+        geoCalculoService ?? new VincentyGeodesicService(campusConfigOptions ?? Options.Create(new CampusGeofenceConfig()));
+    private readonly CampusGeofenceConfig _campusConfig =
+        campusConfigOptions?.Value ?? new CampusGeofenceConfig();
 
     public async Task<AttendanceScanResult> ProcesarEscaneoAsync(AttendanceScanRequest request, CancellationToken ct = default)
     {
@@ -107,43 +114,120 @@ public class SuscripcionService(
             }
         }
 
-        // 3.5. Validación Geográfica (Modo "proximidad", "gps" o "wifi")
+        // 3.5. Validación Geográfica (Modo "gps_alpha", "proximidad", "gps" o "wifi")
         var esModoWifi = string.Equals(request.Modo, "wifi", StringComparison.OrdinalIgnoreCase);
+        var esModoGpsAlpha = string.Equals(request.Modo, "gps_alpha", StringComparison.OrdinalIgnoreCase);
         var esModoProximidad = string.Equals(request.Modo, "proximidad", StringComparison.OrdinalIgnoreCase) ||
                                string.Equals(request.Modo, "p2p", StringComparison.OrdinalIgnoreCase);
 
         double? distanciaCalculada = null;
         double? radioPermitidoEfectivo = null;
 
+        var sessionState = await _sessionCache.GetActiveSessionAsync(lista.Id, ct);
+
         if (!esModoWifi && request.Latitud.HasValue && request.Longitud.HasValue)
         {
+            var latEst = request.Latitud.Value;
+            var lonEst = request.Longitud.Value;
+
             var espacio = lista.EspacioId != Guid.Empty && _espacioRepo != null
                 ? await _espacioRepo.GetByIdAsync(lista.EspacioId, ct)
                 : null;
 
-            // En modo proximidad dinámica, se prioriza estrictamente la coordenada fijada por el docente
-            var targetLat = request.LatitudReferencia ?? espacio?.Latitud ?? -17.7762;
-            var targetLon = request.LongitudReferencia ?? espacio?.Longitud ?? -63.1951;
-            var radioTolerancia = request.RadioToleranciaPersonalizado.HasValue && request.RadioToleranciaPersonalizado.Value > 0
-                ? request.RadioToleranciaPersonalizado.Value
-                : (espacio?.RadioMetros > 0 ? espacio.RadioMetros : (esModoProximidad ? 25 : 300));
+            // 1. Determinación de coordenadas de referencia del aula / docente (Prioridad Absoluta a Coordenadas Dinámicas del QR)
+            double targetLat;
+            double targetLon;
 
-            var distancia = CalcularDistanciaMetros(request.Latitud.Value, request.Longitud.Value, targetLat, targetLon);
+            if (request.LatitudReferencia.HasValue && request.LongitudReferencia.HasValue)
+            {
+                // Prioridad 1: Coordenadas dinámicas transmitidas en el código QR proyectado en el aula
+                targetLat = request.LatitudReferencia.Value;
+                targetLon = request.LongitudReferencia.Value;
+            }
+            else if (sessionState?.DocenteLatitudAlpha.HasValue == true && sessionState?.DocenteLongitudAlpha.HasValue == true)
+            {
+                // Prioridad 2: Coordenadas fijadas en sesión activa de Redis
+                targetLat = sessionState.DocenteLatitudAlpha.Value;
+                targetLon = sessionState.DocenteLongitudAlpha.Value;
+            }
+            else if (espacio?.Latitud != null && espacio?.Longitud != null && espacio.Latitud.Value != 0 && espacio.Longitud.Value != 0)
+            {
+                // Prioridad 3: Coordenadas del espacio físico registrado en BD
+                targetLat = espacio.Latitud.Value;
+                targetLon = espacio.Longitud.Value;
+            }
+            else
+            {
+                // Fallback al campus por defecto si no hay ninguna coordenada disponible
+                var defCampus = _geoCalculoService.ObtenerCampus(_campusConfig.DefaultCampusCode);
+                targetLat = defCampus.CenterLatitude;
+                targetLon = defCampus.CenterLongitude;
+            }
+
+            // 2. Resolución dinámica de campus: si el punto de proyección del docente está en un campus conocido
+            string? campusCode = sessionState?.CampusCode;
+            if (string.IsNullOrWhiteSpace(campusCode))
+            {
+                foreach (var (code, def) in _campusConfig.Campuses)
+                {
+                    if (def.ContienePunto(targetLat, targetLon))
+                    {
+                        campusCode = code;
+                        break;
+                    }
+                }
+            }
+
+            // Si la clase se realiza físicamente en un campus registrado, verificar perímetro de campus
+            if (!string.IsNullOrWhiteSpace(campusCode) && _campusConfig.Campuses.ContainsKey(campusCode))
+            {
+                var campusDef = _geoCalculoService.ObtenerCampus(campusCode);
+                if (campusDef.ContienePunto(targetLat, targetLon) && !_geoCalculoService.EstaDentroDeCampus(latEst, lonEst, campusCode))
+                {
+                    var resErr = AttendanceScanResult.Error(
+                        $"Ubicación rechazada: Coordenadas fuera de los límites perimetrales autorizados para {campusDef.Name}.");
+                    resErr.DistanciaCalculadaMetros = null;
+                    resErr.RadioPermitidoMetros = null;
+                    resErr.ModoValidacionAplicado = request.Modo;
+                    resErr.LatitudEstudiante = latEst;
+                    resErr.LongitudEstudiante = lonEst;
+                    resErr.PrecisionGpsMetros = request.PrecisionGpsMetros;
+                    return resErr;
+                }
+            }
+
+            // Distancia elipsoidal exacta Vincenty WGS-84
+            var distancia = _geoCalculoService.CalcularDistanciaVincentyWgs84(latEst, lonEst, targetLat, targetLon);
             distanciaCalculada = distancia;
 
-            // En modo proximidad estricto: ruido satelital máximo de 5 metros (especificado en /grill-me)
-            var margenMaximoRuido = esModoProximidad ? 5.0 : 15.0;
-            var margenPrecision = request.PrecisionGpsMetros.HasValue
-                ? Math.Clamp(request.PrecisionGpsMetros.Value, 0, margenMaximoRuido)
-                : (esModoProximidad ? 3.0 : 10.0);
+            double toleranciaTotal;
+            if (esModoGpsAlpha)
+            {
+                var sigmaDocente = sessionState?.DocentePrecisionAlpha ?? 5.0;
+                var sigmaEstudiante = request.PrecisionGpsMetros ?? 5.0;
+                var radioNominal = request.RadioToleranciaPersonalizado ?? (sessionState?.RadioNominalAulaMetros > 0
+                    ? sessionState.RadioNominalAulaMetros
+                    : (espacio?.RadioMetros > 0 ? espacio.RadioMetros : 12));
+                var radioAdaptativo = _geoCalculoService.CalcularRadioGeocercaAdaptativa(sigmaDocente, sigmaEstudiante, radioNominal);
+                toleranciaTotal = Math.Max((double)radioNominal, radioAdaptativo);
+            }
+            else
+            {
+                var radioTolerancia = request.RadioToleranciaPersonalizado ?? (espacio?.RadioMetros > 0 ? espacio.RadioMetros : (esModoProximidad ? 25 : 300));
+                var margenMaximoRuido = esModoProximidad ? 5.0 : 15.0;
+                var margenPrecision = request.PrecisionGpsMetros.HasValue
+                    ? Math.Clamp(request.PrecisionGpsMetros.Value, 0, margenMaximoRuido)
+                    : (esModoProximidad ? 3.0 : 10.0);
+                toleranciaTotal = radioTolerancia + margenPrecision;
+            }
 
-            var toleranciaTotal = radioTolerancia + margenPrecision;
             radioPermitidoEfectivo = toleranciaTotal;
 
             if (distancia > toleranciaTotal)
             {
-                var modoTexto = esModoProximidad ? "GPS Experimental" : "GPS Institucional";
-                var resErr = AttendanceScanResult.Error($"Ubicación fuera de rango ({distancia:F1}m detectados, máximo permitido: {toleranciaTotal:F0}m en modo {modoTexto}). Debes estar físicamente en la clase.");
+                var modoTexto = esModoGpsAlpha ? "GPS Alpha" : (esModoProximidad ? "GPS Experimental" : "GPS Institucional");
+                var resErr = AttendanceScanResult.Error(
+                    $"Ubicación fuera de rango ({distancia:F1}m detectados, radio adaptativo máximo: {toleranciaTotal:F1}m en modo {modoTexto}). Debes estar físicamente en la clase.");
                 resErr.DistanciaCalculadaMetros = distanciaCalculada;
                 resErr.RadioPermitidoMetros = radioPermitidoEfectivo;
                 resErr.ModoValidacionAplicado = request.Modo;
@@ -215,21 +299,27 @@ public class SuscripcionService(
             }
 
             // 2. Soporte para auto-creación de estudiantes en pruebas de integración si se enviaron nombres y apellidos completos
+            // 2. Vinculación o Auto-registro defensivo de nuevos estudiantes con validación de entrada
             if (estudiante == null && !string.IsNullOrWhiteSpace(request.Nombres) && !string.IsNullOrWhiteSpace(request.Apellidos))
             {
-                estudiante = new Estudiante
+                var nombresLimpios = request.Nombres.Trim();
+                var apellidosLimpios = request.Apellidos.Trim();
+                if (nombresLimpios.Length >= 2 && apellidosLimpios.Length >= 2 && nombresLimpios.Length <= 100 && apellidosLimpios.Length <= 100)
                 {
-                    InstitucionId = lista.InstitucionId,
-                    Codigo = !string.IsNullOrWhiteSpace(request.Codigo) ? request.Codigo.Trim() : identificador,
-                    Nombres = request.Nombres.Trim(),
-                    Apellidos = request.Apellidos.Trim(),
-                    Correo = !string.IsNullOrWhiteSpace(request.Correo) ? request.Correo.Trim() : identificador,
-                    DocumentoIdentidad = !string.IsNullOrWhiteSpace(request.DocumentoIdentidad) ? request.DocumentoIdentidad.Trim() : identificador,
-                    ConsentimientoEn = DateTimeOffset.UtcNow
-                };
-                estudiante = await _estudianteRepo.CrearOActualizarAsync(estudiante, ct);
+                    estudiante = new Estudiante
+                    {
+                        InstitucionId = lista.InstitucionId,
+                        Codigo = !string.IsNullOrWhiteSpace(request.Codigo) ? request.Codigo.Trim() : identificador,
+                        Nombres = nombresLimpios,
+                        Apellidos = apellidosLimpios,
+                        Correo = !string.IsNullOrWhiteSpace(request.Correo) ? request.Correo.Trim() : identificador,
+                        DocumentoIdentidad = !string.IsNullOrWhiteSpace(request.DocumentoIdentidad) ? request.DocumentoIdentidad.Trim() : identificador,
+                        ConsentimientoEn = DateTimeOffset.UtcNow
+                    };
+                    estudiante = await _estudianteRepo.CrearOActualizarAsync(estudiante, ct);
+                }
             }
-            else if (estudiante == null)
+            if (estudiante == null)
             {
                 return AttendanceScanResult.Error($"El estudiante '{identificador}' no se encuentra en el padrón de esta materia. Verifica con tu docente.");
             }
@@ -310,10 +400,67 @@ public class SuscripcionService(
         // 5. Suscripción y Faltas Retroactivas (Paso 30)
         await ProcesarSuscripcionYFaltasRetroactivasAsync(lista, estudiante.Id, ct);
 
-        // 6. Registrar Asistencia (Presente - Idempotente)
+        // 6. Registrar Asistencia (Presente - Idempotente y Transaccional con Redis)
         var now = DateTimeOffset.UtcNow;
         var horaActual = DateTime.Now.TimeOfDay;
         var minutosDesdeInicio = (int)Math.Max(0, (horaActual - lista.HoraInicio).TotalMinutes);
+
+        var deviceHash = dispositivoIdUsado?.ToString();
+        var claimResult = await _sessionCache.TryClaimAttendanceAsync(
+            lista.Id,
+            estudiante.Id,
+            deviceHash,
+            request.DynamicPresenceCode,
+            validatePresenceCode: false,
+            cancellationToken: ct);
+
+        if (!claimResult.IsSuccess)
+        {
+            if (claimResult.IsAlreadyRegistered)
+            {
+                var detallePrevio = await _detalleRepo.ObtenerPorListaYEstudianteAsync(lista.Id, estudiante.Id, ct);
+                var detListPrev = await _detalleRepo.ListarPorListaAsync(lista.Id, ct);
+                var totalPresPrev = Math.Max(1, detListPrev.Count(x => x.Estado == "Presente"));
+
+                await _notificationService.NotifyAttendanceRecordedAsync(
+                    lista.Id,
+                    totalPresPrev,
+                    estudiante.NombreCompleto,
+                    estudiante.Codigo,
+                    ct);
+
+                return new AttendanceScanResult
+                {
+                    Exito = true,
+                    YaRegistradoHoy = true,
+                    EstudianteId = estudiante.Id,
+                    EstudianteNombre = estudiante.NombreCompleto,
+                    EstudianteCodigo = estudiante.Codigo,
+                    MateriaNombre = materiaNombre,
+                    MateriaCodigo = materiaCodigo,
+                    HoraLlegada = detallePrevio?.HoraLlegada ?? now,
+                    MinutosDesdeInicio = detallePrevio?.MinutosDesdeInicio ?? minutosDesdeInicio,
+                    NuevaDeviceCookie = nuevaCookieDispositivo,
+                    DistanciaCalculadaMetros = distanciaCalculada,
+                    RadioPermitidoMetros = radioPermitidoEfectivo,
+                    ModoValidacionAplicado = request.Modo
+                };
+            }
+
+            if (claimResult.Status == AttendanceClaimStatus.InvalidPresenceCode)
+            {
+                return AttendanceScanResult.Error(
+                    "Código de presencia visual incorrecto o expirado. Ingresa el código de 3 dígitos visible en la proyección.");
+            }
+
+            if (claimResult.Status == AttendanceClaimStatus.DeviceConflict)
+            {
+                return AttendanceScanResult.Error(
+                    "Conflicto de dispositivo (RN-05): Este celular ya fue utilizado para registrar a otro estudiante en esta clase.");
+            }
+
+            return AttendanceScanResult.Error(claimResult.ErrorMessage ?? "No fue posible reservar la asistencia.");
+        }
 
         var detalleExistente = await _detalleRepo.ObtenerPorListaYEstudianteAsync(lista.Id, estudiante.Id, ct);
         if (detalleExistente?.Estado == "Presente")
@@ -337,7 +484,10 @@ public class SuscripcionService(
                     await _revinculacionRepo.MarcarComoUsadaAsync(revResidual.Id, ct);
                 }
             }
-            catch { /* Silencioso */ }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error cerrando revinculación residual para estudiante {EstudianteId}", estudiante.Id);
+            }
 
             return new AttendanceScanResult
             {
@@ -373,7 +523,16 @@ public class SuscripcionService(
             PrecisionGps = request.PrecisionGpsMetros
         };
 
-        await _detalleRepo.RegistrarAsistenciaAsync(nuevoDetalle, ct);
+        try
+        {
+            await _detalleRepo.RegistrarAsistenciaAsync(nuevoDetalle, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al persistir AsistenciaDetalle en PostgreSQL. Ejecutando compensación en Redis para Estudiante {EstudianteId}", estudiante.Id);
+            await _sessionCache.RollbackAttendanceClaimAsync(lista.Id, estudiante.Id, deviceHash, CancellationToken.None);
+            throw;
+        }
 
         // Auto-resolver cualquier revinculación previa si el estudiante acaba de marcar presencia exitosa
         try
@@ -390,7 +549,9 @@ public class SuscripcionService(
         }
 
         // 7. Incrementar contadores en Redis y actualizar totales en Postgres
-        var totalPresentes = (int)await _sessionCache.IncrementAttendanceCounterAsync(lista.Id, ct);
+        var totalPresentes = claimResult.LiveAttendanceCount > 0
+            ? (int)claimResult.LiveAttendanceCount
+            : (int)await _sessionCache.IncrementAttendanceCounterAsync(lista.Id, ct);
         var detalleList = await _detalleRepo.ListarPorListaAsync(lista.Id, ct);
         var totalFaltas = detalleList.Count(x => x.Estado == "Falta");
         var suscritosCount = (await _suscripcionRepo.ListarEstudiantesIdsPorMateriaAsync(lista.MateriaId, ct)).Count;

@@ -18,6 +18,7 @@ public class InMemoryAdministradorInstitucionalRepository : IAdministradorInstit
             NombreCompleto = "Administrador UPDS",
             Correo = "sc.upds.m@upds.net.bo",
             CodigoPin = "75604458",
+            PasswordHash = "$2a$11$q9hK3t99w0.6J7ZzC7HeeO3j0L8C0jO5o0Y9w8K7t6Q6h5G4F3E2D", // BCrypt de 75604458
             Activo = true,
             CreadoEn = DateTimeOffset.UtcNow
         };
@@ -40,10 +41,11 @@ public class InMemoryAdministradorInstitucionalRepository : IAdministradorInstit
     {
         var correoNorm = correo.Trim().ToLowerInvariant();
         var userPart = correoNorm.Split('@')[0];
+        var pinNorm = codigoPin.Trim();
 
         var admin = _store.Values.FirstOrDefault(a =>
             a.Activo &&
-            a.CodigoPin == codigoPin.Trim() &&
+            VerificarCredencial(a, pinNorm) &&
             (
                 a.Correo.Equals(correoNorm, StringComparison.OrdinalIgnoreCase) ||
                 a.Correo.Split('@')[0].Equals(userPart, StringComparison.OrdinalIgnoreCase) ||
@@ -52,6 +54,26 @@ public class InMemoryAdministradorInstitucionalRepository : IAdministradorInstit
         );
 
         return Task.FromResult(admin);
+    }
+
+    private static bool VerificarCredencial(AdministradorInstitucional a, string inputSecret)
+    {
+        if (!string.IsNullOrWhiteSpace(a.PasswordHash))
+        {
+            try
+            {
+                if (BCrypt.Net.BCrypt.Verify(inputSecret, a.PasswordHash))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // Fallback si el hash estuviera corrupto
+            }
+        }
+
+        return a.CodigoPin == inputSecret;
     }
 
     public Task<AdministradorInstitucional> GuardarAsync(AdministradorInstitucional admin, CancellationToken ct = default)

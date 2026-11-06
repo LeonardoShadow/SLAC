@@ -788,6 +788,24 @@ public class EdgeCasesAndRevinculationTests
             return Task.CompletedTask;
         }
 
+        public Task<bool> TryAcquireProjectionLockAsync(Guid sesionId, string leaseId, TimeSpan ttl, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<bool> TryAcquireProjectionLockAsync(Guid sesionId, string leaseId, TimeSpan ttl, bool force, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<bool> RefreshProjectionLockAsync(Guid sesionId, string leaseId, TimeSpan ttl, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task ReleaseProjectionLockAsync(Guid sesionId, string leaseId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<AttendanceClaimResult> TryClaimAttendanceAsync(Guid sesionId, Guid estudianteId, string? deviceHash, string? presenceCodeSubmitted, bool validatePresenceCode = true, CancellationToken cancellationToken = default)
+            => Task.FromResult(AttendanceClaimResult.Ok(1));
+
+        public Task RollbackAttendanceClaimAsync(Guid sesionId, Guid estudianteId, string? deviceHash, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         public bool FueInvalidada(Guid sesionId) => _invalidated.Contains(sesionId);
     }
 

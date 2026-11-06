@@ -15,6 +15,7 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
+@inject ILogger<DocenteMateriasPage> Logger
 
 <PageTitle>SLAC - Mis Materias (Docente)</PageTitle>
 
@@ -352,7 +353,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error al cargar materias: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al cargar materias del docente");
+            Snackbar.Add("No fue posible cargar las materias asignadas. Inténtelo más tarde.", Severity.Error);
         }
         finally
         {

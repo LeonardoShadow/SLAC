@@ -27,6 +27,12 @@ public class AttendanceScanRequest
     public int? RadioToleranciaPersonalizado { get; set; }
     public double? LatitudReferencia { get; set; }
     public double? LongitudReferencia { get; set; }
+
+    // Reto visual dinámico de 3 dígitos proyectado en pantalla (Modo GPS Alpha)
+    public string? DynamicPresenceCode { get; set; }
+
+    // Serie temporal cruda obligatoria para certificación Zero-Trust
+    public List<RawGpsTelemetrySample>? Samples { get; set; }
 }
 
 public class AttendanceScanResult
@@ -96,4 +102,75 @@ public class AttendanceScanResult
         SolicitudRevinculacionId = solicitudRevinculacionId,
         EstudianteId = estudianteId
     };
+}
+
+/// <summary>
+/// Muestra telemétrica cruda individual emitida por el hardware GNSS del dispositivo cliente.
+/// </summary>
+public class RawGpsTelemetrySample
+{
+    public double Lat { get; set; }
+    public double Lon { get; set; }
+    public double Acc { get; set; }
+    public double? Speed { get; set; }
+    public long TimestampMs { get; set; }
+}
+
+/// <summary>
+/// Estados de resultado para la reserva y deduplicación atómica de asistencia en Redis (LUA_CLAIM_ATTENDANCE).
+/// </summary>
+public enum AttendanceClaimStatus
+{
+    Success = 0,
+    AlreadyRegistered = 1,
+    InvalidPresenceCode = -1,
+    DeviceConflict = -2,
+    SessionInactive = -3,
+    DegradedModeFallback = 2
+}
+
+/// <summary>
+/// Resultado inmutable de la solicitud atómica de reserva de asistencia.
+/// </summary>
+public sealed record AttendanceClaimResult(
+    AttendanceClaimStatus Status,
+    long LiveAttendanceCount,
+    string? ErrorMessage = null)
+{
+    public bool IsSuccess => Status is AttendanceClaimStatus.Success or AttendanceClaimStatus.DegradedModeFallback;
+    public bool IsAlreadyRegistered => Status == AttendanceClaimStatus.AlreadyRegistered;
+    public bool IsRejected => (int)Status < 0;
+
+    public static AttendanceClaimResult Ok(long count) =>
+        new(AttendanceClaimStatus.Success, count);
+
+    public static AttendanceClaimResult AlreadyDone(long count) =>
+        new(AttendanceClaimStatus.AlreadyRegistered, count, "Asistencia ya registrada previamente.");
+
+    public static AttendanceClaimResult Rejected(AttendanceClaimStatus status, string message) =>
+        new(status, 0, message);
+
+    public static AttendanceClaimResult FallbackOk(long count) =>
+        new(AttendanceClaimStatus.DegradedModeFallback, count);
+}
+
+/// <summary>
+/// Resultado del proceso de auditoría y certificación telemétrica en el servidor (GeoTelemetryValidator).
+/// </summary>
+public class TelemetryValidationResult
+{
+    public bool IsValid { get; set; }
+    public string? RejectReason { get; set; }
+    public double VerifiedLatitude { get; set; }
+    public double VerifiedLongitude { get; set; }
+    public double VerifiedAccuracyMetros { get; set; }
+    public double VerifiedVariance { get; set; }
+    public double SpatialStdDevMetros { get; set; }
+    public double MaxKinematicVelocityMps { get; set; }
+    public int RetainedSampleCount { get; set; }
+
+    // Aliases semánticos para interoperabilidad y contratos de alto nivel
+    public double CertifiedLat => VerifiedLatitude;
+    public double CertifiedLon => VerifiedLongitude;
+    public double CertifiedAcc => VerifiedAccuracyMetros;
 }

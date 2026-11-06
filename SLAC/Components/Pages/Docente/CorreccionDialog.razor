@@ -2,6 +2,7 @@
 @using SLAC.Core.Attendance.Services
 @inject ICorreccionAsistenciaService CorreccionService
 @inject ISnackbar Snackbar
+@inject ILogger<CorreccionDialog> Logger
 
 <MudDialog>
     <TitleContent>
@@ -105,7 +106,8 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al corregir asistencia");
+            Snackbar.Add("No se pudo procesar la corrección de asistencia.", Severity.Error);
         }
         finally
         {

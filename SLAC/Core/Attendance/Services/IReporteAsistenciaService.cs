@@ -35,6 +35,11 @@ public interface IReporteAsistenciaService
         CancellationToken ct = default);
 
     /// <summary>
+    /// Comando explícito para conciliar y persistir inasistencias pendientes en una sesión cerrada (CQS - REF-07).
+    /// </summary>
+    Task<int> ConciliarInasistenciasAsync(Guid listaId, CancellationToken ct = default);
+
+    /// <summary>
     /// Genera un archivo Excel (.xlsx) formateado con ClosedXML a partir de los datos de faltas.
     /// </summary>
     Task<byte[]> GenerarExcelFaltasAsync(

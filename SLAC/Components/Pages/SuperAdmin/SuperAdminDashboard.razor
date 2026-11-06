@@ -16,6 +16,7 @@
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject ILogger<SuperAdminDashboard> Logger
 
 <PageTitle>SLAC - Administrador General Multitenant</PageTitle>
 
@@ -646,7 +647,8 @@ else
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error cargando datos multitenant: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Error al cargar datos multitenant");
+            Snackbar.Add("No fue posible cargar los datos institucionales. Inténtelo más tarde.", Severity.Error);
         }
         finally
         {

@@ -13,6 +13,7 @@ public class Docente
     public string Apellidos { get; set; } = string.Empty;
     public string Correo { get; set; } = string.Empty;
     public string Codigo { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
     public DateTimeOffset CreadoEn { get; set; } = DateTimeOffset.UtcNow;
 
     public string NombreCompleto => $"{Nombres} {Apellidos}".Trim();

@@ -9,6 +9,12 @@ namespace SLAC.Core;
 /// </summary>
 public static class TimeHelper
 {
+    /// <summary>
+    /// Proveedor de tiempo estándar de .NET 8/9.
+    /// Permite inyección de FakeTimeProvider en pruebas unitarias y sincronización temporal precisa (REF-10).
+    /// </summary>
+    public static TimeProvider Provider { get; set; } = TimeProvider.System;
+
     private static readonly TimeZoneInfo BoliviaTimeZone = ObtenerZonaHorariaBolivia();
     public static readonly TimeSpan BoliviaOffset = TimeSpan.FromHours(-4);
 
@@ -37,7 +43,7 @@ public static class TimeHelper
     /// <summary>
     /// Fecha y hora actual en la zona institucional (UTC-4).
     /// </summary>
-    public static DateTime Now => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, BoliviaTimeZone);
+    public static DateTime Now => TimeZoneInfo.ConvertTimeFromUtc(Provider.GetUtcNow().UtcDateTime, BoliviaTimeZone);
 
     /// <summary>
     /// Fecha actual institucional (DateOnly).
