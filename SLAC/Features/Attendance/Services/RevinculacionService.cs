@@ -6,26 +6,48 @@ using SLAC.Core.Attendance.Repositories;
 using SLAC.Core.Attendance.Services;
 using SLAC.Core.Estudiantes.Entities;
 using SLAC.Core.Estudiantes.Repositories;
+using SLAC.Core.Security;
+using SLAC.Core.Session;
 using SLAC.Features.Attendance.Hubs;
 
 namespace SLAC.Features.Attendance.Services;
 
-public class RevinculacionService(
-    IRevinculacionRepository revinculacionRepo,
-    IEstudianteRepository estudianteRepo,
-    IDispositivoRepository dispositivoRepo,
-    IListaAsistenciaRepository listaRepo,
-    IAuditoriaRepository auditoriaRepo,
-    IHubContext<AttendanceHub> hubContext,
-    ILogger<RevinculacionService> logger) : IRevinculacionService
+public class RevinculacionService : IRevinculacionService
 {
-    private readonly IRevinculacionRepository _revinculacionRepo = revinculacionRepo;
-    private readonly IEstudianteRepository _estudianteRepo = estudianteRepo;
-    private readonly IDispositivoRepository _dispositivoRepo = dispositivoRepo;
-    private readonly IListaAsistenciaRepository _listaRepo = listaRepo;
-    private readonly IAuditoriaRepository _auditoriaRepo = auditoriaRepo;
-    private readonly IHubContext<AttendanceHub> _hubContext = hubContext;
-    private readonly ILogger<RevinculacionService> _logger = logger;
+    private readonly IRevinculacionRepository _revinculacionRepo;
+    private readonly IEstudianteRepository _estudianteRepo;
+    private readonly IDispositivoRepository _dispositivoRepo;
+    private readonly IListaAsistenciaRepository _listaRepo;
+    private readonly IAuditoriaRepository _auditoriaRepo;
+    private readonly IHubContext<AttendanceHub> _hubContext;
+    private readonly ILogger<RevinculacionService> _logger;
+    private readonly IAsistenciaDetalleRepository? _detalleRepo;
+    private readonly ITokenService? _tokenService;
+    private readonly ISessionCacheRepository? _sessionCache;
+
+    public RevinculacionService(
+        IRevinculacionRepository revinculacionRepo,
+        IEstudianteRepository estudianteRepo,
+        IDispositivoRepository dispositivoRepo,
+        IListaAsistenciaRepository listaRepo,
+        IAuditoriaRepository auditoriaRepo,
+        IHubContext<AttendanceHub> hubContext,
+        ILogger<RevinculacionService> logger,
+        IAsistenciaDetalleRepository? detalleRepo = null,
+        ITokenService? tokenService = null,
+        ISessionCacheRepository? sessionCache = null)
+    {
+        _revinculacionRepo = revinculacionRepo;
+        _estudianteRepo = estudianteRepo;
+        _dispositivoRepo = dispositivoRepo;
+        _listaRepo = listaRepo;
+        _auditoriaRepo = auditoriaRepo;
+        _hubContext = hubContext;
+        _logger = logger;
+        _detalleRepo = detalleRepo;
+        _tokenService = tokenService;
+        _sessionCache = sessionCache;
+    }
 
     public async Task<SolicitudRevinculacionResult> SolicitarRevinculacionAsync(
         Guid sesionId,
@@ -169,7 +191,110 @@ public class RevinculacionService(
                 vincActiva.DispositivoId, solicitud.EstudianteId);
         }
 
-        // 3. Registrar auditoría inmutable
+        // 3. Registrar de inmediato el nuevo dispositivo para el estudiante si el servicio de tokens está disponible
+        var nuevoDispId = Guid.NewGuid();
+        if (_tokenService != null)
+        {
+            try
+            {
+                var (_, jtiHash) = _tokenService.GenerateDeviceCredential(nuevoDispId, solicitud.InstitucionId);
+                var nuevoDisp = new Dispositivo
+                {
+                    Id = nuevoDispId,
+                    JtiHash = jtiHash,
+                    Kid = "slac-master-k1",
+                    AgenteResumen = !string.IsNullOrWhiteSpace(solicitud.DispositivoAgente) ? solicitud.DispositivoAgente : "Dispositivo Autorizado por Docente"
+                };
+                await _dispositivoRepo.RegistrarDispositivoAsync(nuevoDisp, solicitud.EstudianteId, solicitud.InstitucionId, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error registrando nuevo dispositivo autorizado para estudiante {EstudianteId}", solicitud.EstudianteId);
+            }
+        }
+
+        // 4. Inscribir y registrar asistencia en vivo en la sesión de clase activa hoy
+        ListaAsistencia? sesionHoy = null;
+        try
+        {
+            sesionHoy = await _listaRepo.ObtenerPorMateriaYFechaAsync(solicitud.MateriaId, DateOnly.FromDateTime(DateTime.UtcNow), ct);
+            if (sesionHoy == null || sesionHoy.Estado != "Abierta")
+            {
+                var todas = await _listaRepo.ListarPorMateriaAsync(solicitud.MateriaId, ct);
+                sesionHoy = todas.FirstOrDefault(l => l.Estado == "Abierta");
+            }
+
+            if (sesionHoy != null && _detalleRepo != null)
+            {
+                var est = await _estudianteRepo.ObtenerPorIdAsync(solicitud.EstudianteId, ct);
+                var estNombre = est?.NombreCompleto ?? solicitud.EstudianteNombre ?? "Estudiante";
+                var estCodigo = est?.Codigo ?? solicitud.EstudianteCodigo ?? "";
+
+                var detalleExistente = await _detalleRepo.ObtenerPorListaYEstudianteAsync(sesionHoy.Id, solicitud.EstudianteId, ct);
+                if (detalleExistente == null)
+                {
+                    var horaInicio = sesionHoy.HoraInicio;
+                    var minInicio = (int)Math.Max(0, (DateTime.Now.TimeOfDay - horaInicio).TotalMinutes);
+                    var detalle = new AsistenciaDetalle
+                    {
+                        Id = Guid.NewGuid(),
+                        InstitucionId = sesionHoy.InstitucionId,
+                        ListaId = sesionHoy.Id,
+                        EstudianteId = solicitud.EstudianteId,
+                        Estado = "Presente",
+                        Origen = "Revinculacion",
+                        DispositivoId = nuevoDispId,
+                        HoraLlegada = DateTimeOffset.UtcNow,
+                        MinutosDesdeInicio = minInicio
+                    };
+                    await _detalleRepo.RegistrarAsistenciaAsync(detalle, ct);
+                }
+                else if (detalleExistente.Estado != "Presente")
+                {
+                    detalleExistente.Estado = "Presente";
+                    detalleExistente.DispositivoId = nuevoDispId;
+                    detalleExistente.HoraLlegada ??= DateTimeOffset.UtcNow;
+                    await _detalleRepo.RegistrarAsistenciaAsync(detalleExistente, ct);
+                }
+
+                var todosDetalles = await _detalleRepo.ListarPorListaAsync(sesionHoy.Id, ct);
+                var totalPres = todosDetalles.Count(d => d.Estado == "Presente");
+                var totalFalt = todosDetalles.Count(d => d.Estado == "Falta");
+                var totalSuscritos = todosDetalles.Count;
+                await _listaRepo.ActualizarTotalesAsync(sesionHoy.Id, totalSuscritos, totalPres, totalFalt, ct);
+
+                if (_sessionCache != null)
+                {
+                    try
+                    {
+                        await _sessionCache.TryClaimAttendanceAsync(
+                            sesionHoy.Id,
+                            solicitud.EstudianteId,
+                            nuevoDispId.ToString(),
+                            null,
+                            validatePresenceCode: false,
+                            cancellationToken: ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error sincronizando caché Redis para revinculación autorizada.");
+                    }
+                }
+
+                // Notificar asistencia en tiempo real a la pantalla proyectada (SignalR)
+                var sesionGroupName = AttendanceHub.GetGroupName(sesionHoy.Id.ToString());
+                await _hubContext.Clients.Group(sesionGroupName)
+                    .SendAsync("AsistenciaRegistrada", estNombre, estCodigo, totalPres, cancellationToken: ct);
+                await _hubContext.Clients.Group(sesionGroupName)
+                    .SendAsync("AsistenciaActualizada", totalPres, estCodigo, cancellationToken: ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error registrando asistencia automática en sesión activa tras autorizar revinculación");
+        }
+
+        // 5. Registrar auditoría inmutable
         var auditoria = new Auditoria
         {
             InstitucionId = solicitud.InstitucionId,
@@ -182,16 +307,16 @@ public class RevinculacionService(
                 estudianteId = solicitud.EstudianteId,
                 materiaId = solicitud.MateriaId,
                 dispositivoAnteriorRevocado = vincActiva?.DispositivoId,
+                nuevoDispositivoId = nuevoDispId,
                 autorizadoPor = actorDocente,
                 fecha = DateTime.UtcNow
             })
         };
         await _auditoriaRepo.RegistrarEventoAsync(auditoria, ct);
 
-        // 4. Notificar vía SignalR que la revinculación fue aprobada exclusivamente a la sala de clase correspondiente (REF-08)
+        // 6. Notificar vía SignalR que la revinculación fue aprobada a la sala de clase correspondiente (REF-08)
         try
         {
-            var sesionHoy = await _listaRepo.ObtenerPorMateriaYFechaAsync(solicitud.MateriaId, DateOnly.FromDateTime(DateTime.UtcNow), ct);
             if (sesionHoy != null)
             {
                 var groupName = AttendanceHub.GetGroupName(sesionHoy.Id.ToString());
@@ -200,7 +325,6 @@ public class RevinculacionService(
             }
             else
             {
-                // Si no hay sesión hoy, notificar al grupo de la materia para no emitir broadcast global descontrolado
                 var materiaGroupName = $"materia_{solicitud.MateriaId}";
                 await _hubContext.Clients.Group(materiaGroupName)
                     .SendAsync("RevinculacionAprobada", solicitud.EstudianteId.ToString(), cancellationToken: ct);

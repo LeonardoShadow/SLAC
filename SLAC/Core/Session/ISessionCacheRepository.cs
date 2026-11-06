@@ -89,4 +89,12 @@ public interface ISessionCacheRepository
         Guid estudianteId,
         string? deviceHash,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reinicia todos los reclamos y contadores efímeros de asistencia para una sesión específica,
+    /// permitiendo repetir pruebas de escaneo en la misma sesión sin colisión de claves.
+    /// </summary>
+    /// <param name="sesionId">Identificador único de la sesión.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    Task ResetAttendanceClaimsAsync(Guid sesionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
 }

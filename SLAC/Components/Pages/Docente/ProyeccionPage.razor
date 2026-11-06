@@ -1,4 +1,4 @@
-﻿@page "/proyeccion/{materiaId:guid}"
+@page "/proyeccion/{materiaId:guid}"
 
 @page "/docente/proyeccion/{materiaId:guid}"
 
@@ -4935,6 +4935,16 @@
 
             _ultimosRegistrados.Clear();
 
+            // Limpiar reclamos efímeros de Redis / memoria para permitir reescaneo inmediato
+            try
+            {
+                await SessionCache.ResetAttendanceClaimsAsync(_sesion.Id);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Error al reiniciar reclamos en caché para sesión {SesionId}", _sesion.Id);
+            }
+
 
 
             // Limpiar también solicitudes de revinculación de prueba para esta materia
@@ -5258,6 +5268,17 @@
             });
 
 
+
+            _hubConnection.On<string>("RevinculacionAprobada", (estudianteIdStr) =>
+            {
+                InvokeAsync(async () =>
+                {
+                    await CargarMateriaYSesionAsync();
+                    var pendientes = await RevinculacionService.ListarPendientesPorMateriaAsync(MateriaId);
+                    _solicitudesRevinculacionPendientes = pendientes.Count;
+                    StateHasChanged();
+                });
+            });
 
             _hubConnection.On<string, string>("SesionSuspendida", (sesionIdStr, motivo) =>
 
@@ -5840,6 +5861,7 @@
         var dialog = await DialogService.ShowAsync<RevinculacionDialog>("Revinculación de Dispositivos", parameters, options);
 
         await dialog.Result;
+        await CargarMateriaYSesionAsync();
 
 
 

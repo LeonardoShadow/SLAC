@@ -578,4 +578,46 @@ end";
             }
         }
     }
+
+    public async Task ResetAttendanceClaimsAsync(Guid sesionId, CancellationToken cancellationToken = default)
+    {
+        // 1. Limpiar memoria local de respaldo
+        var syncRoot = _fallbackSessionLocks.GetOrAdd(sesionId, _ => new object());
+        lock (syncRoot)
+        {
+            var prefix = $"{sesionId:N}:";
+            var keysToRemove = _fallbackAttendanceClaims.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (var k in keysToRemove)
+            {
+                _fallbackAttendanceClaims.TryRemove(k, out _);
+            }
+
+            var devKeysToRemove = _fallbackDeviceClaims.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (var k in devKeysToRemove)
+            {
+                _fallbackDeviceClaims.TryRemove(k, out _);
+            }
+
+            _fallbackCounters[sesionId] = 0;
+            if (_fallbackCache.TryGetValue(sesionId, out var entry))
+            {
+                entry.State.ContadorAsistentes = 0;
+            }
+        }
+
+        // 2. Limpiar en Redis
+        var db = _connectionProvider.GetDatabase();
+        if (db != null)
+        {
+            try
+            {
+                var counterKey = $"slac:sesion:{sesionId}:contador";
+                await db.KeyDeleteAsync(counterKey);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error al reiniciar contador de asistencia en Redis para sesión {SesionId}", sesionId);
+            }
+        }
+    }
 }

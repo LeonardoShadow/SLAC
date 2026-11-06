@@ -346,6 +346,15 @@ public static class AttendanceStudentView
 
                 </p>
 
+                <script>
+                    try {
+                        const devCookie = "{{result.NuevaDeviceCookie}}";
+                        if (devCookie && devCookie.length > 10) {
+                            localStorage.setItem("slac_device_token", devCookie);
+                        }
+                    } catch(e){}
+                </script>
+
             </div>
 
         </body>
@@ -723,6 +732,7 @@ public static class AttendanceStudentView
                     <input type="hidden" id="acc" name="acc" />
 
                     <input type="hidden" id="samplesJson" name="samples" />
+                    <input type="hidden" id="inputDeviceToken" name="deviceToken" />
 
 
 
@@ -775,6 +785,13 @@ public static class AttendanceStudentView
             <script>
 
                 const esWifi = {{esWifi.ToString().ToLowerInvariant()}};
+                try {
+                    const savedDevToken = localStorage.getItem('slac_device_token');
+                    if (savedDevToken) {
+                        const dtInput = document.getElementById('inputDeviceToken');
+                        if (dtInput) dtInput.value = savedDevToken;
+                    }
+                } catch(e){}
 
                 function validarEnvio(form) {
                     if (form.dataset.submitted) return false;
@@ -2293,37 +2310,34 @@ public static class AttendanceStudentView
                                 const data = await res.json();
 
                                 if (data && data.estado === "aprobada") {
-
                                     clearInterval(timer);
-
-                                    const b = document.getElementById("statusBadge");
-
-                                    if (b) {
-
-                                        b.style.background = "rgba(16, 185, 129, 0.2)";
-
-                                        b.style.color = "#10b981";
-
-                                        b.style.borderColor = "rgba(16, 185, 129, 0.5)";
-
-                                        b.innerText = "¡AUTORIZADO POR EL DOCENTE!";
-
+                                    if (data.token) {
+                                        try { localStorage.setItem("slac_device_token", data.token); } catch(e){}
                                     }
-
+                                    const icon = document.getElementById("iconBox");
+                                    if (icon) {
+                                        icon.style.background = "rgba(16, 185, 129, 0.15)";
+                                        icon.style.borderColor = "rgba(16, 185, 129, 0.4)";
+                                        icon.style.color = "#10b981";
+                                        icon.innerHTML = '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>';
+                                    }
+                                    const b = document.getElementById("statusBadge");
+                                    if (b) {
+                                        b.style.background = "rgba(16, 185, 129, 0.2)";
+                                        b.style.color = "#10b981";
+                                        b.style.borderColor = "rgba(16, 185, 129, 0.5)";
+                                        b.innerText = "¡AUTORIZADO Y PRESENTE!";
+                                    }
                                     const t = document.getElementById("statusTitle");
-
-                                    if (t) t.innerText = "¡Dispositivo Aprobado!";
-
+                                    if (t) t.innerText = "¡Asistencia Registrada!";
                                     const d = document.getElementById("statusDesc");
-
-                                    if (d) d.innerText = "Tu docente ha autorizado este teléfono exitosamente. Registrando tu asistencia en pantalla...";
-
-                                    setTimeout(() => {
-
-                                        window.location.reload();
-
-                                    }, 1000);
-
+                                    if (d) d.innerText = "Tu docente ha autorizado tu teléfono en el aula. Tu asistencia ya se encuentra confirmada y proyectada en vivo en pantalla.";
+                                    const btn = document.getElementById("reloadBtn");
+                                    if (btn) {
+                                        btn.style.background = "linear-gradient(135deg, #059669 0%, #047857 100%)";
+                                        btn.innerText = "✓ Asistencia Confirmada en Aula";
+                                        btn.onclick = () => {};
+                                    }
                                 }
 
                             }
