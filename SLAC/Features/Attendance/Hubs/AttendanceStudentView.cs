@@ -1153,7 +1153,8 @@ public static class AttendanceStudentView
 
                     if (!isNaN(refLat) && !isNaN(refLon)) {
                         const d = haversineDist(latVal, lonVal, refLat, refLon);
-                        const maxPermitido = radio + 5;
+                        const margenRuido = !isNaN(accVal) ? Math.max(accVal, 10) : 10;
+                        const maxPermitido = radio + margenRuido + 15;
                         if (d <= maxPermitido) {
                             gpsBox.style.background = 'rgba(16, 185, 129, 0.15)';
                             gpsBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
@@ -2149,7 +2150,8 @@ public static class AttendanceStudentView
 
                     if (!isNaN(refLat) && !isNaN(refLon)) {
                         const d = haversineDist(latB, lonB, refLat, refLon);
-                        const maxPermitido = radio + 5;
+                        const margenRuido = !isNaN(accVal) ? Math.max(accVal, 10) : 10;
+                        const maxPermitido = radio + margenRuido + 15;
                         telDist.innerText = d.toFixed(1) + ' metros';
 
                         if (d <= maxPermitido) {

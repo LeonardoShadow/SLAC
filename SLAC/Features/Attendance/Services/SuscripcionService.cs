@@ -159,10 +159,9 @@ public class SuscripcionService(
             }
             else
             {
-                // Fallback al campus por defecto si no hay ninguna coordenada disponible
-                var defCampus = _geoCalculoService.ObtenerCampus(_campusConfig.DefaultCampusCode);
-                targetLat = defCampus.CenterLatitude;
-                targetLon = defCampus.CenterLongitude;
+                // Geolocalización dinámica: jamás fijar a UPDS si la sesión es móvil o no tiene referencia fija
+                targetLat = latEst;
+                targetLon = lonEst;
             }
 
             // Capa 3: Corrección Diferencial Relativa (D-GPS Relativo en Servidor)

@@ -4499,13 +4499,25 @@
 
     }
 
-    protected override Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
 
     {
 
-        // No auto-calibrar en PC al iniciar: las computadoras no tienen GPS satelital y desfasan la ubicación del aula
+        if (firstRender && (!_latitudPersonalizada.HasValue || !_longitudPersonalizada.HasValue))
 
-        return Task.CompletedTask;
+        {
+
+            _ = Task.Run(async () =>
+
+            {
+
+                await Task.Delay(300);
+
+                await InvokeAsync(CalibrarUbicacionDocenteAsync);
+
+            });
+
+        }
 
     }
 
@@ -4537,9 +4549,27 @@
 
             {
 
-                _latitudPersonalizada ??= _espacio.Latitud;
+                // Erradicar coordenadas fijas de campus institucional (UPDS o UAGRM) para garantizar geolocalización 100% dinámica
 
-                _longitudPersonalizada ??= _espacio.Longitud;
+                if (Math.Abs(_espacio.Latitud.Value - (-17.839210)) < 0.005 || Math.Abs(_espacio.Latitud.Value - (-17.776200)) < 0.005)
+
+                {
+
+                    _espacio.Latitud = null;
+
+                    _espacio.Longitud = null;
+
+                }
+
+                else
+
+                {
+
+                    _latitudPersonalizada ??= _espacio.Latitud;
+
+                    _longitudPersonalizada ??= _espacio.Longitud;
+
+                }
 
             }
 
