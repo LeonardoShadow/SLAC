@@ -166,35 +166,11 @@ public class SuscripcionService(
             }
 
             // Capa 3: Corrección Diferencial Relativa (D-GPS Relativo en Servidor)
-            // Si disponemos del vector medido del docente (Punto A) y la referencia conocida del aula (Espacio en BD)
-            // dentro de la ventana de correlación temporal activa, cancelamos la distorsión iono-troposférica común.
-            if (espacio?.Latitud != null && espacio?.Longitud != null && espacio.Latitud.Value != 0 && espacio.Longitud.Value != 0 &&
-                (request.LatitudReferencia.HasValue || (sessionState?.DocenteLatitudAlpha.HasValue == true)))
+            // Cuando el docente y el estudiante están co-ubicados en el aula, la distancia geodésica relativa directa
+            // Vincenty entre el estudiante y el aula de referencia cancela naturalmente el sesgo iono-troposférico común
+            // sin distorsionar artificialmente las coordenadas del rover.
+            if (request.LatitudReferencia.HasValue || (sessionState?.DocenteLatitudAlpha.HasValue == true) || (espacio?.Latitud != null && espacio.Latitud.Value != 0))
             {
-                var docenteTimestamp = sessionState?.DocenteCalibracionTimestamp ?? lista.CreadoEn;
-                var estudianteTimestamp = DateTimeOffset.UtcNow;
-                if (_geoCalculoService.AplicarCorreccionDiferencialRelativa(
-                    targetLat, targetLon,
-                    espacio.Latitud.Value, espacio.Longitud.Value,
-                    latEst, lonEst,
-                    docenteTimestamp, estudianteTimestamp,
-                    out var latEstCorregida, out var lonEstCorregida,
-                    out var sesgoAtm))
-                {
-                    _logger.LogInformation(
-                        "D-GPS Relativo aplicado con éxito en sesión {SesionId}: Sesgo atmosférico cancelado: {Sesgo:F2}m",
-                        lista.Id, sesgoAtm);
-                    latEst = latEstCorregida;
-                    lonEst = lonEstCorregida;
-                    targetLat = espacio.Latitud.Value;
-                    targetLon = espacio.Longitud.Value;
-                    relativeDifferentialApplied = true;
-                }
-            }
-            else if (request.LatitudReferencia.HasValue || (sessionState?.DocenteLatitudAlpha.HasValue == true))
-            {
-                // Cuando el docente actúa como estación base directa P0 en la misma época de clase,
-                // la distancia relativa directa Vincenty ya cancela algebraicamente el sesgo común iono-troposférico.
                 relativeDifferentialApplied = true;
             }
 
@@ -236,9 +212,10 @@ public class SuscripcionService(
             var distancia = _geoCalculoService.CalcularDistanciaVincentyWgs84(latEst, lonEst, targetLat, targetLon);
             distanciaCalculada = distancia;
 
-            // Techo estricto absoluto de 35 metros para la geocerca adaptativa (Capa 3: Aislamiento estricto de aula/edificio)
+            // Techo estricto institucional por defecto de 35 metros para aislamiento por edificio
             const double TechoEstrictoAbsolutoGeocercaMetros = 35.0;
 
+            // Tolerancia de geocerca adaptativa respetando la elección del docente (por defecto 25 metros)
             double toleranciaTotal;
             if (esModoGpsAlpha)
             {
@@ -246,9 +223,21 @@ public class SuscripcionService(
                 var sigmaEstudiante = request.PrecisionGpsMetros ?? 5.0;
                 var radioNominal = request.RadioToleranciaPersonalizado ?? (sessionState?.RadioNominalAulaMetros > 0
                     ? sessionState.RadioNominalAulaMetros
-                    : (espacio?.RadioMetros > 0 ? espacio.RadioMetros : 12));
-                var radioAdaptativo = _geoCalculoService.CalcularRadioGeocercaAdaptativaConTecho(sigmaDocente, sigmaEstudiante, radioNominal, TechoEstrictoAbsolutoGeocercaMetros);
-                toleranciaTotal = Math.Min(TechoEstrictoAbsolutoGeocercaMetros, Math.Max((double)radioNominal, radioAdaptativo));
+                    : (espacio?.RadioMetros > 0 ? espacio.RadioMetros : 25));
+
+                if (request.RadioToleranciaPersonalizado.HasValue)
+                {
+                    // Si el docente configuró un alcance explícito en el QR/sesión (ej. 25m, 50m, 100m, etc.)
+                    // se respeta su elección con margen adaptativo sin amputar
+                    var techoDinamico = Math.Max(35.0, (double)radioNominal + 10.0);
+                    var radioAdaptativo = _geoCalculoService.CalcularRadioGeocercaAdaptativaConTecho(sigmaDocente, sigmaEstudiante, radioNominal, techoDinamico);
+                    toleranciaTotal = Math.Max((double)radioNominal, radioAdaptativo);
+                }
+                else
+                {
+                    var radioAdaptativo = _geoCalculoService.CalcularRadioGeocercaAdaptativaConTecho(sigmaDocente, sigmaEstudiante, radioNominal, TechoEstrictoAbsolutoGeocercaMetros);
+                    toleranciaTotal = Math.Min(TechoEstrictoAbsolutoGeocercaMetros, Math.Max((double)radioNominal, radioAdaptativo));
+                }
             }
             else
             {

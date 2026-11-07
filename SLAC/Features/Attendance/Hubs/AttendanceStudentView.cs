@@ -1034,17 +1034,35 @@ public static class AttendanceStudentView
                     }
 
                     // Principio ZUPT (Zero-Velocity Update):
-                    // 1. Velocidad fisica real nula en reposo estatico
+                    // 1. Velocidad física real nula en reposo estático
                     const effectiveSpeed = 0.0;
                     const safeAcc = Math.max(acc, 1.0);
-                    let weight = 1.0 / (safeAcc * safeAcc);
 
+                    // Si llega una lectura significativamente más precisa (ej: satélite vs red previa),
+                    // reinicializar el centroide con la lectura precisa satelital para no quedar clavado en un Cold Fix
+                    if (zuptCentroid.sampleCount === 0 || (acc < zuptCentroid.minAcc - 4.0 && acc <= 15.0)) {
+                        zuptCentroid.sumWeights = 1.0 / (safeAcc * safeAcc);
+                        zuptCentroid.sumWeightedLat = lat * zuptCentroid.sumWeights;
+                        zuptCentroid.sumWeightedLon = lon * zuptCentroid.sumWeights;
+                        zuptCentroid.minAcc = acc;
+                        zuptCentroid.sampleCount = 1;
+                        return {
+                            effectiveLat: lat,
+                            effectiveLon: lon,
+                            effectiveAcc: acc,
+                            effectiveSpeed: effectiveSpeed,
+                            isStationary: true,
+                            accelerationVariance: Math.round(inertialStats.sigmaA * 10000) / 10000
+                        };
+                    }
+
+                    let weight = 1.0 / (safeAcc * safeAcc);
                     if (zuptCentroid.sampleCount > 0 && zuptCentroid.sumWeights > 0) {
                         const currentCentroidLat = zuptCentroid.sumWeightedLat / zuptCentroid.sumWeights;
                         const currentCentroidLon = zuptCentroid.sumWeightedLon / zuptCentroid.sumWeights;
                         const jump = haversineDist(lat, lon, currentCentroidLat, currentCentroidLon);
-                        // Supresion de saltos fantasma por rebote en hormigon (> 12m)
-                        if (jump > 12.0) {
+                        // Solo atenuar salto si la nueva muestra tiene peor precisión que la mejor muestra previa
+                        if (jump > 12.0 && acc > zuptCentroid.minAcc) {
                             weight *= 0.1;
                         }
                     }
@@ -1192,15 +1210,14 @@ public static class AttendanceStudentView
                     }
                     rawSamples = clean;
 
-                    // Asignar mejor muestra a inputs de control
+                    // Asignar mejor muestra a inputs de control (prioridad absoluta a la fijación satelital más precisa)
                     let chosen = bestSample;
                     if (!chosen && clean.length > 0) {
-                        chosen = clean[clean.length - 1];
+                        clean.sort((a, b) => a.acc - b.acc);
+                        chosen = clean[0];
                     }
                     if (chosen) {
-                        if (inertialStats.isStationary === true && zuptCentroid.sampleCount > 0 && zuptCentroid.sumWeights > 0) {
-                            chosen.lat = zuptCentroid.sumWeightedLat / zuptCentroid.sumWeights;
-                            chosen.lon = zuptCentroid.sumWeightedLon / zuptCentroid.sumWeights;
+                        if (inertialStats.isStationary === true) {
                             chosen.speed = 0.0;
                         }
                         const latEl = document.getElementById('lat');
@@ -1986,17 +2003,35 @@ public static class AttendanceStudentView
                     }
 
                     // Principio ZUPT (Zero-Velocity Update):
-                    // 1. Velocidad fisica real nula en reposo estatico
+                    // 1. Velocidad física real nula en reposo estático
                     const effectiveSpeed = 0.0;
                     const safeAcc = Math.max(acc, 1.0);
-                    let weight = 1.0 / (safeAcc * safeAcc);
 
+                    // Si llega una lectura significativamente más precisa (ej: satélite vs red previa),
+                    // reinicializar el centroide con la lectura precisa satelital para no quedar clavado en un Cold Fix
+                    if (zuptCentroid.sampleCount === 0 || (acc < zuptCentroid.minAcc - 4.0 && acc <= 15.0)) {
+                        zuptCentroid.sumWeights = 1.0 / (safeAcc * safeAcc);
+                        zuptCentroid.sumWeightedLat = lat * zuptCentroid.sumWeights;
+                        zuptCentroid.sumWeightedLon = lon * zuptCentroid.sumWeights;
+                        zuptCentroid.minAcc = acc;
+                        zuptCentroid.sampleCount = 1;
+                        return {
+                            effectiveLat: lat,
+                            effectiveLon: lon,
+                            effectiveAcc: acc,
+                            effectiveSpeed: effectiveSpeed,
+                            isStationary: true,
+                            accelerationVariance: Math.round(inertialStats.sigmaA * 10000) / 10000
+                        };
+                    }
+
+                    let weight = 1.0 / (safeAcc * safeAcc);
                     if (zuptCentroid.sampleCount > 0 && zuptCentroid.sumWeights > 0) {
                         const currentCentroidLat = zuptCentroid.sumWeightedLat / zuptCentroid.sumWeights;
                         const currentCentroidLon = zuptCentroid.sumWeightedLon / zuptCentroid.sumWeights;
                         const jump = haversineDist(lat, lon, currentCentroidLat, currentCentroidLon);
-                        // Supresion de saltos fantasma por rebote en hormigon (> 12m)
-                        if (jump > 12.0) {
+                        // Solo atenuar salto si la nueva muestra tiene peor precisión que la mejor muestra previa
+                        if (jump > 12.0 && acc > zuptCentroid.minAcc) {
                             weight *= 0.1;
                         }
                     }
@@ -2181,15 +2216,14 @@ public static class AttendanceStudentView
                     }
                     rawSamples = clean;
 
-                    // Asignar mejor muestra a los campos
+                    // Asignar mejor muestra a los campos (prioridad absoluta a la fijación satelital más precisa)
                     let chosen = bestSample;
                     if (!chosen && clean.length > 0) {
-                        chosen = clean[clean.length - 1];
+                        clean.sort((a, b) => a.acc - b.acc);
+                        chosen = clean[0];
                     }
                     if (chosen) {
-                        if (inertialStats.isStationary === true && zuptCentroid.sampleCount > 0 && zuptCentroid.sumWeights > 0) {
-                            chosen.lat = zuptCentroid.sumWeightedLat / zuptCentroid.sumWeights;
-                            chosen.lon = zuptCentroid.sumWeightedLon / zuptCentroid.sumWeights;
+                        if (inertialStats.isStationary === true) {
                             chosen.speed = 0.0;
                         }
                         const latEl = document.getElementById('lat');

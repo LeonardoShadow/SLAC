@@ -1212,15 +1212,15 @@
 
                             <div class="d-flex gap-1 mt-2 flex-wrap">
 
-                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 25 ? Variant.Filled : Variant.Outlined)" Color="Color.Error" OnClick="@(() => _radioToleranciaMetros = 25)" Style="font-weight: 700;">🎯 Aula Estricta (25m)</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 25 ? Variant.Filled : Variant.Outlined)" Color="Color.Error" OnClick="@(() => CambiarRadioToleranciaAsync(25))" Style="font-weight: 700;">🎯 Aula Estricta (25m)</MudChip>
 
-                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 50 ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" OnClick="@(() => _radioToleranciaMetros = 50)" Style="font-weight: 700;">🏫 Aula Grande (50m)</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 50 ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" OnClick="@(() => CambiarRadioToleranciaAsync(50))" Style="font-weight: 700;">🏫 Aula Grande (50m)</MudChip>
 
-                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 100 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => _radioToleranciaMetros = 100)">🏢 Pabellón (100m)</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 100 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => CambiarRadioToleranciaAsync(100))">🏢 Pabellón (100m)</MudChip>
 
-                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 300 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => _radioToleranciaMetros = 300)">🌳 Campus (300m)</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 300 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => CambiarRadioToleranciaAsync(300))">🌳 Campus (300m)</MudChip>
 
-                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 10000 ? Variant.Filled : Variant.Outlined)" Color="Color.Success" OnClick="@(() => _radioToleranciaMetros = 10000)">🏠 Modo Pruebas (10 km)</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="@(_radioToleranciaMetros == 10000 ? Variant.Filled : Variant.Outlined)" Color="Color.Success" OnClick="@(() => CambiarRadioToleranciaAsync(10000))">🏠 Modo Pruebas (10 km)</MudChip>
 
                             </div>
 
@@ -4069,14 +4069,6 @@
 
                     _calibracionMensaje = $"📍 Aula fijada por red PC ({coords[0]:F4}, {coords[1]:F4}) con margen de ~{acc:F0}m (las computadoras no tienen antena GPS satelital).";
 
-                    if (_radioToleranciaMetros < (int)acc)
-
-                    {
-
-                        _radioToleranciaMetros = (int)acc + 100;
-
-                    }
-
                 }
 
                 else
@@ -4134,6 +4126,18 @@
     }
 
 
+
+    private async Task CambiarRadioToleranciaAsync(int nuevoRadio)
+    {
+        _radioToleranciaMetros = nuevoRadio;
+        if (_espacio != null)
+        {
+            _espacio.RadioMetros = _radioToleranciaMetros;
+        }
+        await RotarCodigoQrAsync();
+        Snackbar.Add($"Tolerancia de radio ajustada a {_radioToleranciaMetros} metros.", Severity.Info);
+        StateHasChanged();
+    }
 
     private async Task AlternarModoValidacionAsync(string nuevoModo)
 
@@ -4495,25 +4499,13 @@
 
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override Task OnAfterRenderAsync(bool firstRender)
 
     {
 
-        if (firstRender && (!_latitudPersonalizada.HasValue || !_longitudPersonalizada.HasValue))
+        // No auto-calibrar en PC al iniciar: las computadoras no tienen GPS satelital y desfasan la ubicación del aula
 
-        {
-
-            _ = Task.Run(async () =>
-
-            {
-
-                await Task.Delay(400);
-
-                await InvokeAsync(CalibrarUbicacionDocenteAsync);
-
-            });
-
-        }
+        return Task.CompletedTask;
 
     }
 
