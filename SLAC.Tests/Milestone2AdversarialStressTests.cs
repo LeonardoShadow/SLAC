@@ -1184,7 +1184,88 @@ public class Milestone2AdversarialStressTests : IAsyncDisposable
 
     }
 
+    [Fact]
+    public async Task Geofence_Strict35MeterCeiling_EnforcedEvenWithInflatedNominal_RejectsAt37Meters()
+    {
+        // Arrange: Sesión activa con radio nominal inflado a 40m
+        var (sesionId, _, qrToken) = await SetupActiveGpsAlphaSessionAsync(presenceCode: "350");
+        var state = await _sessionCache.GetActiveSessionAsync(sesionId);
+        Assert.NotNull(state);
+        state.RadioNominalAulaMetros = 40;
+        await _sessionCache.SetActiveSessionAsync(state, TimeSpan.FromMinutes(20));
 
+        // Alumno a 37 metros al Este (fuera del techo estricto absoluto de 35 metros)
+        double offsetLon37m = 37.0 / GeoTelemetryValidator.MetersPerDegreeLon;
+
+        var request = new AttendanceScanRequest
+        {
+            SesionId = sesionId,
+            QrToken = qrToken,
+            Codigo = "EST-OUTSIDE-35M",
+            Nombres = "Estudiante",
+            Apellidos = "FueraDeBloque",
+            Correo = "fuera35@upds.edu.bo",
+            AceptaTerminos = true,
+            UserAgent = "Mozilla/5.0 (Android)",
+            Modo = "gps_alpha",
+            DynamicPresenceCode = "350",
+            Latitud = CentralCampusLat,
+            Longitud = CentralCampusLon + offsetLon37m,
+            PrecisionGpsMetros = 4.0,
+            IsStationary = true
+        };
+
+        // Act
+        var result = await _suscripcionService.ProcesarEscaneoAsync(request);
+
+        // Assert
+        Assert.False(result.Exito);
+        Assert.Contains("Ubicación fuera de rango", result.MensajeError);
+        Assert.Equal(35.0, result.RadioPermitidoMetros);
+        Assert.True(result.DistanciaCalculadaMetros > 35.0);
+    }
+
+    [Fact]
+    public async Task Geofence_DgpsRelativo_CommonAtmosphericShift_StudentInside35mCeiling_AcceptsAttendance()
+    {
+        // Arrange: Sesión activa con coordenadas del docente fijadas en CentralCampusLat/Lon
+        var (sesionId, _, qrToken) = await SetupActiveGpsAlphaSessionAsync(presenceCode: "351");
+
+        // Estudiante situado a 9.38 metros (dentro del aula)
+        double offsetLon9m = 9.38 / GeoTelemetryValidator.MetersPerDegreeLon;
+
+        var request = new AttendanceScanRequest
+        {
+            SesionId = sesionId,
+            QrToken = qrToken,
+            Codigo = "EST-INSIDE-DGPS",
+            Nombres = "Estudiante",
+            Apellidos = "Presente",
+            Correo = "dgps_ok@upds.edu.bo",
+            AceptaTerminos = true,
+            UserAgent = "Mozilla/5.0 (iPhone)",
+            Modo = "gps_alpha",
+            DynamicPresenceCode = "351",
+            LatitudReferencia = CentralCampusLat,
+            LongitudReferencia = CentralCampusLon,
+            Latitud = CentralCampusLat,
+            Longitud = CentralCampusLon + offsetLon9m,
+            PrecisionGpsMetros = 4.0,
+            IsStationary = true,
+            AccelerationVariance = 0.02
+        };
+
+        // Act
+        var result = await _suscripcionService.ProcesarEscaneoAsync(request);
+
+        // Assert
+        Assert.True(result.Exito);
+        Assert.Equal("EST-INSIDE-DGPS", result.EstudianteCodigo);
+        Assert.NotNull(result.DistanciaCalculadaMetros);
+        Assert.InRange(result.DistanciaCalculadaMetros.Value, 9.30, 9.45);
+        Assert.True(result.RelativeDifferentialApplied == true);
+        Assert.True(result.IsStationaryCertified == true);
+    }
 
     #endregion
 

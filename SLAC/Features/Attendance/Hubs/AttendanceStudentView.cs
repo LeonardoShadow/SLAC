@@ -768,6 +768,8 @@ public static class AttendanceStudentView
                     <input type="hidden" id="acc" name="acc" />
 
                     <input type="hidden" id="samplesJson" name="samples" />
+                    <input type="hidden" id="isStationary" name="isStationary" />
+                    <input type="hidden" id="accelerationVariance" name="accelerationVariance" />
                     <input type="hidden" id="inputDeviceToken" name="deviceToken" />
 
 
@@ -849,13 +851,17 @@ public static class AttendanceStudentView
                                 if (!autoEnviado) {
                                     autoEnviado = true;
                                     const form = document.getElementById('regForm');
-                                    form.action = '/a/{{sesionId}}/confirmar-gps';
-                                    form.submit();
+                                    if (form) {
+                                        form.action = '/a/{{sesionId}}/confirmar-gps';
+                                        form.submit();
+                                    }
                                 }
                             }, 350);
                         }
                     }
-                } catch(e){}
+                } catch(e) {
+                    console.warn('Advertencia al leer localStorage en registro:', e);
+                }
 
                 function cancelarAutoVerificacion() {
                     autoVerificando = false;
@@ -865,17 +871,32 @@ public static class AttendanceStudentView
                     if (autoNotice) autoNotice.style.display = 'none';
                     if (regForm) regForm.style.display = 'block';
                     if (desc) desc.style.display = 'block';
+                    if (typeof actualizarBannerGpsManual === 'function') {
+                        actualizarBannerGpsManual();
+                    }
                 }
 
                 function validarEnvio(form) {
-                    if (form.dataset.submitted) return false;
+                    if (!form || form.dataset.submitted) return false;
                     try {
-                        const identVal = document.getElementById('identificador').value;
+                        const identInput = document.getElementById('identificador');
+                        const identVal = identInput ? identInput.value : '';
                         if (identVal) localStorage.setItem('slac_estudiante_identificador', identVal.trim());
-                    } catch(e){}
-                    if (!esWifi && (!document.getElementById('lat').value || document.getElementById('lat').value === '')) {
-                        alert('🛰️ Conectando con los sensores satelitales en aula...\nPor favor aguarda unos instantes a que se fije tu posición física antes de pulsar el botón.');
-                        return false;
+                    } catch(e) {
+                        console.warn('Advertencia al guardar identificador:', e);
+                    }
+                    if (!esWifi) {
+                        if (typeof finalizarDecantacion === 'function' && !decantacionFinalizada && allRawTelemetry.length > 0) {
+                            finalizarDecantacion('envio_manual_anticipado');
+                        }
+                        const latInput = document.getElementById('lat');
+                        if (!latInput || !latInput.value || latInput.value === '') {
+                            alert('🛰️ Conectando con los sensores satelitales en aula...\nPor favor aguarda unos instantes a que se fije tu posición física antes de pulsar el botón.');
+                            return false;
+                        }
+                    }
+                    if (typeof stopInertialTracking === 'function') {
+                        stopInertialTracking();
                     }
                     form.dataset.submitted = 'true';
                     const btn = document.getElementById('submitBtn');
@@ -883,196 +904,493 @@ public static class AttendanceStudentView
                     return true;
                 }
 
-                if (!esWifi) {
+                // --- Capa 2: Fusión Inercial Web y Zero-Velocity Update (ZUPT) ---
+                const MAX_INERTIAL_SAMPLES = 150;
+                const STATIONARY_VARIANCE_THRESHOLD = 0.25; // m/s²
+                let inertialSamples = [];
+                let inertialTrackingActive = false;
+                let zuptCentroid = {
+                    sumWeightedLat: 0.0,
+                    sumWeightedLon: 0.0,
+                    sumWeights: 0.0,
+                    minAcc: 999.0,
+                    sampleCount: 0
+                };
+                let inertialStats = {
+                    varianceX: 0.0,
+                    varianceY: 0.0,
+                    varianceZ: 0.0,
+                    sigmaA: 0.0,
+                    isStationary: null,
+                    sampleCount: 0
+                };
 
+                function handleMotion(event) {
+                    try {
+                        if (!event) return;
+                        let ax = null, ay = null, az = null;
+                        if (event.acceleration && typeof event.acceleration.x === 'number' && typeof event.acceleration.y === 'number' && typeof event.acceleration.z === 'number') {
+                            ax = event.acceleration.x;
+                            ay = event.acceleration.y;
+                            az = event.acceleration.z;
+                        } else if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number' && typeof event.accelerationIncludingGravity.y === 'number' && typeof event.accelerationIncludingGravity.z === 'number') {
+                            ax = event.accelerationIncludingGravity.x;
+                            ay = event.accelerationIncludingGravity.y;
+                            az = event.accelerationIncludingGravity.z;
+                        }
+                        if (ax === null || isNaN(ax) || isNaN(ay) || isNaN(az)) return;
+
+                        inertialSamples.push({ x: ax, y: ay, z: az, t: Date.now() });
+                        if (inertialSamples.length > MAX_INERTIAL_SAMPLES) {
+                            inertialSamples.shift();
+                        }
+                        recomputeInertialVariance();
+                    } catch(e) {
+                        // Fallback defensivo: sin excepciones hacia el usuario
+                    }
+                }
+
+                function startInertialTracking() {
+                    try {
+                        if (typeof window !== 'undefined' && 'DeviceMotionEvent' in window && !inertialTrackingActive) {
+                            window.addEventListener('devicemotion', handleMotion, { passive: true });
+                            inertialTrackingActive = true;
+                        }
+                    } catch(e) {
+                        // Fallback graceful: escritorio o sin permisos de movimiento
+                    }
+                }
+
+                function stopInertialTracking() {
+                    try {
+                        if (inertialTrackingActive && typeof window !== 'undefined') {
+                            window.removeEventListener('devicemotion', handleMotion);
+                            inertialTrackingActive = false;
+                        }
+                    } catch(e) {
+                        // Fallback defensivo
+                    }
+                }
+
+                function recomputeInertialVariance() {
+                    const n = inertialSamples.length;
+                    if (n < 5) {
+                        inertialStats.isStationary = null;
+                        inertialStats.sampleCount = n;
+                        return;
+                    }
+
+                    let sumX = 0.0, sumY = 0.0, sumZ = 0.0;
+                    for (let i = 0; i < n; i++) {
+                        sumX += inertialSamples[i].x;
+                        sumY += inertialSamples[i].y;
+                        sumZ += inertialSamples[i].z;
+                    }
+                    const meanX = sumX / n;
+                    const meanY = sumY / n;
+                    const meanZ = sumZ / n;
+
+                    let sumSqX = 0.0, sumSqY = 0.0, sumSqZ = 0.0;
+                    for (let i = 0; i < n; i++) {
+                        const dx = inertialSamples[i].x - meanX;
+                        const dy = inertialSamples[i].y - meanY;
+                        const dz = inertialSamples[i].z - meanZ;
+                        sumSqX += dx * dx;
+                        sumSqY += dy * dy;
+                        sumSqZ += dz * dz;
+                    }
+
+                    const varX = sumSqX / n;
+                    const varY = sumSqY / n;
+                    const varZ = sumSqZ / n;
+                    const sigmaA = Math.sqrt(Math.max(0.0, varX + varY + varZ));
+                    const isStationary = sigmaA < STATIONARY_VARIANCE_THRESHOLD;
+
+                    inertialStats = {
+                        varianceX: varX,
+                        varianceY: varY,
+                        varianceZ: varZ,
+                        sigmaA: sigmaA,
+                        isStationary: isStationary,
+                        sampleCount: n
+                    };
+
+                    const statEl = document.getElementById('isStationary');
+                    if (statEl) statEl.value = isStationary ? 'true' : 'false';
+                    const varEl = document.getElementById('accelerationVariance');
+                    if (varEl) varEl.value = sigmaA.toFixed(4);
+                }
+
+                function applyZuptFilter(lat, lon, acc, speed) {
+                    if (inertialStats.isStationary !== true) {
+                        return {
+                            effectiveLat: lat,
+                            effectiveLon: lon,
+                            effectiveAcc: acc,
+                            effectiveSpeed: (speed !== null && typeof speed === 'number' && speed >= 0) ? speed : 0.0,
+                            isStationary: inertialStats.isStationary,
+                            accelerationVariance: inertialStats.sampleCount >= 5 ? Math.round(inertialStats.sigmaA * 10000) / 10000 : null
+                        };
+                    }
+
+                    // Principio ZUPT (Zero-Velocity Update):
+                    // 1. Velocidad fisica real nula en reposo estatico
+                    const effectiveSpeed = 0.0;
+                    const safeAcc = Math.max(acc, 1.0);
+                    let weight = 1.0 / (safeAcc * safeAcc);
+
+                    if (zuptCentroid.sampleCount > 0 && zuptCentroid.sumWeights > 0) {
+                        const currentCentroidLat = zuptCentroid.sumWeightedLat / zuptCentroid.sumWeights;
+                        const currentCentroidLon = zuptCentroid.sumWeightedLon / zuptCentroid.sumWeights;
+                        const jump = haversineDist(lat, lon, currentCentroidLat, currentCentroidLon);
+                        // Supresion de saltos fantasma por rebote en hormigon (> 12m)
+                        if (jump > 12.0) {
+                            weight *= 0.1;
+                        }
+                    }
+
+                    zuptCentroid.sumWeights += weight;
+                    zuptCentroid.sumWeightedLat += lat * weight;
+                    zuptCentroid.sumWeightedLon += lon * weight;
+                    zuptCentroid.minAcc = Math.min(zuptCentroid.minAcc, acc);
+                    zuptCentroid.sampleCount += 1;
+
+                    const centroidLat = zuptCentroid.sumWeightedLat / zuptCentroid.sumWeights;
+                    const centroidLon = zuptCentroid.sumWeightedLon / zuptCentroid.sumWeights;
+
+                    return {
+                        effectiveLat: centroidLat,
+                        effectiveLon: centroidLon,
+                        effectiveAcc: zuptCentroid.minAcc,
+                        effectiveSpeed: effectiveSpeed,
+                        isStationary: true,
+                        accelerationVariance: Math.round(inertialStats.sigmaA * 10000) / 10000
+                    };
+                }
+
+                let rawSamples = [];
+                let allRawTelemetry = [];
+                let accuracyMilestones = [];
+                let bestAccuracy = Infinity;
+                let bestSample = null;
+                let firstFixTimestamp = 0;
+                let decantacionFinalizada = false;
+                let watchId = null;
+                let hardTimer = null;
+                const MIN_DECANT_MS = 2000;
+                const TARGET_DECANT_MS = 2800;
+                const HARD_TIMEOUT_MS = 3000;
+
+                function actualizarMilestones(accVal) {
+                    if (accuracyMilestones.length === 0) {
+                        accuracyMilestones.push(accVal);
+                    } else {
+                        const last = accuracyMilestones[accuracyMilestones.length - 1];
+                        if (accVal < last - 1) {
+                            accuracyMilestones.push(accVal);
+                            if (accuracyMilestones.length > 4) {
+                                accuracyMilestones = [accuracyMilestones[0], ...accuracyMilestones.slice(-3)];
+                            }
+                        }
+                    }
+                }
+
+                function formatearProgreso() {
+                    if (accuracyMilestones.length === 0) return '±--m';
+                    return accuracyMilestones.map(m => '±' + m + 'm').join(' ➔ ');
+                }
+
+                function haversineDist(lat1, lon1, lat2, lon2) {
+                    const R = 6371000;
+                    const dLat = (lat2 - lat1) * Math.PI / 180;
+                    const dLon = (lon2 - lon1) * Math.PI / 180;
+                    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                              Math.sin(dLon/2) * Math.sin(dLon/2);
+                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                    return R * c;
+                }
+
+                function actualizarBannerGpsManual() {
+                    const gpsBox = document.getElementById('gps-status');
+                    if (!gpsBox) return;
+
+                    const refLatEl = document.querySelector('input[name="clat"]');
+                    const refLonEl = document.querySelector('input[name="clon"]');
+                    const radioEl = document.querySelector('input[name="r"]');
+                    const refLat = refLatEl ? parseFloat(refLatEl.value) : NaN;
+                    const refLon = refLonEl ? parseFloat(refLonEl.value) : NaN;
+                    const radio = radioEl ? (parseFloat(radioEl.value) || 25) : 25;
+
+                    const latEl = document.getElementById('lat');
+                    const lonEl = document.getElementById('lon');
+                    const accEl = document.getElementById('acc');
+                    const latVal = latEl ? parseFloat(latEl.value) : NaN;
+                    const lonVal = lonEl ? parseFloat(lonEl.value) : NaN;
+                    const accVal = accEl ? parseFloat(accEl.value) : NaN;
+
+                    if (isNaN(latVal) || isNaN(lonVal)) {
+                        return;
+                    }
+
+                    if (!isNaN(refLat) && !isNaN(refLon)) {
+                        const d = haversineDist(latVal, lonVal, refLat, refLon);
+                        const maxPermitido = radio + 5;
+                        if (d <= maxPermitido) {
+                            gpsBox.style.background = 'rgba(16, 185, 129, 0.15)';
+                            gpsBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                            gpsBox.style.color = '#34d399';
+                            gpsBox.innerHTML = '✅ <b>GPS Calibrado (' + d.toFixed(1) + 'm de ' + radio + 'm)</b><br><span style="font-size:0.75rem; color:#cbd5e1;">📍 Cel: ' + latVal.toFixed(6) + ',' + lonVal.toFixed(6) + ' (±' + (isNaN(accVal) ? '?' : accVal) + 'm) | 🎯 QR: ' + refLat.toFixed(6) + ',' + refLon.toFixed(6) + '</span>';
+                        } else {
+                            gpsBox.style.background = 'rgba(239, 68, 68, 0.15)';
+                            gpsBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                            gpsBox.style.color = '#fca5a5';
+                            const diff = (d - maxPermitido).toFixed(1);
+                            gpsBox.innerHTML = '❌ <b>Fuera de rango (a ' + d.toFixed(1) + 'm, máx ' + radio + 'm):</b> Excedido por ' + diff + 'm<br><span style="font-size:0.75rem; color:#cbd5e1;">📍 Cel: ' + latVal.toFixed(6) + ',' + lonVal.toFixed(6) + ' (±' + (isNaN(accVal) ? '?' : accVal) + 'm) | 🎯 QR: ' + refLat.toFixed(6) + ',' + refLon.toFixed(6) + '</span>';
+                        }
+                    } else {
+                        gpsBox.style.background = 'rgba(16, 185, 129, 0.15)';
+                        gpsBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                        gpsBox.style.color = '#34d399';
+                        gpsBox.innerHTML = '✅ <b>Ubicación calibrada:</b> ' + latVal.toFixed(6) + ', ' + lonVal.toFixed(6) + ' (±' + (isNaN(accVal) ? '?' : accVal) + 'm)';
+                    }
+                }
+
+                function finalizarDecantacion(motivo) {
+                    if (decantacionFinalizada) return;
+                    decantacionFinalizada = true;
+
+                    if (hardTimer) {
+                        clearTimeout(hardTimer);
+                        hardTimer = null;
+                    }
+                    if (watchId !== null) {
+                        try { navigator.geolocation.clearWatch(watchId); } catch(e) { console.warn('Error al detener watchPosition:', e); }
+                        watchId = null;
+                    }
+                    if (typeof stopInertialTracking === 'function') {
+                        stopInertialTracking();
+                    }
+
+                    // Decantación: Descartar muestras preliminares con precisión degradada (Cold Fix)
+                    const minAcc = bestAccuracy;
+                    let clean = allRawTelemetry;
+                    if (allRawTelemetry.length >= 3 && minAcc <= 15.0) {
+                        const threshold = Math.max(minAcc * 2.2, 14.0);
+                        const filtered = allRawTelemetry.filter(s => s.acc <= threshold);
+                        if (filtered.length >= 2) {
+                            clean = filtered;
+                        }
+                    }
+
+                    // Asegurar orden temporal estricto y sin retroceso
+                    clean.sort((a, b) => a.timestampMs - b.timestampMs);
+                    for (let i = 1; i < clean.length; i++) {
+                        if (clean[i].timestampMs <= clean[i - 1].timestampMs) {
+                            clean[i].timestampMs = clean[i - 1].timestampMs + 200;
+                        }
+                    }
+                    rawSamples = clean;
+
+                    // Asignar mejor muestra a inputs de control
+                    let chosen = bestSample;
+                    if (!chosen && clean.length > 0) {
+                        chosen = clean[clean.length - 1];
+                    }
+                    if (chosen) {
+                        if (inertialStats.isStationary === true && zuptCentroid.sampleCount > 0 && zuptCentroid.sumWeights > 0) {
+                            chosen.lat = zuptCentroid.sumWeightedLat / zuptCentroid.sumWeights;
+                            chosen.lon = zuptCentroid.sumWeightedLon / zuptCentroid.sumWeights;
+                            chosen.speed = 0.0;
+                        }
+                        const latEl = document.getElementById('lat');
+                        const lonEl = document.getElementById('lon');
+                        const accEl = document.getElementById('acc');
+                        const statEl = document.getElementById('isStationary');
+                        const varEl = document.getElementById('accelerationVariance');
+                        if (latEl) latEl.value = chosen.lat;
+                        if (lonEl) lonEl.value = chosen.lon;
+                        if (accEl) accEl.value = Math.round(chosen.acc);
+                        if (statEl && chosen.isStationary !== undefined && chosen.isStationary !== null) {
+                            statEl.value = chosen.isStationary ? 'true' : 'false';
+                        }
+                        if (varEl && chosen.accelerationVariance !== undefined && chosen.accelerationVariance !== null) {
+                            varEl.value = chosen.accelerationVariance;
+                        }
+                    }
+
+                    const sampleInput = document.getElementById('samplesJson');
+                    if (sampleInput) {
+                        sampleInput.value = JSON.stringify(clean);
+                    }
+
+                    const progStr = formatearProgreso();
+
+                    if (autoVerificando && !autoEnviado) {
+                        autoEnviado = true;
+                        const autoBadge = document.getElementById('autoGpsBadge');
+                        if (autoBadge) {
+                            autoBadge.innerHTML = '🛰️ Calibrando satélites... (' + progStr + ') ¡Fijado!';
+                            autoBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+                            autoBadge.style.borderColor = 'rgba(16, 185, 129, 0.35)';
+                            autoBadge.style.color = '#34d399';
+                        }
+                        const form = document.getElementById('regForm');
+                        if (form) {
+                            form.action = '/a/{{sesionId}}/confirmar-gps';
+                            setTimeout(() => { form.submit(); }, 150);
+                        }
+                    } else {
+                        actualizarBannerGpsManual();
+                    }
+                }
+
+                if (!esWifi) {
+                    if (typeof startInertialTracking === 'function') {
+                        startInertialTracking();
+                    }
                     const gpsBox = document.getElementById('gps-status');
 
                     if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-
-                        gpsBox.style.background = 'rgba(245, 158, 11, 0.15)';
-
-                        gpsBox.style.borderColor = 'rgba(245, 158, 11, 0.3)';
-
-                        gpsBox.style.color = '#fbbf24';
-
-                        gpsBox.innerHTML = '⚠️ <b>Enlace HTTP Local:</b> Tu navegador restringe el sensor GPS en redes locales sin SSL. En MonsterASP.net (HTTPS) funciona al 100%. Puedes vincular tu teléfono e ingresar el código.';
-
+                        if (gpsBox) {
+                            gpsBox.style.background = 'rgba(245, 158, 11, 0.15)';
+                            gpsBox.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+                            gpsBox.style.color = '#fbbf24';
+                            gpsBox.innerHTML = '⚠️ <b>Enlace HTTP Local:</b> Tu navegador restringe el sensor GPS en redes locales sin SSL. En MonsterASP.net (HTTPS) funciona al 100%. Puedes vincular tu teléfono e ingresar el código.';
+                        }
                     } else if (navigator.geolocation) {
+                        const onPosOk = (pos) => {
+                            if (!pos || !pos.coords) return;
+                            const lat = Number(pos.coords.latitude);
+                            const lon = Number(pos.coords.longitude);
+                            const acc = Number(pos.coords.accuracy);
 
-                        const setPosOk = (pos) => {
+                            if (isNaN(lat) || isNaN(lon) || isNaN(acc) || !isFinite(lat) || !isFinite(lon) || !isFinite(acc)) return;
+                            if (lat < -90 || lat > 90 || lon < -180 || lon > 180 || acc <= 0 || acc > 500) return;
 
-                            const latB = pos.coords.latitude;
-
-                            const lonB = pos.coords.longitude;
-
-                            const accB = Math.round(pos.coords.accuracy);
-
-
-
-                            document.getElementById('lat').value = latB;
-
-                            document.getElementById('lon').value = lonB;
-
-                            document.getElementById('acc').value = accB;
-
-                            const sample = [{
-                                lat: latB,
-                                lon: lonB,
-                                acc: accB,
-                                speed: (pos.coords && pos.coords.speed && pos.coords.speed >= 0) ? pos.coords.speed : 0.0,
-                                timestampMs: (pos.timestamp && pos.timestamp > 0) ? pos.timestamp : Date.now()
-                            }];
-                            const sampleInput = document.getElementById('samplesJson');
-                            if (sampleInput) {
-                                sampleInput.value = JSON.stringify(sample);
+                            let ts = (pos.timestamp && Number(pos.timestamp) > 0) ? Number(pos.timestamp) : Date.now();
+                            if (allRawTelemetry.length > 0 && ts <= allRawTelemetry[allRawTelemetry.length - 1].timestampMs) {
+                                ts = allRawTelemetry[allRawTelemetry.length - 1].timestampMs + 200;
                             }
 
-                            if (autoVerificando && !autoEnviado) {
-                                autoEnviado = true;
+                            const rawSpeed = (pos.coords.speed != null && !isNaN(pos.coords.speed) && pos.coords.speed >= 0) ? Number(pos.coords.speed) : 0.0;
+                            const zupt = (typeof applyZuptFilter === 'function')
+                                ? applyZuptFilter(lat, lon, acc, rawSpeed)
+                                : { effectiveLat: lat, effectiveLon: lon, effectiveAcc: acc, effectiveSpeed: rawSpeed, isStationary: null, accelerationVariance: null };
+
+                            const sample = {
+                                lat: zupt.effectiveLat,
+                                lon: zupt.effectiveLon,
+                                acc: zupt.effectiveAcc,
+                                speed: zupt.effectiveSpeed,
+                                timestampMs: ts,
+                                isStationary: zupt.isStationary,
+                                accelerationVariance: zupt.accelerationVariance
+                            };
+                            allRawTelemetry.push(sample);
+
+                            if (acc < bestAccuracy) {
+                                bestAccuracy = acc;
+                                bestSample = sample;
+                            }
+                            actualizarMilestones(Math.round(acc));
+
+                            const progStr = formatearProgreso();
+
+                            // Feedback visual dinámico continuo en UI
+                            if (autoVerificando) {
                                 const autoBadge = document.getElementById('autoGpsBadge');
-                                if (autoBadge) autoBadge.innerHTML = '✅ Posición fijada (±' + accB + 'm). Verificando presencia...';
-                                const form = document.getElementById('regForm');
-                                form.action = '/a/{{sesionId}}/confirmar-gps';
-                                form.submit();
-                                return;
-                            }
-
-                            const refLat = parseFloat(document.querySelector('input[name="clat"]').value);
-
-                            const refLon = parseFloat(document.querySelector('input[name="clon"]').value);
-
-                            const radio = parseFloat(document.querySelector('input[name="r"]').value) || 25;
-
-
-
-                            function haversineDist(lat1, lon1, lat2, lon2) {
-
-                                const R = 6371000;
-
-                                const dLat = (lat2 - lat1) * Math.PI / 180;
-
-                                const dLon = (lon2 - lon1) * Math.PI / 180;
-
-                                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-
-                                          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-
-                                          Math.sin(dLon/2) * Math.sin(dLon/2);
-
-                                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-                                return R * c;
-
-                            }
-
-
-
-                            if (!isNaN(refLat) && !isNaN(refLon)) {
-
-                                const d = haversineDist(latB, lonB, refLat, refLon);
-
-                                const maxPermitido = radio + 5;
-
-                                if (d <= maxPermitido) {
-
-                                    gpsBox.style.background = 'rgba(16, 185, 129, 0.15)';
-
-                                    gpsBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
-
-                                    gpsBox.style.color = '#34d399';
-
-                                    gpsBox.innerHTML = '✅ <b>GPS Verificado (' + d.toFixed(1) + 'm de ' + radio + 'm)</b><br><span style="font-size:0.75rem; color:#cbd5e1;">📍 Cel: ' + latB.toFixed(6) + ',' + lonB.toFixed(6) + ' | 🎯 QR: ' + refLat.toFixed(6) + ',' + refLon.toFixed(6) + '</span>';
-
-                                } else {
-
-                                    gpsBox.style.background = 'rgba(239, 68, 68, 0.15)';
-
-                                    gpsBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-
-                                    gpsBox.style.color = '#fca5a5';
-
-                                    const diff = (d - maxPermitido).toFixed(1);
-
-                                    gpsBox.innerHTML = '❌ <b>Fuera de rango (a ' + d.toFixed(1) + 'm, máx ' + radio + 'm):</b> Excedido por ' + diff + 'm<br><span style="font-size:0.75rem; color:#cbd5e1;">📍 Cel: ' + latB.toFixed(6) + ',' + lonB.toFixed(6) + ' | 🎯 QR: ' + refLat.toFixed(6) + ',' + refLon.toFixed(6) + '</span>';
-
+                                if (autoBadge) {
+                                    autoBadge.innerHTML = '🛰️ Calibrando satélites... (' + progStr + ')';
                                 }
-
-                            } else {
-
-                                gpsBox.style.background = 'rgba(16, 185, 129, 0.15)';
-
-                                gpsBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
-
-                                gpsBox.style.color = '#34d399';
-
-                                gpsBox.innerHTML = '✅ <b>Ubicación fijada:</b> ' + latB.toFixed(6) + ', ' + lonB.toFixed(6) + ' (±' + accB + 'm)';
-
+                            } else if (gpsBox) {
+                                gpsBox.style.background = 'rgba(59, 130, 246, 0.1)';
+                                gpsBox.style.borderColor = 'rgba(59, 130, 246, 0.25)';
+                                gpsBox.style.color = '#93c5fd';
+                                gpsBox.innerHTML = '🛰️ Calibrando satélites en aula... (' + progStr + ')';
                             }
 
+                            // Inicializar cronómetro de ventana desde la primera lectura satelital
+                            if (firstFixTimestamp === 0) {
+                                firstFixTimestamp = Date.now();
+                                hardTimer = setTimeout(() => {
+                                    if (!decantacionFinalizada) {
+                                        finalizarDecantacion('timeout_3s');
+                                    }
+                                }, HARD_TIMEOUT_MS);
+                            }
+
+                            // Detección de meseta de convergencia (ventana de 2.0 a 2.8s)
+                            const elapsed = Date.now() - firstFixTimestamp;
+                            const count = allRawTelemetry.length;
+                            let converged = false;
+
+                            if (elapsed >= MIN_DECANT_MS) {
+                                // Condicion A: Precision óptima alcanzada (<= 8m) con al menos 2 lecturas
+                                if (bestAccuracy <= 8.0 && count >= 2) {
+                                    converged = true;
+                                }
+                                // Condicion B: Meseta estabilizada (variacion instrumental <= 1.5m)
+                                else if (count >= 3) {
+                                    const diff = Math.abs(allRawTelemetry[count - 1].acc - allRawTelemetry[count - 2].acc);
+                                    if (diff <= 1.5 && bestAccuracy <= 15.0) {
+                                        converged = true;
+                                    }
+                                }
+                                // Condicion C: Ventana de 2.8s concluida
+                                if (elapsed >= TARGET_DECANT_MS && count >= 2) {
+                                    converged = true;
+                                }
+                            }
+
+                            if (converged && !decantacionFinalizada) {
+                                finalizarDecantacion('convergencia_meseta');
+                            }
                         };
 
+                        const onPosErr = (err) => {
+                            if (decantacionFinalizada || autoEnviado) return;
+                            const targetBox = autoVerificando ? document.getElementById('autoGpsBadge') : gpsBox;
+                            if (!targetBox) return;
 
-
-                        const setPosErr = (err) => {
-
-                            gpsBox.style.background = 'rgba(239, 68, 68, 0.15)';
-
-                            gpsBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-
-                            gpsBox.style.color = '#fca5a5';
+                            targetBox.style.background = 'rgba(239, 68, 68, 0.15)';
+                            targetBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                            targetBox.style.color = '#fca5a5';
 
                             if (err.code === 1) {
-
-                                gpsBox.innerHTML = '⚠️ <b>Permiso Denegado:</b> En tu navegador toca el candado 🔒 y permite el acceso a <b>Ubicación</b>.';
-
+                                targetBox.innerHTML = '⚠️ <b>Permiso Denegado:</b> En tu navegador toca el candado 🔒 y permite el acceso a <b>Ubicación</b>.';
                             } else if (err.code === 2) {
-
-                                gpsBox.innerHTML = '⚠️ <b>GPS Desactivado:</b> Activa la Ubicación en los ajustes rápidos de tu celular.';
-
+                                targetBox.innerHTML = '⚠️ <b>GPS Desactivado:</b> Activa la Ubicación en los ajustes rápidos de tu celular.';
                             } else {
-
-                                gpsBox.innerHTML = '📡 <b>Buscando satélites bajo techo...</b> Puedes presionar Vincular o acercarte a una puerta.';
-
+                                targetBox.innerHTML = '📡 <b>Buscando satélites bajo techo...</b> Puedes presionar Vincular o acercarte a una puerta.';
                             }
-
+                            console.warn('Error en geolocalizacion:', err);
                         };
 
-
-
-                        navigator.geolocation.getCurrentPosition(
-
-                            setPosOk,
-
-                            (errHigh) => {
-
-                                navigator.geolocation.getCurrentPosition(
-
-                                    setPosOk,
-
-                                    setPosErr,
-
-                                    { enableHighAccuracy: false, timeout: 8000, maximumAge: 10000 }
-
-                                );
-
-                            },
-
-                            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-
-                        );
-
-                    } else {
-
+                        try {
+                            watchId = navigator.geolocation.watchPosition(
+                                onPosOk,
+                                (errHigh) => {
+                                    if (!decantacionFinalizada && !autoEnviado) {
+                                        navigator.geolocation.getCurrentPosition(
+                                            onPosOk,
+                                            onPosErr,
+                                            { enableHighAccuracy: false, timeout: 8000, maximumAge: 10000 }
+                                        );
+                                    }
+                                },
+                                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                            );
+                        } catch (e) {
+                            console.warn('watchPosition falló, fallback a getCurrentPosition:', e);
+                            navigator.geolocation.getCurrentPosition(onPosOk, onPosErr, { enableHighAccuracy: true, timeout: 10000 });
+                        }
+                    } else if (gpsBox) {
                         gpsBox.style.background = 'rgba(239, 68, 68, 0.15)';
-
                         gpsBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-
                         gpsBox.style.color = '#fca5a5';
-
                         gpsBox.innerHTML = '⚠️ Tu navegador no soporta geolocalización GPS.';
-
                     }
-
                 }
 
             </script>
@@ -1437,6 +1755,14 @@ public static class AttendanceStudentView
 
                     </div>
 
+                    <div style="margin-bottom: 0.65rem; display: flex; justify-content: space-between; gap: 0.5rem;">
+
+                        <span style="color: #94a3b8;">🧭 Sensor Inercial (ZUPT):</span>
+
+                        <span id="telInertial" style="font-weight: 700; color: #38bdf8;">Calibrando acelerómetro...</span>
+
+                    </div>
+
                     <div id="telStatus" style="padding: 0.5rem; border-radius: 0.5rem; text-align: center; font-weight: 700;">
 
                     </div>
@@ -1468,6 +1794,8 @@ public static class AttendanceStudentView
                     <input type="hidden" id="acc" name="acc" />
 
                     <input type="hidden" id="samplesJson" name="samples" />
+                    <input type="hidden" id="isStationary" name="isStationary" />
+                    <input type="hidden" id="accelerationVariance" name="accelerationVariance" />
                     <input type="hidden" id="autoDeviceToken" name="deviceToken" />
 
                 </form>
@@ -1492,13 +1820,219 @@ public static class AttendanceStudentView
 
             <script>
 
+                // --- Capa 2: Fusión Inercial Web y Zero-Velocity Update (ZUPT) ---
+                const MAX_INERTIAL_SAMPLES = 150;
+                const STATIONARY_VARIANCE_THRESHOLD = 0.25; // m/s²
+                let inertialSamples = [];
+                let inertialTrackingActive = false;
+                let zuptCentroid = {
+                    sumWeightedLat: 0.0,
+                    sumWeightedLon: 0.0,
+                    sumWeights: 0.0,
+                    minAcc: 999.0,
+                    sampleCount: 0
+                };
+                let inertialStats = {
+                    varianceX: 0.0,
+                    varianceY: 0.0,
+                    varianceZ: 0.0,
+                    sigmaA: 0.0,
+                    isStationary: null,
+                    sampleCount: 0
+                };
+
+                function resetZupt() {
+                    inertialSamples = [];
+                    zuptCentroid = {
+                        sumWeightedLat: 0.0,
+                        sumWeightedLon: 0.0,
+                        sumWeights: 0.0,
+                        minAcc: 999.0,
+                        sampleCount: 0
+                    };
+                    inertialStats = {
+                        varianceX: 0.0,
+                        varianceY: 0.0,
+                        varianceZ: 0.0,
+                        sigmaA: 0.0,
+                        isStationary: null,
+                        sampleCount: 0
+                    };
+                }
+
+                function handleMotion(event) {
+                    try {
+                        if (!event) return;
+                        let ax = null, ay = null, az = null;
+                        if (event.acceleration && typeof event.acceleration.x === 'number' && typeof event.acceleration.y === 'number' && typeof event.acceleration.z === 'number') {
+                            ax = event.acceleration.x;
+                            ay = event.acceleration.y;
+                            az = event.acceleration.z;
+                        } else if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number' && typeof event.accelerationIncludingGravity.y === 'number' && typeof event.accelerationIncludingGravity.z === 'number') {
+                            ax = event.accelerationIncludingGravity.x;
+                            ay = event.accelerationIncludingGravity.y;
+                            az = event.accelerationIncludingGravity.z;
+                        }
+                        if (ax === null || isNaN(ax) || isNaN(ay) || isNaN(az)) return;
+
+                        inertialSamples.push({ x: ax, y: ay, z: az, t: Date.now() });
+                        if (inertialSamples.length > MAX_INERTIAL_SAMPLES) {
+                            inertialSamples.shift();
+                        }
+                        recomputeInertialVariance();
+                    } catch(e) {
+                        // Fallback defensivo: sin excepciones hacia el usuario
+                    }
+                }
+
+                function startInertialTracking() {
+                    try {
+                        if (typeof window !== 'undefined' && 'DeviceMotionEvent' in window && !inertialTrackingActive) {
+                            window.addEventListener('devicemotion', handleMotion, { passive: true });
+                            inertialTrackingActive = true;
+                        } else {
+                            const telInertial = document.getElementById('telInertial');
+                            if (telInertial && (!window || !('DeviceMotionEvent' in window))) {
+                                telInertial.innerHTML = '🛰️ Satelital Estándar (Sin acelerómetro)';
+                                telInertial.style.color = '#94a3b8';
+                            }
+                        }
+                    } catch(e) {
+                        // Fallback graceful: escritorio o sin permisos de movimiento
+                    }
+                }
+
+                function stopInertialTracking() {
+                    try {
+                        if (inertialTrackingActive && typeof window !== 'undefined') {
+                            window.removeEventListener('devicemotion', handleMotion);
+                            inertialTrackingActive = false;
+                        }
+                    } catch(e) {
+                        // Fallback defensivo
+                    }
+                }
+
+                function recomputeInertialVariance() {
+                    const n = inertialSamples.length;
+                    if (n < 5) {
+                        inertialStats.isStationary = null;
+                        inertialStats.sampleCount = n;
+                        return;
+                    }
+
+                    let sumX = 0.0, sumY = 0.0, sumZ = 0.0;
+                    for (let i = 0; i < n; i++) {
+                        sumX += inertialSamples[i].x;
+                        sumY += inertialSamples[i].y;
+                        sumZ += inertialSamples[i].z;
+                    }
+                    const meanX = sumX / n;
+                    const meanY = sumY / n;
+                    const meanZ = sumZ / n;
+
+                    let sumSqX = 0.0, sumSqY = 0.0, sumSqZ = 0.0;
+                    for (let i = 0; i < n; i++) {
+                        const dx = inertialSamples[i].x - meanX;
+                        const dy = inertialSamples[i].y - meanY;
+                        const dz = inertialSamples[i].z - meanZ;
+                        sumSqX += dx * dx;
+                        sumSqY += dy * dy;
+                        sumSqZ += dz * dz;
+                    }
+
+                    const varX = sumSqX / n;
+                    const varY = sumSqY / n;
+                    const varZ = sumSqZ / n;
+                    const sigmaA = Math.sqrt(Math.max(0.0, varX + varY + varZ));
+                    const isStationary = sigmaA < STATIONARY_VARIANCE_THRESHOLD;
+
+                    inertialStats = {
+                        varianceX: varX,
+                        varianceY: varY,
+                        varianceZ: varZ,
+                        sigmaA: sigmaA,
+                        isStationary: isStationary,
+                        sampleCount: n
+                    };
+
+                    const statEl = document.getElementById('isStationary');
+                    if (statEl) statEl.value = isStationary ? 'true' : 'false';
+                    const varEl = document.getElementById('accelerationVariance');
+                    if (varEl) varEl.value = sigmaA.toFixed(4);
+
+                    const telInertial = document.getElementById('telInertial');
+                    if (telInertial) {
+                        if (isStationary) {
+                            telInertial.innerHTML = '🪑 Reposo Estático (ZUPT activo &bull; &sigma;=' + sigmaA.toFixed(3) + ' m/s&sup2;)';
+                            telInertial.style.color = '#34d399';
+                        } else {
+                            telInertial.innerHTML = '🚶 En movimiento (&sigma;=' + sigmaA.toFixed(3) + ' m/s&sup2;)';
+                            telInertial.style.color = '#fbbf24';
+                        }
+                    }
+                }
+
+                function applyZuptFilter(lat, lon, acc, speed) {
+                    if (inertialStats.isStationary !== true) {
+                        return {
+                            effectiveLat: lat,
+                            effectiveLon: lon,
+                            effectiveAcc: acc,
+                            effectiveSpeed: (speed !== null && typeof speed === 'number' && speed >= 0) ? speed : 0.0,
+                            isStationary: inertialStats.isStationary,
+                            accelerationVariance: inertialStats.sampleCount >= 5 ? Math.round(inertialStats.sigmaA * 10000) / 10000 : null
+                        };
+                    }
+
+                    // Principio ZUPT (Zero-Velocity Update):
+                    // 1. Velocidad fisica real nula en reposo estatico
+                    const effectiveSpeed = 0.0;
+                    const safeAcc = Math.max(acc, 1.0);
+                    let weight = 1.0 / (safeAcc * safeAcc);
+
+                    if (zuptCentroid.sampleCount > 0 && zuptCentroid.sumWeights > 0) {
+                        const currentCentroidLat = zuptCentroid.sumWeightedLat / zuptCentroid.sumWeights;
+                        const currentCentroidLon = zuptCentroid.sumWeightedLon / zuptCentroid.sumWeights;
+                        const jump = haversineDist(lat, lon, currentCentroidLat, currentCentroidLon);
+                        // Supresion de saltos fantasma por rebote en hormigon (> 12m)
+                        if (jump > 12.0) {
+                            weight *= 0.1;
+                        }
+                    }
+
+                    zuptCentroid.sumWeights += weight;
+                    zuptCentroid.sumWeightedLat += lat * weight;
+                    zuptCentroid.sumWeightedLon += lon * weight;
+                    zuptCentroid.minAcc = Math.min(zuptCentroid.minAcc, acc);
+                    zuptCentroid.sampleCount += 1;
+
+                    const centroidLat = zuptCentroid.sumWeightedLat / zuptCentroid.sumWeights;
+                    const centroidLon = zuptCentroid.sumWeightedLon / zuptCentroid.sumWeights;
+
+                    return {
+                        effectiveLat: centroidLat,
+                        effectiveLon: centroidLon,
+                        effectiveAcc: zuptCentroid.minAcc,
+                        effectiveSpeed: effectiveSpeed,
+                        isStationary: true,
+                        accelerationVariance: Math.round(inertialStats.sigmaA * 10000) / 10000
+                    };
+                }
+
                 let rawSamples = [];
-
-                let warmupCount = 0;
-
+                let allRawTelemetry = [];
+                let accuracyMilestones = [];
+                let bestAccuracy = Infinity;
+                let bestSample = null;
+                let firstFixTimestamp = 0;
+                let decantacionFinalizada = false;
                 let watchId = null;
-
+                let hardTimer = null;
                 let enviado = false;
+                const MIN_DECANT_MS = 2000;
+                const TARGET_DECANT_MS = 2800;
+                const HARD_TIMEOUT_MS = 3000;
 
                 try {
                     const savedDev = localStorage.getItem('slac_device_token');
@@ -1506,7 +2040,9 @@ public static class AttendanceStudentView
                         const devIn = document.getElementById('autoDeviceToken');
                         if (devIn) devIn.value = savedDev;
                     }
-                } catch(e){}
+                } catch(e) {
+                    console.warn('Advertencia al leer slac_device_token:', e);
+                }
 
                 window.addEventListener('online', () => {
                     const badge = document.getElementById('statusBadge');
@@ -1517,342 +2053,406 @@ public static class AttendanceStudentView
                     const badge = document.getElementById('statusBadge');
                     if (badge) {
                         badge.style.background = 'rgba(239, 68, 68, 0.15)';
+                        badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
                         badge.style.color = '#fca5a5';
                         badge.innerHTML = '⚠️ Sin conexión a Internet. Conéctate a Wi-Fi o datos móviles.';
                     }
                 });
 
+                function actualizarMilestones(accVal) {
+                    if (accuracyMilestones.length === 0) {
+                        accuracyMilestones.push(accVal);
+                    } else {
+                        const last = accuracyMilestones[accuracyMilestones.length - 1];
+                        if (accVal < last - 1) {
+                            accuracyMilestones.push(accVal);
+                            if (accuracyMilestones.length > 4) {
+                                accuracyMilestones = [accuracyMilestones[0], ...accuracyMilestones.slice(-3)];
+                            }
+                        }
+                    }
+                }
 
+                function formatearProgreso() {
+                    if (accuracyMilestones.length === 0) return '±--m';
+                    return accuracyMilestones.map(m => '±' + m + 'm').join(' ➔ ');
+                }
+
+                function haversineDist(lat1, lon1, lat2, lon2) {
+                    const R = 6371000;
+                    const dLat = (lat2 - lat1) * Math.PI / 180;
+                    const dLon = (lon2 - lon1) * Math.PI / 180;
+                    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                              Math.sin(dLon/2) * Math.sin(dLon/2);
+                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                    return R * c;
+                }
+
+                function actualizarTelemetriaVivo(latB, lonB, accB) {
+                    const refLatEl = document.querySelector('input[name="clat"]');
+                    const refLonEl = document.querySelector('input[name="clon"]');
+                    const radioEl = document.querySelector('input[name="r"]');
+                    const refLat = refLatEl ? parseFloat(refLatEl.value) : NaN;
+                    const refLon = refLonEl ? parseFloat(refLonEl.value) : NaN;
+                    const radio = radioEl ? (parseFloat(radioEl.value) || 25) : 25;
+
+                    const telBox = document.getElementById('telemetryBox');
+                    const telCel = document.getElementById('telCel');
+                    const telQr = document.getElementById('telQr');
+                    const telDist = document.getElementById('telDist');
+                    const telRadio = document.getElementById('telRadio');
+                    const telPill = document.getElementById('telPill');
+                    const telStatus = document.getElementById('telStatus');
+
+                    if (!telBox || !telCel || !telQr || !telDist || !telRadio || !telPill || !telStatus) return;
+
+                    telBox.style.display = 'block';
+                    telCel.innerText = latB.toFixed(6) + ', ' + lonB.toFixed(6) + ' (±' + accB + 'm)';
+                    telQr.innerText = (!isNaN(refLat) && !isNaN(refLon)) ? (refLat.toFixed(6) + ', ' + refLon.toFixed(6)) : 'Modo GPS Alpha (Servidor)';
+                    telRadio.innerText = radio + 'm (+5m margen = ' + (radio + 5) + 'm)';
+
+                    if (!isNaN(refLat) && !isNaN(refLon)) {
+                        const d = haversineDist(latB, lonB, refLat, refLon);
+                        const maxPermitido = radio + 5;
+                        telDist.innerText = d.toFixed(1) + ' metros';
+
+                        if (d <= maxPermitido) {
+                            telDist.style.color = '#34d399';
+                            telPill.style.background = 'rgba(16, 185, 129, 0.2)';
+                            telPill.style.color = '#34d399';
+                            telPill.innerText = 'DENTRO';
+                            telStatus.style.background = 'rgba(16, 185, 129, 0.2)';
+                            telStatus.style.color = '#34d399';
+                            telStatus.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+                            telStatus.innerHTML = '✅ <b>DENTRO DEL RANGO</b> (' + d.toFixed(1) + 'm &le; ' + maxPermitido + 'm).';
+                        } else {
+                            telDist.style.color = '#f87171';
+                            telPill.style.background = 'rgba(239, 68, 68, 0.2)';
+                            telPill.style.color = '#f87171';
+                            telPill.innerText = 'FUERA';
+                            telStatus.style.background = 'rgba(239, 68, 68, 0.2)';
+                            telStatus.style.color = '#fca5a5';
+                            telStatus.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+                            const diff = (d - maxPermitido).toFixed(1);
+                            telStatus.innerHTML = '❌ <b>FUERA DEL RANGO:</b> Excedido por ' + diff + ' metros.';
+                        }
+                    } else {
+                        telDist.innerText = 'Verificación Alpha';
+                        telStatus.style.background = 'rgba(59, 130, 246, 0.2)';
+                        telStatus.style.color = '#93c5fd';
+                        telStatus.innerHTML = 'ℹ️ Coordenadas telemétricas capturadas. Precisión fijada.';
+                    }
+                }
+
+                function finalizarDecantacion(motivo) {
+                    if (decantacionFinalizada) return;
+                    decantacionFinalizada = true;
+
+                    if (hardTimer) {
+                        clearTimeout(hardTimer);
+                        hardTimer = null;
+                    }
+                    if (watchId !== null) {
+                        try { navigator.geolocation.clearWatch(watchId); } catch(e) { console.warn('Error al detener watchPosition:', e); }
+                        watchId = null;
+                    }
+                    if (typeof stopInertialTracking === 'function') {
+                        stopInertialTracking();
+                    }
+
+                    // Decantación: Descartar muestras preliminares con precisión degradada (Cold Fix)
+                    const minAcc = bestAccuracy;
+                    let clean = allRawTelemetry;
+                    if (allRawTelemetry.length >= 3 && minAcc <= 15.0) {
+                        const threshold = Math.max(minAcc * 2.2, 14.0);
+                        const filtered = allRawTelemetry.filter(s => s.acc <= threshold);
+                        if (filtered.length >= 2) {
+                            clean = filtered;
+                        }
+                    }
+
+                    // Asegurar orden temporal monótono estricto
+                    clean.sort((a, b) => a.timestampMs - b.timestampMs);
+                    for (let i = 1; i < clean.length; i++) {
+                        if (clean[i].timestampMs <= clean[i - 1].timestampMs) {
+                            clean[i].timestampMs = clean[i - 1].timestampMs + 200;
+                        }
+                    }
+                    rawSamples = clean;
+
+                    // Asignar mejor muestra a los campos
+                    let chosen = bestSample;
+                    if (!chosen && clean.length > 0) {
+                        chosen = clean[clean.length - 1];
+                    }
+                    if (chosen) {
+                        if (inertialStats.isStationary === true && zuptCentroid.sampleCount > 0 && zuptCentroid.sumWeights > 0) {
+                            chosen.lat = zuptCentroid.sumWeightedLat / zuptCentroid.sumWeights;
+                            chosen.lon = zuptCentroid.sumWeightedLon / zuptCentroid.sumWeights;
+                            chosen.speed = 0.0;
+                        }
+                        const latEl = document.getElementById('lat');
+                        const lonEl = document.getElementById('lon');
+                        const accEl = document.getElementById('acc');
+                        const statEl = document.getElementById('isStationary');
+                        const varEl = document.getElementById('accelerationVariance');
+                        if (latEl) latEl.value = chosen.lat;
+                        if (lonEl) lonEl.value = chosen.lon;
+                        if (accEl) accEl.value = Math.round(chosen.acc);
+                        if (statEl && chosen.isStationary !== undefined && chosen.isStationary !== null) {
+                            statEl.value = chosen.isStationary ? 'true' : 'false';
+                        }
+                        if (varEl && chosen.accelerationVariance !== undefined && chosen.accelerationVariance !== null) {
+                            varEl.value = chosen.accelerationVariance;
+                        }
+                        actualizarTelemetriaVivo(chosen.lat, chosen.lon, Math.round(chosen.acc));
+                    }
+
+                    const sampleInput = document.getElementById('samplesJson');
+                    if (sampleInput) {
+                        sampleInput.value = JSON.stringify(clean);
+                    }
+
+                    const progStr = formatearProgreso();
+                    const badge = document.getElementById('statusBadge');
+                    if (badge) {
+                        badge.innerHTML = '🛰️ Calibrando satélites... (' + progStr + ') ¡Fijado!';
+                        badge.style.background = 'rgba(16, 185, 129, 0.15)';
+                        badge.style.borderColor = 'rgba(16, 185, 129, 0.35)';
+                        badge.style.color = '#34d399';
+                    }
+
+                    if (!enviado) {
+                        setTimeout(() => {
+                            intentarEnviar();
+                        }, 150);
+                    }
+                }
 
                 function intentarEnviar() {
                     if (enviado) return;
-                    if (!document.getElementById('lat').value || rawSamples.length === 0) {
+                    if (!decantacionFinalizada && allRawTelemetry.length > 0) {
+                        finalizarDecantacion('envio_manual');
+                        return;
+                    }
+                    const latVal = document.getElementById('lat')?.value;
+                    if (!latVal || rawSamples.length === 0) {
                         alert('🛰️ Conectando con los satélites GPS en aula, aguarda unos instantes a que se fije tu posición física...');
                         return;
                     }
 
-                    if (!enviado) {
-
-                        enviado = true;
-
-                        if (watchId !== null) {
-
-                            try { navigator.geolocation.clearWatch(watchId); } catch(e) {}
-
-                            watchId = null;
-
-                        }
-
-                        document.getElementById('gpsForm').submit();
-
+                    enviado = true;
+                    if (watchId !== null) {
+                        try { navigator.geolocation.clearWatch(watchId); } catch(e) { console.warn('Error al limpiar watchId:', e); }
+                        watchId = null;
                     }
-
+                    if (typeof stopInertialTracking === 'function') {
+                        stopInertialTracking();
+                    }
+                    const form = document.getElementById('gpsForm');
+                    if (form) form.submit();
                 }
-
-
 
                 function solicitarUbicacion() {
-
                     const badge = document.getElementById('statusBadge');
-
                     const retryBtn = document.getElementById('retryBtn');
 
+                    rawSamples = [];
+                    allRawTelemetry = [];
+                    accuracyMilestones = [];
+                    bestAccuracy = Infinity;
+                    bestSample = null;
+                    firstFixTimestamp = 0;
+                    decantacionFinalizada = false;
+                    if (typeof resetZupt === 'function') {
+                        resetZupt();
+                    }
+                    if (typeof startInertialTracking === 'function') {
+                        startInertialTracking();
+                    }
+                    if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
+                    if (watchId !== null) {
+                        try { navigator.geolocation.clearWatch(watchId); } catch(e) { console.warn('Error al reiniciar watchId:', e); }
+                        watchId = null;
+                    }
 
-
-                    badge.style.display = 'block';
-
-                    badge.innerHTML = '📡 Conectando con satélites GPS en aula...';
-
-                    badge.style.color = '#93c5fd';
-
-                    badge.style.background = 'rgba(59, 130, 246, 0.1)';
-
-                    badge.style.borderColor = 'rgba(99, 102, 241, 0.3)';
-
-                    retryBtn.style.display = 'none';
-
-
+                    if (badge) {
+                        badge.style.display = 'block';
+                        badge.innerHTML = '📡 Conectando con satélites GPS en aula...';
+                        badge.style.color = '#93c5fd';
+                        badge.style.background = 'rgba(59, 130, 246, 0.1)';
+                        badge.style.borderColor = 'rgba(99, 102, 241, 0.3)';
+                    }
+                    if (retryBtn) retryBtn.style.display = 'none';
 
                     if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-
-                        badge.innerHTML = '⚠️ <b>Enlace HTTP Local:</b> Los navegadores móviles restringen el sensor satelital en enlaces sin SSL. En MonsterASP.net (HTTPS) funciona automáticamente. Ingresa el código visual de 3 dígitos del aula y pulsa Confirmar.';
-
-                        badge.style.color = '#fbbf24';
-
-                        badge.style.background = 'rgba(245, 158, 11, 0.15)';
-
-                        badge.style.borderColor = 'rgba(245, 158, 11, 0.3)';
-
+                        if (badge) {
+                            badge.innerHTML = '⚠️ <b>Enlace HTTP Local:</b> Los navegadores móviles restringen el sensor satelital en enlaces sin SSL. En MonsterASP.net (HTTPS) funciona automáticamente. Ingresa el código visual de 3 dígitos del aula y pulsa Confirmar.';
+                            badge.style.color = '#fbbf24';
+                            badge.style.background = 'rgba(245, 158, 11, 0.15)';
+                            badge.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+                        }
                         return;
-
                     }
-
-
 
                     if (!navigator.geolocation) {
-
-                        badge.innerHTML = '⚠️ Tu navegador móvil no soporta geolocalización GPS.';
-
-                        badge.style.color = '#fca5a5';
-
+                        if (badge) {
+                            badge.innerHTML = '⚠️ Tu navegador móvil no soporta geolocalización GPS.';
+                            badge.style.color = '#fca5a5';
+                        }
                         return;
-
                     }
-
-
-
-                    function haversineDist(lat1, lon1, lat2, lon2) {
-
-                        const R = 6371000;
-
-                        const dLat = (lat2 - lat1) * Math.PI / 180;
-
-                        const dLon = (lon2 - lon1) * Math.PI / 180;
-
-                        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-
-                                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-
-                                  Math.sin(dLon/2) * Math.sin(dLon/2);
-
-                        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-                        return R * c;
-
-                    }
-
-
 
                     const onPosOk = (pos) => {
+                        if (!pos || !pos.coords) return;
+                        const lat = Number(pos.coords.latitude);
+                        const lon = Number(pos.coords.longitude);
+                        const acc = Number(pos.coords.accuracy);
 
-                        const latB = pos.coords.latitude;
+                        if (isNaN(lat) || isNaN(lon) || isNaN(acc) || !isFinite(lat) || !isFinite(lon) || !isFinite(acc)) return;
+                        if (lat < -90 || lat > 90 || lon < -180 || lon > 180 || acc <= 0 || acc > 500) return;
 
-                        const lonB = pos.coords.longitude;
-
-                        const accB = Math.round(pos.coords.accuracy);
-
-
-
-                        document.getElementById('lat').value = latB;
-
-                        document.getElementById('lon').value = lonB;
-
-                        document.getElementById('acc').value = accB;
-
-
-
-                        // Adquisicion directa e inmediata de telemetria GPS
-                        rawSamples.push({
-                            lat: latB,
-                            lon: lonB,
-                            acc: accB,
-                            speed: (pos.coords && pos.coords.speed && pos.coords.speed >= 0) ? pos.coords.speed : 0.0,
-                            timestampMs: (pos.timestamp && pos.timestamp > 0) ? pos.timestamp : Date.now()
-                        });
-                        document.getElementById('samplesJson').value = JSON.stringify(rawSamples);
-                        badge.innerHTML = '✅ GPS Conectado: Posici\u00f3n fijada (\u00b1' + accB + 'm)';
-
-                        const refLat = parseFloat(document.querySelector('input[name="clat"]').value);
-
-                        const refLon = parseFloat(document.querySelector('input[name="clon"]').value);
-
-                        const radio = parseFloat(document.querySelector('input[name="r"]').value) || 25;
-
-
-
-                        const telBox = document.getElementById('telemetryBox');
-
-                        const telCel = document.getElementById('telCel');
-
-                        const telQr = document.getElementById('telQr');
-
-                        const telDist = document.getElementById('telDist');
-
-                        const telRadio = document.getElementById('telRadio');
-
-                        const telPill = document.getElementById('telPill');
-
-                        const telStatus = document.getElementById('telStatus');
-
-
-
-                        telBox.style.display = 'block';
-
-                        telCel.innerText = latB.toFixed(6) + ', ' + lonB.toFixed(6) + ' (±' + accB + 'm)';
-
-                        telQr.innerText = (!isNaN(refLat) && !isNaN(refLon)) ? (refLat.toFixed(6) + ', ' + refLon.toFixed(6)) : 'Modo GPS Alpha (Servidor)';
-
-                        telRadio.innerText = radio + 'm (+5m margen = ' + (radio + 5) + 'm)';
-
-
-
-                        if (!isNaN(refLat) && !isNaN(refLon)) {
-
-                            const d = haversineDist(latB, lonB, refLat, refLon);
-
-                            const maxPermitido = radio + 5;
-
-                            telDist.innerText = d.toFixed(1) + ' metros';
-
-
-
-                            if (d <= maxPermitido) {
-
-                                telDist.style.color = '#34d399';
-
-                                telPill.style.background = 'rgba(16, 185, 129, 0.2)';
-
-                                telPill.style.color = '#34d399';
-
-                                telPill.innerText = 'DENTRO';
-
-                                telStatus.style.background = 'rgba(16, 185, 129, 0.2)';
-
-                                telStatus.style.color = '#34d399';
-
-                                telStatus.style.border = '1px solid rgba(16, 185, 129, 0.4)';
-
-                                telStatus.innerHTML = '✅ <b>DENTRO DEL RANGO</b> (' + d.toFixed(1) + 'm &le; ' + maxPermitido + 'm).';
-
-                            } else {
-
-                                telDist.style.color = '#f87171';
-
-                                telPill.style.background = 'rgba(239, 68, 68, 0.2)';
-
-                                telPill.style.color = '#f87171';
-
-                                telPill.innerText = 'FUERA';
-
-                                telStatus.style.background = 'rgba(239, 68, 68, 0.2)';
-
-                                telStatus.style.color = '#fca5a5';
-
-                                telStatus.style.border = '1px solid rgba(239, 68, 68, 0.4)';
-
-                                const diff = (d - maxPermitido).toFixed(1);
-
-                                telStatus.innerHTML = '❌ <b>FUERA DEL RANGO:</b> Excedido por ' + diff + ' metros.';
-
-                            }
-
-                        } else {
-
-                            telDist.innerText = 'Verificación Alpha';
-
-                            telStatus.style.background = 'rgba(59, 130, 246, 0.2)';
-
-                            telStatus.style.color = '#93c5fd';
-
-                            telStatus.innerHTML = 'ℹ️ Coordenadas telemétricas capturadas. Ingresa el código y confirma.';
-
+                        let ts = (pos.timestamp && Number(pos.timestamp) > 0) ? Number(pos.timestamp) : Date.now();
+                        if (allRawTelemetry.length > 0 && ts <= allRawTelemetry[allRawTelemetry.length - 1].timestampMs) {
+                            ts = allRawTelemetry[allRawTelemetry.length - 1].timestampMs + 200;
                         }
 
+                        const rawSpeed = (pos.coords.speed != null && !isNaN(pos.coords.speed) && pos.coords.speed >= 0) ? Number(pos.coords.speed) : 0.0;
+                        const zupt = (typeof applyZuptFilter === 'function')
+                            ? applyZuptFilter(lat, lon, acc, rawSpeed)
+                            : { effectiveLat: lat, effectiveLon: lon, effectiveAcc: acc, effectiveSpeed: rawSpeed, isStationary: null, accelerationVariance: null };
 
-
-                        // Auto-envio inmediato al confirmar satelitalmente
-                        if (rawSamples.length >= 1 && !enviado) {
-                            intentarEnviar();
-                        }
+                        const sample = {
+                            lat: zupt.effectiveLat,
+                            lon: zupt.effectiveLon,
+                            acc: zupt.effectiveAcc,
+                            speed: zupt.effectiveSpeed,
+                            timestampMs: ts,
+                            isStationary: zupt.isStationary,
+                            accelerationVariance: zupt.accelerationVariance
                         };
+                        allRawTelemetry.push(sample);
 
+                        if (acc < bestAccuracy) {
+                            bestAccuracy = acc;
+                            bestSample = sample;
+                        }
+                        actualizarMilestones(Math.round(acc));
 
-
-                    const onPosErr = (err) => {
-
-                        if (enviado) return;
-
-                        badge.style.background = 'rgba(239, 68, 68, 0.15)';
-
-                        badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-
-                        badge.style.color = '#fca5a5';
-
-                        retryBtn.style.display = 'block';
-
-
-
-                        if (err.code === 1) { // PERMISSION_DENIED
-
-                            badge.innerHTML = '⚠️ <b>Permiso Denegado:</b> En tu navegador móvil toca el candado 🔒 de la barra de direcciones y activa <b>Ubicación</b>.';
-
-                        } else if (err.code === 2) { // POSITION_UNAVAILABLE
-
-                            badge.innerHTML = '⚠️ <b>GPS Desactivado:</b> Enciende la Ubicación en la barra de ajustes rápidos de tu celular.';
-
-                        } else if (err.code === 3) { // TIMEOUT
-
-                            badge.innerHTML = '📡 <b>Buscando señal bajo techo...</b> Reintentando con red celular/Wi-Fi...';
-
-                            navigator.geolocation.getCurrentPosition(onPosOk, (errFinal) => {
-
-                                if (!enviado) {
-
-                                    badge.innerHTML = '⚠️ <b>Señal GPS débil bajo techo:</b> Pulsa "Reintentar" o acércate a una puerta/ventana.';
-
-                                }
-
-                            }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 600000 });
-
-                        } else {
-
-                            badge.innerHTML = '⚠️ <b>Error de ubicación:</b> ' + (err.message || 'No se pudo obtener coordenadas.');
-
+                        const progStr = formatearProgreso();
+                        if (badge) {
+                            badge.innerHTML = '🛰️ Calibrando satélites... (' + progStr + ')';
+                            badge.style.background = 'rgba(59, 130, 246, 0.15)';
+                            badge.style.borderColor = 'rgba(99, 102, 241, 0.3)';
+                            badge.style.color = '#93c5fd';
                         }
 
+                        actualizarTelemetriaVivo(zupt.effectiveLat, zupt.effectiveLon, Math.round(zupt.effectiveAcc));
+
+                        const telInertial = document.getElementById('telInertial');
+                        if (telInertial) {
+                            if (zupt.isStationary === true) {
+                                telInertial.innerHTML = '🪑 Reposo Estático (ZUPT activo &bull; &sigma;=' + (zupt.accelerationVariance !== null ? zupt.accelerationVariance : '0.00') + ' m/s&sup2;)';
+                                telInertial.style.color = '#34d399';
+                            } else if (zupt.isStationary === false) {
+                                telInertial.innerHTML = '🚶 En movimiento (&sigma;=' + (zupt.accelerationVariance !== null ? zupt.accelerationVariance : '0.00') + ' m/s&sup2;)';
+                                telInertial.style.color = '#fbbf24';
+                            } else {
+                                telInertial.innerHTML = '🛰️ Satelital Estándar (Sin acelerómetro)';
+                                telInertial.style.color = '#94a3b8';
+                            }
+                        }
+
+                        // Inicializar cronómetro de ventana desde la primera lectura satelital
+                        if (firstFixTimestamp === 0) {
+                            firstFixTimestamp = Date.now();
+                            hardTimer = setTimeout(() => {
+                                if (!decantacionFinalizada) {
+                                    finalizarDecantacion('timeout_3s');
+                                }
+                            }, HARD_TIMEOUT_MS);
+                        }
+
+                        // Detección de meseta de convergencia (ventana de 2.0 a 2.8s)
+                        const elapsed = Date.now() - firstFixTimestamp;
+                        const count = allRawTelemetry.length;
+                        let converged = false;
+
+                        if (elapsed >= MIN_DECANT_MS) {
+                            // Condicion A: Precision óptima alcanzada (<= 8m) con al menos 2 lecturas
+                            if (bestAccuracy <= 8.0 && count >= 2) {
+                                converged = true;
+                            }
+                            // Condicion B: Meseta estabilizada (variacion instrumental <= 1.5m)
+                            else if (count >= 3) {
+                                const diff = Math.abs(allRawTelemetry[count - 1].acc - allRawTelemetry[count - 2].acc);
+                                if (diff <= 1.5 && bestAccuracy <= 15.0) {
+                                    converged = true;
+                                }
+                            }
+                            // Condicion C: Ventana de 2.8s concluida
+                            if (elapsed >= TARGET_DECANT_MS && count >= 2) {
+                                converged = true;
+                            }
+                        }
+
+                        if (converged && !decantacionFinalizada) {
+                            finalizarDecantacion('convergencia_meseta');
+                        }
                     };
 
+                    const onPosErr = (err) => {
+                        if (enviado || decantacionFinalizada) return;
+                        if (badge) {
+                            badge.style.background = 'rgba(239, 68, 68, 0.15)';
+                            badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                            badge.style.color = '#fca5a5';
 
+                            if (err.code === 1) {
+                                badge.innerHTML = '⚠️ <b>Permiso Denegado:</b> En tu navegador móvil toca el candado 🔒 de la barra de direcciones y activa <b>Ubicación</b>.';
+                            } else if (err.code === 2) {
+                                badge.innerHTML = '⚠️ <b>GPS Desactivado:</b> Enciende la Ubicación en la barra de ajustes rápidos de tu celular.';
+                            } else if (err.code === 3) {
+                                badge.innerHTML = '📡 <b>Buscando señal bajo techo...</b> Reintentando con red celular/Wi-Fi...';
+                                navigator.geolocation.getCurrentPosition(onPosOk, (errFinal) => {
+                                    if (!enviado && !decantacionFinalizada) {
+                                        badge.innerHTML = '⚠️ <b>Señal GPS débil bajo techo:</b> Pulsa "Reintentar" o acércate a una puerta/ventana.';
+                                    }
+                                }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 600000 });
+                            } else {
+                                badge.innerHTML = '⚠️ <b>Error de ubicación:</b> ' + (err.message || 'No se pudo obtener coordenadas.');
+                            }
+                        }
+                        if (retryBtn) retryBtn.style.display = 'block';
+                        console.warn('Error en geolocalizacion:', err);
+                    };
 
                     try {
-
                         watchId = navigator.geolocation.watchPosition(
-
                             onPosOk,
-
                             (errHigh) => {
-
-                                if (!enviado) {
-
+                                if (!enviado && !decantacionFinalizada) {
                                     navigator.geolocation.getCurrentPosition(
-
                                         onPosOk,
-
                                         onPosErr,
-
                                         { enableHighAccuracy: false, timeout: 8000, maximumAge: 10000 }
-
                                     );
-
                                 }
-
                             },
-
                             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-
                         );
-
                     } catch (e) {
-
+                        console.warn('watchPosition falló, fallback a getCurrentPosition:', e);
                         navigator.geolocation.getCurrentPosition(onPosOk, onPosErr, { enableHighAccuracy: true, timeout: 10000 });
-
                     }
-
                 }
 
-
-
                 document.getElementById('presenceCodeInput')?.addEventListener('input', function() {
-
                     if (this.value.trim().length === 3 && (rawSamples.length >= 5 || '{{modo}}' !== 'gps_alpha')) {
-
                         intentarEnviar();
-
                     }
-
                 });
-
-
 
                 window.addEventListener('DOMContentLoaded', solicitarUbicacion);
 

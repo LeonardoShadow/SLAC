@@ -31,6 +31,10 @@ public class AttendanceScanRequest
     // Reto visual dinámico de 3 dígitos proyectado en pantalla (Modo GPS Alpha)
     public string? DynamicPresenceCode { get; set; }
 
+    // Capa 2: Fusión Inercial Web y Zero-Velocity Update (ZUPT)
+    public bool? IsStationary { get; set; }
+    public double? AccelerationVariance { get; set; }
+
     // Serie temporal cruda obligatoria para certificación Zero-Trust
     public List<RawGpsTelemetrySample>? Samples { get; set; }
 }
@@ -68,6 +72,10 @@ public class AttendanceScanResult
     public double? PrecisionGpsMetros { get; set; }
     public double? LatitudReferencia { get; set; }
     public double? LongitudReferencia { get; set; }
+
+    // Capa 3: Indicadores de compensación D-GPS Relativo y ZUPT
+    public bool? IsStationaryCertified { get; set; }
+    public bool? RelativeDifferentialApplied { get; set; }
 
     public static AttendanceScanResult Error(string mensaje) => new()
     {
@@ -114,6 +122,8 @@ public class RawGpsTelemetrySample
     public double Acc { get; set; }
     public double? Speed { get; set; }
     public long TimestampMs { get; set; }
+    public bool? IsStationary { get; set; }
+    public double? AccelerationVariance { get; set; }
 }
 
 /// <summary>
@@ -169,8 +179,29 @@ public class TelemetryValidationResult
     public double MaxKinematicVelocityMps { get; set; }
     public int RetainedSampleCount { get; set; }
 
+    // Capa 2 y 3: Certificación inercial ZUPT y corrección diferencial relativa D-GPS
+    public bool IsStationaryCertified { get; set; }
+    public double? InertialAccelerationVariance { get; set; }
+    public bool RelativeDifferentialApplied { get; set; }
+    public double? RelativeOffsetMeters { get; set; }
+
     // Aliases semánticos para interoperabilidad y contratos de alto nivel
     public double CertifiedLat => VerifiedLatitude;
     public double CertifiedLon => VerifiedLongitude;
     public double CertifiedAcc => VerifiedAccuracyMetros;
+}
+
+/// <summary>
+/// Resultado del proceso de compensación diferencial relativa (D-GPS Relativo) en servidor.
+/// </summary>
+public sealed class RelativeDifferentialCorrectionResult
+{
+    public bool IsApplied { get; set; }
+    public double CorrectedStudentLat { get; set; }
+    public double CorrectedStudentLon { get; set; }
+    public double DeltaLatBias { get; set; }
+    public double DeltaLonBias { get; set; }
+    public double BiasMagnitudeMeters { get; set; }
+    public double RelativeDistanceMeters { get; set; }
+    public string? StatusMessage { get; set; }
 }

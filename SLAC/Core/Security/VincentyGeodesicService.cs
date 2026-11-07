@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 /// <summary>
 /// Implementación de referencia de geodesia elipsoidal WGS-84, Haversine Gaussiano y geocercas adaptativas.
 /// Diseñado como Singleton inmutable y seguro para subprocesos (Thread-Safe).
+/// Soporta corrección diferencial relativa (D-GPS Relativo Capa 3) y techos estrictos de edificio (35m).
 /// </summary>
 public sealed class VincentyGeodesicService : IGeoCalculoService
 {
@@ -14,7 +15,8 @@ public sealed class VincentyGeodesicService : IGeoCalculoService
     private const double Wgs84F = 1.0 / 298.257223563;              // Achatamiento elipsoidal
     private const double Wgs84B = 6356752.314245179;                // Wgs84A * (1.0 - Wgs84F)
     private const double LocalGaussianRadius = 6360748.497;         // Radio medio gaussiano UPDS Santa Cruz
-    private const double AbsoluteCeilingGeofenceMeters = 28.0;      // Techo estructural inviolable
+    public const double AbsoluteCeilingGeofenceMeters = 28.0;       // Techo estructural estándar
+    public const double StrictBuildingCeilingGeofenceMeters = 35.0; // Techo estricto absoluto de edificio/bloque (Capa 3)
     private const int MaxVincentyIterations = 200;                  // Protección contra inanición en antípodas
     private const double ConvergenceThreshold = 1e-12;              // Precisión submilimétrica
 
@@ -146,6 +148,21 @@ public sealed class VincentyGeodesicService : IGeoCalculoService
         return Math.Min(AbsoluteCeilingGeofenceMeters, radioCalculado);
     }
 
+    public double CalcularRadioGeocercaAdaptativaConTecho(double sigmaDocente, double sigmaEstudiante, int radioNominalAula = 12, double techoMaximo = StrictBuildingCeilingGeofenceMeters)
+    {
+        if (double.IsNaN(sigmaDocente) || double.IsInfinity(sigmaDocente)) sigmaDocente = 5.0;
+        if (double.IsNaN(sigmaEstudiante) || double.IsInfinity(sigmaEstudiante)) sigmaEstudiante = 8.0;
+
+        var sigmaDocenteEff = Math.Clamp(sigmaDocente, 2.0, 8.0);
+        var sigmaEstudianteEff = Math.Clamp(sigmaEstudiante, 2.0, 12.0);
+
+        var nominal = (radioNominalAula > 0) ? radioNominalAula : 12.0;
+        var radioCalculado = nominal + (0.5 * sigmaDocenteEff) + (1.0 * sigmaEstudianteEff);
+
+        var techoEfectivo = Math.Min(techoMaximo, StrictBuildingCeilingGeofenceMeters);
+        return Math.Min(techoEfectivo, radioCalculado);
+    }
+
     public bool EstaDentroDeRegionMetropolitana(double lat, double lon)
     {
         if (double.IsNaN(lat) || double.IsNaN(lon) || double.IsInfinity(lat) || double.IsInfinity(lon))
@@ -192,6 +209,48 @@ public sealed class VincentyGeodesicService : IGeoCalculoService
         distanciaCalculada = CalcularDistanciaVincentyWgs84(latDocente, lonDocente, latEstudiante, lonEstudiante);
         radioPermitido = CalcularRadioGeocercaAdaptativa(sigmaDocente, sigmaEstudiante, radioNominalAula);
         return distanciaCalculada <= radioPermitido;
+    }
+
+    public bool AplicarCorreccionDiferencialRelativa(
+        double latDocenteMedida, double lonDocenteMedida,
+        double latDocenteReferencia, double lonDocenteReferencia,
+        double latEstudianteMedida, double lonEstudianteMedida,
+        DateTimeOffset timestampDocente, DateTimeOffset timestampEstudiante,
+        out double latEstudianteCorregida, out double lonEstudianteCorregida,
+        out double sesgoAtmMetros,
+        double maxVentanaSegundos = 1200.0)
+    {
+        ValidarCoordenadas(latDocenteMedida, lonDocenteMedida, nameof(latDocenteMedida), nameof(lonDocenteMedida));
+        ValidarCoordenadas(latDocenteReferencia, lonDocenteReferencia, nameof(latDocenteReferencia), nameof(lonDocenteReferencia));
+        ValidarCoordenadas(latEstudianteMedida, lonEstudianteMedida, nameof(latEstudianteMedida), nameof(lonEstudianteMedida));
+
+        var dtSegundos = Math.Abs((timestampEstudiante - timestampDocente).TotalSeconds);
+        if (dtSegundos > maxVentanaSegundos)
+        {
+            latEstudianteCorregida = latEstudianteMedida;
+            lonEstudianteCorregida = lonEstudianteMedida;
+            sesgoAtmMetros = 0.0;
+            return false;
+        }
+
+        // Vector de distorsión iono-troposférica común (Punto A medido vs referencia conocida)
+        var deltaLat = latDocenteMedida - latDocenteReferencia;
+        var deltaLon = lonDocenteMedida - lonDocenteReferencia;
+        sesgoAtmMetros = CalcularDistanciaVincentyWgs84(latDocenteReferencia, lonDocenteReferencia, latDocenteMedida, lonDocenteMedida);
+
+        // Sanity limit: distorsión iono-troposférica local debe estar acotada (< 150m) para evitar valores atípicos
+        if (sesgoAtmMetros > 150.0)
+        {
+            _logger.LogWarning("Sesgo diferencial anómalo ({Sesgo}m). Posible desfasaje o coordenadas corruptas. Se omite compensación diferencial.", sesgoAtmMetros);
+            latEstudianteCorregida = latEstudianteMedida;
+            lonEstudianteCorregida = lonEstudianteMedida;
+            return false;
+        }
+
+        // Cancelación de la distorsión común en el vector del estudiante
+        latEstudianteCorregida = latEstudianteMedida - deltaLat;
+        lonEstudianteCorregida = lonEstudianteMedida - deltaLon;
+        return true;
     }
 
     private static void ValidarCoordenadas(double lat, double lon, string latParamName, string lonParamName)

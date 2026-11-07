@@ -5,15 +5,17 @@ using System.Collections.Generic;
 using System.Linq;
 
 /// <summary>
-/// Validador de telemetría GNSS cruda en servidor bajo el principio Zero-Trust (Milestone 1).
+/// Validador de telemetría GNSS cruda en servidor bajo el principio Zero-Trust (Milestone 1, Capa 2 y Capa 3).
 /// Ejecuta sanitización exhaustiva, detección de inyecciones sintéticas (varianza cero),
-/// filtrado robusto MAD, guardia cinemática estocástica y recálculo BLUE insesgado.
+/// filtrado robusto MAD, guardia cinemática estocástica con ZUPT inercial, recálculo BLUE adaptativo insesgado
+/// y compensación diferencial relativa (D-GPS Relativo).
 /// </summary>
 public static class GeoTelemetryValidator
 {
     public const int MinRequiredSamples = 1;
     public const int MaxAllowedSamples = 50;
     public const double MaxPedestrianSpeedMps = 15.0;
+    public const double MaxStationarySpeedMps = 1.5;
     public const double MinSpatialStdDevMeters = 0.0;
     public const double MaxAllowedClockSkewMs = 300000.0; // 5 minutos de tolerancia para desfase horario del celular
     public const long MinSampleDeltaTimeMs = 0;
@@ -33,7 +35,9 @@ public static class GeoTelemetryValidator
         List<RawGpsTelemetrySample>? samples,
         long serverNowUnixMs,
         double? clientClaimedLat = null,
-        double? clientClaimedLon = null)
+        double? clientClaimedLon = null,
+        bool? isStationary = null,
+        double? accelerationVariance = null)
     {
         // 1. Verificación de límites de recuento de muestras [1, 50]
         if (samples == null || samples.Count < MinRequiredSamples)
@@ -80,6 +84,37 @@ public static class GeoTelemetryValidator
             {
                 return Fail($"Muestra [{i}] con marca temporal inválida: {s.TimestampMs}.");
             }
+
+            if (s.AccelerationVariance.HasValue && (double.IsNaN(s.AccelerationVariance.Value) || double.IsInfinity(s.AccelerationVariance.Value) || s.AccelerationVariance.Value < 0.0))
+            {
+                return Fail($"Muestra [{i}] con varianza de aceleración inercial corrupta o negativa.");
+            }
+        }
+
+        // 2.1. Detección y validación defensiva de estado estacionario inercial (ZUPT)
+        bool stationaryDeclared = (isStationary == true) || samples.Any(s => s.IsStationary == true);
+        double? accVarianceDeclared = accelerationVariance;
+        if (!accVarianceDeclared.HasValue)
+        {
+            var sampleWithVar = samples.FirstOrDefault(s => s.AccelerationVariance.HasValue);
+            if (sampleWithVar != null)
+            {
+                accVarianceDeclared = sampleWithVar.AccelerationVariance;
+            }
+        }
+
+        if (accVarianceDeclared.HasValue)
+        {
+            if (double.IsNaN(accVarianceDeclared.Value) || double.IsInfinity(accVarianceDeclared.Value) || accVarianceDeclared.Value < 0.0)
+            {
+                return Fail("Varianza de aceleración inercial corrupta o negativa.");
+            }
+
+            // Si la varianza inercial medida por el acelerómetro es inferior a 0.08 (m/s²)², ratifica físicamente reposo estacionario ZUPT
+            if (accVarianceDeclared.Value < 0.08)
+            {
+                stationaryDeclared = true;
+            }
         }
 
         // 3. Sanitización de coordenadas reclamadas por el cliente (si se suministran)
@@ -120,7 +155,7 @@ public static class GeoTelemetryValidator
             }
         }
 
-        // 5. Verificación de desfase de reloj con el servidor (clock drift <= 8000ms)
+        // 5. Verificación de desfase de reloj con el servidor (clock drift <= 300000ms)
         var lastSampleTimestamp = samples[^1].TimestampMs;
         var timeDrift = Math.Abs(serverNowUnixMs - lastSampleTimestamp);
         if (timeDrift > MaxAllowedClockSkewMs)
@@ -154,7 +189,7 @@ public static class GeoTelemetryValidator
             spatialStdDev = Math.Sqrt(stdDevLat * stdDevLat + stdDevLon * stdDevLon);
         }
 
-        // 7. Verificación cinemática con guardia estocástica instrumental (sobre la serie cronológica cruda)
+        // 7. Verificación cinemática con guardia estocástica instrumental y ZUPT inercial
         double maxVel = 0.0;
         for (int i = 1; i < samples.Count; i++)
         {
@@ -167,10 +202,15 @@ public static class GeoTelemetryValidator
                 {
                     maxVel = vel;
                 }
-                var threshold = (MaxPedestrianSpeedMps * dtSec) + 2.5 * Math.Sqrt(samples[i].Acc * samples[i].Acc + samples[i - 1].Acc * samples[i - 1].Acc);
+
+                // En reposo estacionario ZUPT, la velocidad física es nula; se acota el presupuesto dinámico
+                double speedBudget = stationaryDeclared ? MaxStationarySpeedMps : MaxPedestrianSpeedMps;
+                double stochasticMultiplier = stationaryDeclared ? 2.0 : 2.5;
+                var threshold = (speedBudget * dtSec) + stochasticMultiplier * Math.Sqrt(samples[i].Acc * samples[i].Acc + samples[i - 1].Acc * samples[i - 1].Acc);
                 if (dist > threshold)
                 {
-                    return Fail($"Salto cinemático anómalo ({vel:F1} m/s). Supera el límite en aula con ruido instrumental ({threshold / dtSec:F1} m/s).");
+                    var estadoDesc = stationaryDeclared ? "en reposo estacionario ZUPT" : "en aula con ruido instrumental";
+                    return Fail($"Salto cinemático anómalo ({vel:F1} m/s). Supera el límite {estadoDesc} ({threshold / dtSec:F1} m/s).");
                 }
             }
         }
@@ -199,12 +239,24 @@ public static class GeoTelemetryValidator
             clean = samples;
         }
 
-        // 9. Estimador Insesgado de Varianza Mínima (BLUE en servidor)
+        // 9. Estimador Insesgado de Varianza Mínima (BLUE en servidor con Ponderación Adaptativa ZUPT)
         double sumWeights = 0.0, weightedLat = 0.0, weightedLon = 0.0;
         foreach (var s in clean)
         {
             double variance = Math.Max(s.Acc * s.Acc, MinAllowedVariance);
             double w = 1.0 / variance;
+
+            if (stationaryDeclared)
+            {
+                // Penalización severa de cualquier salto cinemático residual respecto a la mediana
+                double residualMeters = ApproxDistance(medLat, medLon, s.Lat, s.Lon);
+                // Escala característica basada en el MAD geodésico (mínimo 1.5m para absorber ruido gaussiano blanco)
+                double characteristicScale = Math.Max(Math.Sqrt((madLat * MetersPerDegreeLat) * (madLat * MetersPerDegreeLat) + (madLon * MetersPerDegreeLon) * (madLon * MetersPerDegreeLon)), 1.5);
+                // Ponderador Cauchy de decaimiento cuadrático: penaliza saltos residuales preservando insesgamiento
+                double penaltyFactor = 1.0 / (1.0 + Math.Pow(residualMeters / characteristicScale, 2.0));
+                w *= penaltyFactor;
+            }
+
             sumWeights += w;
             weightedLat += s.Lat * w;
             weightedLon += s.Lon * w;
@@ -214,7 +266,7 @@ public static class GeoTelemetryValidator
         double finalLon = weightedLon / sumWeights;
         double finalAcc = 1.0 / Math.Sqrt(sumWeights);
 
-        // 10. Verificación de discrepancia cliente-servidor (<= 2.0m)
+        // 10. Verificación de discrepancia cliente-servidor (<= 50.0m)
         if (clientClaimedLat.HasValue && clientClaimedLon.HasValue)
         {
             var disc = ApproxDistance(clientClaimedLat.Value, clientClaimedLon.Value, finalLat, finalLon);
@@ -233,7 +285,103 @@ public static class GeoTelemetryValidator
             VerifiedVariance = 1.0 / sumWeights,
             SpatialStdDevMetros = spatialStdDev,
             MaxKinematicVelocityMps = maxVel,
-            RetainedSampleCount = clean.Count
+            RetainedSampleCount = clean.Count,
+            IsStationaryCertified = stationaryDeclared,
+            InertialAccelerationVariance = accVarianceDeclared
+        };
+    }
+
+    /// <summary>
+    /// Aplica corrección diferencial relativa (D-GPS Relativo Capa 3) entre el vector docente (Punto A) y vector estudiante (Punto B).
+    /// Cancela la distorsión iono-troposférica común cuando ambas observaciones se encuentran en la misma ventana temporal.
+    /// </summary>
+    public static RelativeDifferentialCorrectionResult ApplyRelativeDifferentialCorrection(
+        double teacherMeasuredLat, double teacherMeasuredLon,
+        double teacherReferenceLat, double teacherReferenceLon,
+        double studentMeasuredLat, double studentMeasuredLon,
+        long teacherTimestampMs, long studentTimestampMs,
+        long maxCorrelationWindowMs = 1200000)
+    {
+        // 1. Zero-Trust Input Validation
+        if (double.IsNaN(teacherMeasuredLat) || double.IsNaN(teacherMeasuredLon) ||
+            double.IsNaN(teacherReferenceLat) || double.IsNaN(teacherReferenceLon) ||
+            double.IsNaN(studentMeasuredLat) || double.IsNaN(studentMeasuredLon) ||
+            double.IsInfinity(teacherMeasuredLat) || double.IsInfinity(teacherMeasuredLon) ||
+            double.IsInfinity(teacherReferenceLat) || double.IsInfinity(teacherReferenceLon) ||
+            double.IsInfinity(studentMeasuredLat) || double.IsInfinity(studentMeasuredLon))
+        {
+            return new RelativeDifferentialCorrectionResult
+            {
+                IsApplied = false,
+                CorrectedStudentLat = studentMeasuredLat,
+                CorrectedStudentLon = studentMeasuredLon,
+                StatusMessage = "Coordenadas corruptas (NaN o Infinito)."
+            };
+        }
+
+        if (teacherMeasuredLat < -90.0 || teacherMeasuredLat > 90.0 ||
+            teacherReferenceLat < -90.0 || teacherReferenceLat > 90.0 ||
+            studentMeasuredLat < -90.0 || studentMeasuredLat > 90.0 ||
+            teacherMeasuredLon < -180.0 || teacherMeasuredLon > 180.0 ||
+            teacherReferenceLon < -180.0 || teacherReferenceLon > 180.0 ||
+            studentMeasuredLon < -180.0 || studentMeasuredLon > 180.0)
+        {
+            return new RelativeDifferentialCorrectionResult
+            {
+                IsApplied = false,
+                CorrectedStudentLat = studentMeasuredLat,
+                CorrectedStudentLon = studentMeasuredLon,
+                StatusMessage = "Coordenadas fuera del intervalo geodésico válido."
+            };
+        }
+
+        long dtMs = Math.Abs(studentTimestampMs - teacherTimestampMs);
+        if (dtMs > maxCorrelationWindowMs)
+        {
+            return new RelativeDifferentialCorrectionResult
+            {
+                IsApplied = false,
+                CorrectedStudentLat = studentMeasuredLat,
+                CorrectedStudentLon = studentMeasuredLon,
+                StatusMessage = $"Ventana de correlación temporal expirada ({dtMs}ms > {maxCorrelationWindowMs}ms)."
+            };
+        }
+
+        // 2. Vector de distorsión atmosférica común estimada en la estación base (Docente, Punto A)
+        double deltaLat = teacherMeasuredLat - teacherReferenceLat;
+        double deltaLon = teacherMeasuredLon - teacherReferenceLon;
+        double biasMeters = ApproxDistance(teacherReferenceLat, teacherReferenceLon, teacherMeasuredLat, teacherMeasuredLon);
+
+        // Sanity limit: la distorsión iono-troposférica local debe estar acotada (< 150m)
+        if (biasMeters > 150.0)
+        {
+            return new RelativeDifferentialCorrectionResult
+            {
+                IsApplied = false,
+                CorrectedStudentLat = studentMeasuredLat,
+                CorrectedStudentLon = studentMeasuredLon,
+                BiasMagnitudeMeters = biasMeters,
+                StatusMessage = $"Sesgo atmosférico anómalo ({biasMeters:F1}m > 150m). Se omite compensación diferencial."
+            };
+        }
+
+        // 3. Cancelación de distorsión en el vector del rover (Estudiante, Punto B)
+        double correctedStudentLat = studentMeasuredLat - deltaLat;
+        double correctedStudentLon = studentMeasuredLon - deltaLon;
+
+        // Distancia relativa estudiante-docente
+        double relDist = ApproxDistance(teacherReferenceLat, teacherReferenceLon, correctedStudentLat, correctedStudentLon);
+
+        return new RelativeDifferentialCorrectionResult
+        {
+            IsApplied = true,
+            CorrectedStudentLat = correctedStudentLat,
+            CorrectedStudentLon = correctedStudentLon,
+            DeltaLatBias = deltaLat,
+            DeltaLonBias = deltaLon,
+            BiasMagnitudeMeters = biasMeters,
+            RelativeDistanceMeters = relDist,
+            StatusMessage = "Compensación diferencial relativa aplicada con éxito."
         };
     }
 

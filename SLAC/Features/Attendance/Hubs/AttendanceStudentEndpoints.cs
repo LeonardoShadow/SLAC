@@ -215,6 +215,8 @@ public static class AttendanceStudentEndpoints
                 double? clon = double.TryParse(form["clon"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var clonVal) ? clonVal : null;
 
                 var modo = form["modo"].ToString().Trim();
+                bool? isStationary = bool.TryParse(form["isStationary"].ToString(), out var parsedStat) ? parsedStat : null;
+                double? accelerationVariance = double.TryParse(form["accelerationVariance"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var parsedVar) ? parsedVar : null;
 
                 if ((samples == null || samples.Count == 0) && latitud.HasValue && longitud.HasValue)
                 {
@@ -226,7 +228,9 @@ public static class AttendanceStudentEndpoints
                             Lon = longitud.Value,
                             Acc = precision ?? 5.0,
                             Speed = 0.0,
-                            TimestampMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                            TimestampMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                            IsStationary = isStationary,
+                            AccelerationVariance = accelerationVariance
                         }
                     ];
                 }
@@ -245,6 +249,8 @@ public static class AttendanceStudentEndpoints
                     LatitudReferencia = clat,
                     LongitudReferencia = clon,
                     Modo = !string.IsNullOrWhiteSpace(modo) ? modo : "gps_alpha",
+                    IsStationary = isStationary,
+                    AccelerationVariance = accelerationVariance,
                     Samples = samples
                 };
             }
@@ -257,7 +263,9 @@ public static class AttendanceStudentEndpoints
                     scanReq.Samples,
                     DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     scanReq.Latitud,
-                    scanReq.Longitud);
+                    scanReq.Longitud,
+                    scanReq.IsStationary,
+                    scanReq.AccelerationVariance);
 
                 if (!validation.IsValid)
                 {
@@ -345,6 +353,8 @@ public static class AttendanceStudentEndpoints
             var aceptaTerminos = form["aceptaTerminos"].ToString().Equals("true", StringComparison.OrdinalIgnoreCase);
             var userAgent = httpContext.Request.Headers.UserAgent.ToString();
             var modo = !string.IsNullOrWhiteSpace(form["modo"]) ? form["modo"].ToString().Trim() : "gps";
+            bool? isStationary = bool.TryParse(form["isStationary"].ToString(), out var parsedStat) ? parsedStat : null;
+            double? accelerationVariance = double.TryParse(form["accelerationVariance"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var parsedVar) ? parsedVar : null;
 
             double? latitud = double.TryParse(form["lat"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var latForm) ? latForm : null;
             double? longitud = double.TryParse(form["lon"].ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lonForm) ? lonForm : null;
@@ -391,7 +401,9 @@ public static class AttendanceStudentEndpoints
                         Lon = longitud.Value,
                         Acc = precision ?? 5.0,
                         Speed = 0.0,
-                        TimestampMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                        TimestampMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        IsStationary = isStationary,
+                        AccelerationVariance = accelerationVariance
                     }
                 ];
             }
@@ -422,6 +434,8 @@ public static class AttendanceStudentEndpoints
                 LatitudReferencia = clat,
                 LongitudReferencia = clon,
                 DynamicPresenceCode = !string.IsNullOrWhiteSpace(presenceCode) ? presenceCode : null,
+                IsStationary = isStationary,
+                AccelerationVariance = accelerationVariance,
                 Samples = samples
             };
 
@@ -433,7 +447,9 @@ public static class AttendanceStudentEndpoints
                     scanReq.Samples,
                     DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     scanReq.Latitud,
-                    scanReq.Longitud);
+                    scanReq.Longitud,
+                    scanReq.IsStationary,
+                    scanReq.AccelerationVariance);
 
                 if (!validation.IsValid)
                 {

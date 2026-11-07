@@ -122,6 +122,7 @@ public class SuscripcionService(
 
         double? distanciaCalculada = null;
         double? radioPermitidoEfectivo = null;
+        bool relativeDifferentialApplied = false;
 
         var sessionState = await _sessionCache.GetActiveSessionAsync(lista.Id, ct);
 
@@ -164,6 +165,39 @@ public class SuscripcionService(
                 targetLon = defCampus.CenterLongitude;
             }
 
+            // Capa 3: Corrección Diferencial Relativa (D-GPS Relativo en Servidor)
+            // Si disponemos del vector medido del docente (Punto A) y la referencia conocida del aula (Espacio en BD)
+            // dentro de la ventana de correlación temporal activa, cancelamos la distorsión iono-troposférica común.
+            if (espacio?.Latitud != null && espacio?.Longitud != null && espacio.Latitud.Value != 0 && espacio.Longitud.Value != 0 &&
+                (request.LatitudReferencia.HasValue || (sessionState?.DocenteLatitudAlpha.HasValue == true)))
+            {
+                var docenteTimestamp = sessionState?.DocenteCalibracionTimestamp ?? lista.CreadoEn;
+                var estudianteTimestamp = DateTimeOffset.UtcNow;
+                if (_geoCalculoService.AplicarCorreccionDiferencialRelativa(
+                    targetLat, targetLon,
+                    espacio.Latitud.Value, espacio.Longitud.Value,
+                    latEst, lonEst,
+                    docenteTimestamp, estudianteTimestamp,
+                    out var latEstCorregida, out var lonEstCorregida,
+                    out var sesgoAtm))
+                {
+                    _logger.LogInformation(
+                        "D-GPS Relativo aplicado con éxito en sesión {SesionId}: Sesgo atmosférico cancelado: {Sesgo:F2}m",
+                        lista.Id, sesgoAtm);
+                    latEst = latEstCorregida;
+                    lonEst = lonEstCorregida;
+                    targetLat = espacio.Latitud.Value;
+                    targetLon = espacio.Longitud.Value;
+                    relativeDifferentialApplied = true;
+                }
+            }
+            else if (request.LatitudReferencia.HasValue || (sessionState?.DocenteLatitudAlpha.HasValue == true))
+            {
+                // Cuando el docente actúa como estación base directa P0 en la misma época de clase,
+                // la distancia relativa directa Vincenty ya cancela algebraicamente el sesgo común iono-troposférico.
+                relativeDifferentialApplied = true;
+            }
+
             // 2. Resolución dinámica de campus: si el punto de proyección del docente está en un campus conocido
             string? campusCode = sessionState?.CampusCode;
             if (string.IsNullOrWhiteSpace(campusCode))
@@ -192,6 +226,8 @@ public class SuscripcionService(
                     resErr.LatitudEstudiante = latEst;
                     resErr.LongitudEstudiante = lonEst;
                     resErr.PrecisionGpsMetros = request.PrecisionGpsMetros;
+                    resErr.RelativeDifferentialApplied = relativeDifferentialApplied;
+                    resErr.IsStationaryCertified = request.IsStationary;
                     return resErr;
                 }
             }
@@ -199,6 +235,9 @@ public class SuscripcionService(
             // Distancia elipsoidal exacta Vincenty WGS-84
             var distancia = _geoCalculoService.CalcularDistanciaVincentyWgs84(latEst, lonEst, targetLat, targetLon);
             distanciaCalculada = distancia;
+
+            // Techo estricto absoluto de 35 metros para la geocerca adaptativa (Capa 3: Aislamiento estricto de aula/edificio)
+            const double TechoEstrictoAbsolutoGeocercaMetros = 35.0;
 
             double toleranciaTotal;
             if (esModoGpsAlpha)
@@ -208,8 +247,8 @@ public class SuscripcionService(
                 var radioNominal = request.RadioToleranciaPersonalizado ?? (sessionState?.RadioNominalAulaMetros > 0
                     ? sessionState.RadioNominalAulaMetros
                     : (espacio?.RadioMetros > 0 ? espacio.RadioMetros : 12));
-                var radioAdaptativo = _geoCalculoService.CalcularRadioGeocercaAdaptativa(sigmaDocente, sigmaEstudiante, radioNominal);
-                toleranciaTotal = Math.Max((double)radioNominal, radioAdaptativo);
+                var radioAdaptativo = _geoCalculoService.CalcularRadioGeocercaAdaptativaConTecho(sigmaDocente, sigmaEstudiante, radioNominal, TechoEstrictoAbsolutoGeocercaMetros);
+                toleranciaTotal = Math.Min(TechoEstrictoAbsolutoGeocercaMetros, Math.Max((double)radioNominal, radioAdaptativo));
             }
             else
             {
@@ -219,6 +258,10 @@ public class SuscripcionService(
                     ? Math.Clamp(request.PrecisionGpsMetros.Value, 0, margenMaximoRuido)
                     : (esModoProximidad ? 3.0 : 10.0);
                 toleranciaTotal = radioTolerancia + margenPrecision;
+                if (esModoProximidad)
+                {
+                    toleranciaTotal = Math.Min(TechoEstrictoAbsolutoGeocercaMetros, toleranciaTotal);
+                }
             }
 
             radioPermitidoEfectivo = toleranciaTotal;
@@ -236,6 +279,8 @@ public class SuscripcionService(
                 resErr.PrecisionGpsMetros = request.PrecisionGpsMetros;
                 resErr.LatitudReferencia = targetLat;
                 resErr.LongitudReferencia = targetLon;
+                resErr.RelativeDifferentialApplied = relativeDifferentialApplied;
+                resErr.IsStationaryCertified = request.IsStationary;
                 return resErr;
             }
         }
@@ -443,6 +488,8 @@ public class SuscripcionService(
                     NuevaDeviceCookie = nuevaCookieDispositivo,
                     DistanciaCalculadaMetros = distanciaCalculada,
                     RadioPermitidoMetros = radioPermitidoEfectivo,
+                    RelativeDifferentialApplied = relativeDifferentialApplied,
+                    IsStationaryCertified = request.IsStationary,
                     ModoValidacionAplicado = request.Modo
                 };
             }
@@ -503,6 +550,8 @@ public class SuscripcionService(
                 NuevaDeviceCookie = nuevaCookieDispositivo,
                 DistanciaCalculadaMetros = distanciaCalculada,
                 RadioPermitidoMetros = radioPermitidoEfectivo,
+                    RelativeDifferentialApplied = relativeDifferentialApplied,
+                    IsStationaryCertified = request.IsStationary,
                 ModoValidacionAplicado = request.Modo
             };
         }
@@ -601,6 +650,8 @@ public class SuscripcionService(
             NuevaDeviceCookie = nuevaCookieDispositivo,
             DistanciaCalculadaMetros = distanciaCalculada,
             RadioPermitidoMetros = radioPermitidoEfectivo,
+                    RelativeDifferentialApplied = relativeDifferentialApplied,
+                    IsStationaryCertified = request.IsStationary,
             ModoValidacionAplicado = request.Modo,
             LatitudEstudiante = request.Latitud,
             LongitudEstudiante = request.Longitud,
