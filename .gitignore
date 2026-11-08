@@ -376,7 +376,9 @@ inspect_db.ps1
 inspect_zip.ps1
 scratch_tester.cs
 slac_publish.zip
+publish*.zip
 *.bak
 .agents/
 
 publish.zip
+publish*.zip
